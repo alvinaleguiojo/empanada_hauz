@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  operations
+  kitchen
+  dispatcher
+}
+
+enum DeliveryMethod {
+  pickup
+  maxim
+}
+
+enum PaymentMethod {
+  cod
+  gcash
+}
+
+enum OrderStatus {
+  inquiry
+  awaiting_confirmation
+  confirmed
+  queued
+  preparing
+  frying
+  packed
+  ready_for_pickup
+  ready_for_booking
+  booked
+  completed
+  cancelled
+}
+
+enum BatchName {
+  morning
+  afternoon
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+}
+
+enum MessageType {
+  text
+  quick_reply
+  button
+  attachment
+  system
+}
+
+enum ConversationStatus {
+  open
+  waiting_customer
+  waiting_staff
+  resolved
+}
+
+enum InventoryItemType {
+  flour
+  pork
+  butter
+  oil
+  raisins
+  cheese
+  gas
+}
+
+enum DeliveryStatus {
+  pending
+  grouped
+  ready_for_booking
+  booked
+  completed
+  cancelled
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Customer {
+  id                      String         @id @default(cuid())
+  messengerPsid           String?        @unique
+  phoneNumber             String?
+  name                    String
+  defaultAddress          String?
+  notes                   String?
+  totalOrders             Int            @default(0)
+  repeatCustomerCount     Int            @default(0)
+  totalSpent              Decimal        @default(0) @db.Decimal(10, 2)
+  favoriteOrderQuantity   Int?
+  preferredDeliveryMethod DeliveryMethod?
+  lastOrderDate           DateTime?
+  isVip                   Boolean        @default(false)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  conversations           Conversation[]
+  orders                  Order[]
+
+  @@index([name])
+  @@index([phoneNumber])
+}
+
+model Conversation {
+  id          String             @id @default(cuid())
+  customerId  String
+  channel     String             @default("messenger")
+  status      ConversationStatus @default(open)
+  lastMessage String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  customer    Customer           @relation(fields: [customerId], references: [id])
+  messages    Message[]
+
+  @@index([customerId, updatedAt])
+}
+
+model Message {
+  id               String           @id @default(cuid())
+  conversationId   String
+  metaMessageId    String?
+  direction        MessageDirection
+  type             MessageType      @default(text)
+  content          String
+  rawPayload       Json?
+  aiIntent         String?
+  aiConfidence     Float?
+  extractedOrder   Json?
+  processedAt      DateTime?
+  createdAt        DateTime         @default(now())
+  conversation     Conversation     @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([metaMessageId])
+}
+
+model Batch {
+  id                        String    @id @default(cuid())
+  name                      BatchName
+  batchDate                 DateTime
+  maxCapacity               Int
+  currentCapacity           Int       @default(0)
+  remainingCapacity         Int
+  cutoffTime                DateTime
+  estimatedCompletionTime   DateTime
+  isClosed                  Boolean   @default(false)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  orders                    Order[]
+  productionLogs            ProductionLog[]
+
+  @@unique([name, batchDate])
+  @@index([batchDate, isClosed])
+}
+
+model Order {
+  id                String          @id @default(cuid())
+  customerId        String
+  batchId           String?
+  deliveryId        String?
+  conversationId    String?
+  orderNumber       String          @unique
+  quantity          Int
+  unitPrice         Decimal         @db.Decimal(10, 2)
+  totalAmount       Decimal         @db.Decimal(10, 2)
+  deliveryFee       Decimal         @default(0) @db.Decimal(10, 2)
+  location          String?
+  address           String?
+  deliveryMethod    DeliveryMethod
+  paymentMethod     PaymentMethod    @default(cod)
+  preferredSchedule DateTime?
+  scheduleReminderSentAt DateTime?
+  status            OrderStatus     @default(inquiry)
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  customer          Customer        @relation(fields: [customerId], references: [id])
+  batch             Batch?          @relation(fields: [batchId], references: [id])
+  delivery          Delivery?       @relation(fields: [deliveryId], references: [id])
+  orderNotes        OrderNote[]
+
+  @@index([status, createdAt])
+  @@index([batchId, status])
+  @@index([customerId, createdAt])
+}
+
+model OrderNote {
+  id        String   @id @default(cuid())
+  orderId   String
+  body      String
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+model Delivery {
+  id                String         @id @default(cuid())
+  areaGroup         String?
+  status            DeliveryStatus @default(pending)
+  scheduledAt       DateTime?
+  bookingNotes      String?
+  copyPayload       String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  orders            Order[]
+
+  @@index([status, scheduledAt])
+  @@index([areaGroup])
+}
+
+model InventoryItem {
+  id                 String            @id @default(cuid())
+  itemType           InventoryItemType @unique
+  displayName        String
+  unit               String
+  currentStock       Decimal           @db.Decimal(10, 2)
+  reorderLevel       Decimal           @db.Decimal(10, 2)
+  estimatedDaysLeft  Int?
+  costPerUnit        Decimal           @db.Decimal(10, 2)
+  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime          @default(now())
+  logs               InventoryLog[]
+}
+
+model InventoryLog {
+  id              String        @id @default(cuid())
+  inventoryItemId String
+  changeAmount    Decimal       @db.Decimal(10, 2)
+  reason          String
+  createdAt       DateTime      @default(now())
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([inventoryItemId, createdAt])
+}
+
+model ProductionLog {
+  id           String   @id @default(cuid())
+  batchId      String
+  stage        String
+  quantity     Int
+  notes        String?
+  createdAt    DateTime @default(now())
+  batch        Batch    @relation(fields: [batchId], references: [id])
+
+  @@index([batchId, createdAt])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String
+  description String
+  amount      Decimal  @db.Decimal(10, 2)
+  expenseDate DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([expenseDate, category])
+}
+
+model AnalyticsSnapshot {
+  id                  String   @id @default(cuid())
+  snapshotDate        DateTime @unique
+  revenue             Decimal  @db.Decimal(12, 2)
+  pcsSold             Int
+  averageOrderSize    Float
+  repeatCustomerRate  Float
+  busiestHours        Json
+  topLocations        Json
+  cancelledOrders     Int
+  productionEfficiency Float
+  createdAt           DateTime @default(now())
+}

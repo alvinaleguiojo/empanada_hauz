@@ -1,0 +1,9 @@
+node_modules
+.next
+dist
+.turbo
+.env
+.env.local
+coverage
+apps/api/generated
+apps/api/prisma/dev.db

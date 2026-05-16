@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 247 245 239;
+  --foreground: 26 28 32;
+  --panel: 255 255 255;
+  --line: 224 222 214;
+  --accent: 207 87 40;
+  --muted: 111 118 128;
+  --danger: 190 52 52;
+  --success: 45 129 87;
+}
+
+.dark {
+  --background: 13 17 23;
+  --foreground: 242 243 245;
+  --panel: 22 27 34;
+  --line: 39 47 58;
+  --accent: 231 109 54;
+  --muted: 136 143 153;
+  --danger: 224 79 79;
+  --success: 65 169 110;
+}
+
+body {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 220px), rgb(var(--background));
+  color: rgb(var(--foreground));
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.28);
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent) / 0.75);
+  outline-offset: 2px;
+}
+
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(0.9);
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}

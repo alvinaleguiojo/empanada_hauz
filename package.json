@@ -1,0 +1,21 @@
+{
+  "name": "empanada-hauz-ops",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace @empanada-hauz/api\" \"npm run dev --workspace @empanada-hauz/web\"",
+    "dev:api": "npm run dev --workspace @empanada-hauz/api",
+    "dev:web": "npm run dev --workspace @empanada-hauz/web",
+    "build": "npm run build --workspace @empanada-hauz/shared && npm run build --workspace @empanada-hauz/api && npm run build --workspace @empanada-hauz/web",
+    "lint": "npm run lint --workspace @empanada-hauz/api && npm run lint --workspace @empanada-hauz/web",
+    "db:generate": "npm run prisma:generate --workspace @empanada-hauz/api",
+    "db:migrate": "npm run prisma:migrate --workspace @empanada-hauz/api"
+  }
+}
