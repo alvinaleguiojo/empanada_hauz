@@ -27,6 +27,7 @@
 body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 220px), rgb(var(--background));
   color: rgb(var(--foreground));
+  color-scheme: dark;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 

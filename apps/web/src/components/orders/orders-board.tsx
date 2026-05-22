@@ -108,7 +108,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [editMode, setEditMode] = useState(false);
   const [copiedNotes, setCopiedNotes] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
-  const [detailOpen, setDetailOpen] = useState(true);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [deletePending, startDeleteTransition] = useTransition();
   const [exportPending, startExportTransition] = useTransition();
@@ -352,11 +352,11 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.24em] text-foreground/35">Operations Board</p>
-          <h2 className="mt-1 text-2xl font-semibold">Order Workflow</h2>
+          <h2 className="mt-1 text-xl font-semibold sm:text-2xl">Order Workflow</h2>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:items-center">
           <label className="relative block min-w-0 sm:w-[320px]">
             <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-foreground/35" />
             <Input
@@ -388,7 +388,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             <UploadCloud size={16} />
             {exportPending ? "Uploading..." : "Upload Excel"}
           </Button>
-          <Badge className="border border-line/70 bg-panel text-foreground/70">
+          <Badge className="justify-center border border-line/70 bg-panel text-foreground/70 sm:justify-start">
             {countLabel}
           </Badge>
         </div>
@@ -404,13 +404,13 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         </div>
       ) : null}
 
-      <div className="min-w-0 overflow-x-auto rounded-lg border border-line/80 bg-panel/55 p-3 pb-4 shadow-sm shadow-black/10">
-        <div className="grid min-w-full grid-flow-col auto-cols-[minmax(248px,1fr)] gap-3">
+      <div className="min-w-0 overflow-x-auto rounded-lg border border-line/80 bg-panel/55 p-2 pb-3 shadow-sm shadow-black/10 sm:p-3 sm:pb-4">
+        <div className="grid min-w-full grid-flow-col auto-cols-[minmax(224px,85vw)] gap-3 sm:auto-cols-[minmax(248px,1fr)]">
           {visibleColumns.map((status) => {
             const columnOrders = filteredItems.filter((item) => item.status === status);
             const columnQuantity = columnOrders.reduce((sum, order) => sum + Number(order.quantity ?? 0), 0);
             return (
-              <Card key={status} className="min-w-[248px] border-line/70 bg-panel/90 p-3 shadow-none">
+              <Card key={status} className="min-w-[224px] border-line/70 bg-panel/90 p-3 shadow-none sm:min-w-[248px]">
                 <div className="mb-3 flex items-center justify-between border-b border-line/70 pb-3">
                   <div>
                     <p className="text-[10px] uppercase tracking-[0.22em] text-foreground/30">Stage</p>
@@ -436,8 +436,8 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                       )}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-[17px] font-semibold leading-tight">{order.customer?.name}</p>
+                        <div className="min-w-0">
+                          <p className="truncate text-[17px] font-semibold leading-tight">{order.customer?.name}</p>
                           <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-foreground/30">{order.orderNumber}</p>
                         </div>
                         <Badge className={cn("border-0 text-[11px]", statusTone[order.status])}>{order.deliveryMethod}</Badge>
@@ -473,11 +473,11 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             onClick={() => setDetailOpen(false)}
             className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
           />
-          <div className="absolute inset-y-0 right-0 w-full max-w-[480px] p-3 sm:p-4">
+          <div className="absolute inset-y-0 right-0 w-full max-w-[480px] p-2 sm:p-4">
             <Card className="flex h-full flex-col overflow-hidden border-line/90 bg-panel p-0 shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
               {selectedOrder ? (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="border-b border-line/75 p-5 sm:p-6">
+                  <div className="border-b border-line/75 p-4 sm:p-6">
                     <div className="mb-4 flex items-center justify-between">
                       <button
                         type="button"
@@ -489,16 +489,16 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                       </button>
                     </div>
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-[11px] uppercase tracking-[0.24em] text-foreground/30">Selected Order</p>
-                        <h3 className="mt-2 text-[32px] font-semibold leading-none">{selectedOrder.customer?.name}</h3>
+                        <h3 className="mt-2 truncate text-2xl font-semibold leading-tight sm:text-[32px] sm:leading-none">{selectedOrder.customer?.name}</h3>
                         <p className="mt-2 text-sm text-foreground/40">{selectedOrder.orderNumber}</p>
                       </div>
                       <Badge className={cn("border-0", statusTone[selectedOrder.status])}>{selectedOrder.status.replaceAll("_", " ")}</Badge>
                     </div>
                   </div>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
+                  <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
                     <div className="space-y-4">
                       <div className="space-y-2 rounded-lg border border-line/75 bg-black/[0.08] p-4">
                         <label className="text-sm font-medium text-foreground/72">Update status</label>
@@ -515,9 +515,9 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                         {error ? <p className="text-sm text-danger">{error}</p> : null}
                       </div>
 
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-sm font-medium text-foreground/68">Order details</p>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           <Button
                             variant="ghost"
                             className="px-3 text-danger hover:text-danger"
@@ -542,7 +542,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                         <div className="grid gap-3">
                           <Input value={form.customerName} onChange={(e) => setForm((c) => ({ ...c, customerName: e.target.value }))} placeholder="Customer name" />
                           <Input value={form.phoneNumber} onChange={(e) => setForm((c) => ({ ...c, phoneNumber: e.target.value }))} placeholder="Phone number" />
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid gap-3 sm:grid-cols-2">
                             <Input type="number" min="1" value={form.quantity} onChange={(e) => setForm((c) => ({ ...c, quantity: e.target.value }))} placeholder="Quantity" />
                             <Input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => setForm((c) => ({ ...c, unitPrice: e.target.value }))} placeholder="Unit price" />
                           </div>
@@ -577,7 +577,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                             <MiniStat label="Schedule" value={formatSchedule(selectedOrder.preferredSchedule)} />
                           </div>
                           {selectedOrder.deliveryMethod === "maxim" ? (
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-3 sm:grid-cols-2">
                               <MiniStat
                                 label="Item Subtotal"
                                 value={`Php ${String(Number(selectedOrder.totalAmount ?? 0) - Number(selectedOrder.deliveryFee ?? 0))}`}
@@ -586,7 +586,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                             </div>
                           ) : null}
                           <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Notes</p>
                               {getOrderNotes(selectedOrder).length > 0 ? (
                                 <button

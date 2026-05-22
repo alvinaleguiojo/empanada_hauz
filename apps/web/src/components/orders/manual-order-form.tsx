@@ -164,22 +164,22 @@ export function ManualOrderForm() {
         type="button"
         onClick={() => setOpen((value) => !value)}
         suppressHydrationWarning
-        className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-white/[0.04]"
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-white/[0.04] sm:px-5"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/12 text-accent">
             <Plus size={16} />
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-base font-semibold">New Order</h2>
-            <p className="text-xs text-foreground/50">Create a manual order only when needed.</p>
+            <p className="truncate text-xs text-foreground/50">Create a manual order only when needed.</p>
           </div>
         </div>
-        <ChevronDown size={16} className={cn("text-foreground/45 transition", open && "rotate-180")} />
+        <ChevronDown size={16} className={cn("shrink-0 text-foreground/45 transition", open && "rotate-180")} />
       </button>
 
       {open ? (
-        <div className="border-t border-line/80 bg-black/[0.04] px-6 pb-6 pt-4">
+        <div className="border-t border-line/80 bg-black/[0.04] px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
           <form id="manual-order-form" className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" onSubmit={submit}>
             <div className="relative">
               <Input placeholder="Customer name" value={form.customerName} onChange={(e) => update("customerName", e.target.value)} required />
@@ -216,8 +216,8 @@ export function ManualOrderForm() {
             <Input type="datetime-local" value={form.preferredSchedule} onChange={(e) => update("preferredSchedule", e.target.value)} />
             <Select value={form.status} onChange={(value) => update("status", value)} options={statusOptions} />
             <Input className="xl:col-span-2" placeholder="Notes" value={form.notes} onChange={(e) => update("notes", e.target.value)} />
-            <div className="xl:col-span-4 flex justify-end">
-              <Button type="submit" form="manual-order-form" disabled={pending}>
+            <div className="flex justify-end xl:col-span-4">
+              <Button type="submit" form="manual-order-form" disabled={pending} className="w-full sm:w-auto">
                 {pending ? "Saving..." : "Add Order"}
               </Button>
             </div>

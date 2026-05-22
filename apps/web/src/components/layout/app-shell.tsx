@@ -95,13 +95,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-background text-foreground">
       <div
         className={cn(
-          "mx-auto grid min-h-screen max-w-[1600px] grid-cols-1 gap-4 p-4 transition-[grid-template-columns]",
+          "mx-auto grid min-h-screen max-w-[1600px] grid-cols-1 gap-3 p-3 transition-[grid-template-columns] sm:gap-4 sm:p-4",
           sidebarCollapsed ? "lg:grid-cols-[76px_1fr]" : "lg:grid-cols-[240px_1fr]"
         )}
       >
-        <aside className="sticky top-4 h-[calc(100vh-2rem)] rounded-lg border border-line/80 bg-panel/95 p-4 shadow-sm shadow-black/10">
-          <div className={cn("mb-7 flex border-b border-line/70 pb-5", sidebarCollapsed ? "flex-col items-center gap-2" : "items-start justify-between gap-3")}>
-            <div className={cn("min-w-0", sidebarCollapsed && "sr-only")}>
+        <aside className="rounded-lg border border-line/80 bg-panel/95 p-3 shadow-sm shadow-black/10 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:p-4">
+          <div className={cn("mb-3 flex items-center justify-between gap-3 border-b border-line/70 pb-3 lg:mb-7 lg:pb-5", sidebarCollapsed && "lg:flex-col lg:items-center lg:gap-2")}>
+            <div className={cn("min-w-0", sidebarCollapsed && "lg:sr-only")}>
               <div className="flex items-center gap-3">
                 <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-line/80 bg-white">
                   <Image
@@ -120,7 +120,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
             {sidebarCollapsed ? (
-              <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-line/80 bg-white">
+              <div className="relative hidden h-10 w-10 overflow-hidden rounded-lg border border-line/80 bg-white lg:block">
                 <Image src="/empanada hauz logo.jpg" alt="Empanada Hauz" fill sizes="40px" className="object-cover" priority />
               </div>
             ) : null}
@@ -130,12 +130,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               onClick={toggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line/80 bg-black/10 text-foreground/62 transition hover:border-accent/35 hover:text-foreground"
+              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line/80 bg-black/10 text-foreground/62 transition hover:border-accent/35 hover:text-foreground lg:inline-flex"
             >
               <ChevronLeft size={17} className={cn("transition", sidebarCollapsed && "rotate-180")} />
             </button>
           </div>
-          <nav className="space-y-2">
+          <nav className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:block lg:space-y-2 lg:overflow-visible lg:px-0 lg:pb-0">
             {items.map((item) => {
               const Icon = item.icon;
               const active = pathname === item.href;
@@ -146,15 +146,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   aria-label={sidebarCollapsed ? item.label : undefined}
                   title={sidebarCollapsed ? item.label : undefined}
                   className={cn(
-                    "flex items-center rounded-lg py-2.5 text-sm font-medium transition",
-                    sidebarCollapsed ? "justify-center px-0" : "gap-3 px-3.5",
+                    "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition lg:gap-3 lg:px-3.5",
+                    sidebarCollapsed && "lg:justify-center lg:px-0",
                     active
                       ? "bg-accent text-white shadow-sm shadow-accent/20"
                       : "text-foreground/66 hover:bg-white/[0.06] hover:text-foreground"
                   )}
                 >
                   <Icon size={17} />
-                  <span className={cn(sidebarCollapsed && "sr-only")}>{item.label}</span>
+                  <span className={cn(sidebarCollapsed && "lg:sr-only")}>{item.label}</span>
                 </Link>
               );
             })}
@@ -177,7 +177,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ) : null}
               </button>
               {notificationsOpen ? (
-                <div className="absolute right-0 top-12 z-50 w-[360px] rounded-lg border border-line/90 bg-panel p-4 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
+                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-1.5rem)] max-w-[360px] rounded-lg border border-line/90 bg-panel p-4 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-semibold">Notifications</h3>
                     <div className="flex items-center gap-2">
