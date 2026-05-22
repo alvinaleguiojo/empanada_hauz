@@ -16,6 +16,6 @@
     "build": "npm run build --workspace @empanada-hauz/shared && npm run build --workspace @empanada-hauz/api && npm run build --workspace @empanada-hauz/web",
     "lint": "npm run lint --workspace @empanada-hauz/api && npm run lint --workspace @empanada-hauz/web",
     "db:generate": "npm run prisma:generate --workspace @empanada-hauz/api",
-    "db:migrate": "npm run prisma:migrate --workspace @empanada-hauz/api"
+    "db:push": "npm run prisma:push --workspace @empanada-hauz/api"
   }
 }

@@ -8,8 +8,7 @@
     "start": "node dist/main",
     "lint": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
-    "prisma:deploy": "prisma migrate deploy",
+    "prisma:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {

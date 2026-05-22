@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { BatchesService } from "../batches/batches.service";
+import { GoogleDriveOrderExportService } from "./google-drive-order-export.service";
+import { GoogleSheetsOrderSyncService } from "./google-sheets-order-sync.service";
 import { CreateOrderDto, ManualOrderEntryDto, OrderStatus, UpdateOrderDto } from "./dto";
 
 @Injectable()
@@ -9,7 +11,9 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
-    private readonly batchesService: BatchesService
+    private readonly batchesService: BatchesService,
+    private readonly googleSheetsOrderSync: GoogleSheetsOrderSyncService,
+    private readonly googleDriveOrderExport: GoogleDriveOrderExportService
   ) {}
 
   async list() {
@@ -57,6 +61,7 @@ export class OrdersService {
     });
 
     this.realtime.emit("orders.updated", order);
+    await this.googleSheetsOrderSync.appendOrder(order);
     return order;
   }
 
@@ -103,6 +108,7 @@ export class OrdersService {
     });
 
     this.realtime.emit("orders.updated", order);
+    await this.googleSheetsOrderSync.appendOrder(order);
     if (order.status === "ready_for_booking" || order.status === "booked") {
       this.realtime.emit("deliveries.updated", { orderId: order.id, status: order.status });
     }
@@ -262,6 +268,28 @@ export class OrdersService {
       this.realtime.emit("deliveries.updated", { orderId: deleted.id, status: "deleted" });
     }
     return deleted;
+  }
+
+  async exportToGoogleDrive(orderIds: string[]) {
+    if (!orderIds.length) {
+      throw new BadRequestException("No orders selected for export");
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: { id: { in: orderIds } },
+      include: {
+        customer: true,
+        orderNotes: { orderBy: { createdAt: "desc" } }
+      }
+    });
+    const orderById = new Map(orders.map((order) => [order.id, order]));
+    const sortedOrders = orderIds.map((id) => orderById.get(id)).filter((order): order is NonNullable<typeof order> => Boolean(order));
+
+    if (!sortedOrders.length) {
+      throw new BadRequestException("No matching orders found for export");
+    }
+
+    return this.googleDriveOrderExport.uploadOrders(sortedOrders);
   }
 
   async createFromAi(params: {

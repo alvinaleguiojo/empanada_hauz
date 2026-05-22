@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, Check, ChevronRight, Clock3, Copy, MapPin, Search, Trash2 } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Clock3, Copy, MapPin, Search, Trash2, UploadCloud } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -111,6 +111,8 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [detailOpen, setDetailOpen] = useState(true);
   const [pending, startTransition] = useTransition();
   const [deletePending, startDeleteTransition] = useTransition();
+  const [exportPending, startExportTransition] = useTransition();
+  const [exportResult, setExportResult] = useState<{ name: string; webViewLink?: string } | null>(null);
   const [form, setForm] = useState({
     customerName: "",
     phoneNumber: "",
@@ -308,6 +310,22 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     }
   }
 
+  function exportOrdersToExcel() {
+    setError(null);
+    setExportResult(null);
+    startExportTransition(async () => {
+      try {
+        const result = await apiFetch<{ name: string; webViewLink?: string }>("/orders/export/google-drive", {
+          method: "POST",
+          body: JSON.stringify({ orderIds: filteredItems.map((order) => order.id) })
+        });
+        setExportResult(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to upload export to Google Drive");
+      }
+    });
+  }
+
   function deleteOrder() {
     if (!selectedOrder) {
       return;
@@ -360,11 +378,31 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             onChange={(e) => setSelectedDate(e.target.value)}
             className="w-full sm:h-11 sm:w-[168px]"
           />
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={exportOrdersToExcel}
+            disabled={filteredItems.length === 0 || exportPending}
+            className="h-11 justify-center gap-2 border border-line/80 px-4"
+          >
+            <UploadCloud size={16} />
+            {exportPending ? "Uploading..." : "Upload Excel"}
+          </Button>
           <Badge className="border border-line/70 bg-panel text-foreground/70">
             {countLabel}
           </Badge>
         </div>
       </div>
+      {exportResult ? (
+        <div className="rounded-lg border border-line/80 bg-panel/70 px-4 py-3 text-sm text-foreground/70">
+          Uploaded <span className="font-medium text-foreground">{exportResult.name}</span> to Google Drive.
+          {exportResult.webViewLink ? (
+            <a className="ml-2 text-accent hover:underline" href={exportResult.webViewLink} target="_blank" rel="noreferrer">
+              Open file
+            </a>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="min-w-0 overflow-x-auto rounded-lg border border-line/80 bg-panel/55 p-3 pb-4 shadow-sm shadow-black/10">
         <div className="grid min-w-full grid-flow-col auto-cols-[minmax(248px,1fr)] gap-3">
@@ -738,4 +776,175 @@ function formatPaymentMethod(value?: string | null) {
 
 function formatSchedule(value?: string | null) {
   return value ? scheduleFormatter.format(new Date(value)) : "Not scheduled";
+}
+
+function formatExportDate(value?: string | null) {
+  return value ? scheduleFormatter.format(new Date(value)) : "";
+}
+
+function createXlsxBlob(sheetName: string, rows: Array<Array<unknown>>) {
+  const files = new Map<string, string>([
+    [
+      "[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`
+    ],
+    [
+      "_rels/.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`
+    ],
+    [
+      "xl/workbook.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>`
+    ],
+    [
+      "xl/_rels/workbook.xml.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`
+    ],
+    [
+      "xl/styles.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
+  <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+</styleSheet>`
+    ],
+    ["xl/worksheets/sheet1.xml", createWorksheetXml(rows)]
+  ]);
+
+  return new Blob([createZip(files)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+}
+
+function createWorksheetXml(rows: Array<Array<unknown>>) {
+  const body = rows
+    .map((row, rowIndex) => {
+      const rowNumber = rowIndex + 1;
+      const cells = row
+        .map((value, columnIndex) => {
+          const reference = `${columnName(columnIndex)}${rowNumber}`;
+          return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(String(value ?? ""))}</t></is></c>`;
+        })
+        .join("");
+      return `<row r="${rowNumber}">${cells}</row>`;
+    })
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>${body}</sheetData>
+</worksheet>`;
+}
+
+function createZip(files: Map<string, string>) {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const [name, content] of files) {
+    const nameBytes = encoder.encode(name);
+    const contentBytes = encoder.encode(content);
+    const crc = crc32(contentBytes);
+    const localHeader = createZipHeader(0x04034b50, nameBytes, contentBytes, crc, offset);
+    const centralHeader = createZipHeader(0x02014b50, nameBytes, contentBytes, crc, offset);
+    localParts.push(localHeader, contentBytes);
+    centralParts.push(centralHeader);
+    offset += localHeader.length + contentBytes.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const view = new DataView(end.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(8, files.size, true);
+  view.setUint16(10, files.size, true);
+  view.setUint32(12, centralSize, true);
+  view.setUint32(16, offset, true);
+  const parts = [...localParts, ...centralParts, end];
+  const zipBytes = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let cursor = 0;
+  for (const part of parts) {
+    zipBytes.set(part, cursor);
+    cursor += part.length;
+  }
+  return zipBytes.buffer.slice(0);
+}
+
+function createZipHeader(signature: number, nameBytes: Uint8Array, contentBytes: Uint8Array, crc: number, localOffset: number) {
+  const isCentral = signature === 0x02014b50;
+  const header = new Uint8Array(isCentral ? 46 + nameBytes.length : 30 + nameBytes.length);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, signature, true);
+  if (isCentral) {
+    view.setUint16(4, 20, true);
+    view.setUint16(6, 20, true);
+    view.setUint32(16, crc, true);
+    view.setUint32(20, contentBytes.length, true);
+    view.setUint32(24, contentBytes.length, true);
+    view.setUint16(28, nameBytes.length, true);
+    view.setUint32(42, localOffset, true);
+    header.set(nameBytes, 46);
+  } else {
+    view.setUint16(4, 20, true);
+    view.setUint32(14, crc, true);
+    view.setUint32(18, contentBytes.length, true);
+    view.setUint32(22, contentBytes.length, true);
+    view.setUint16(26, nameBytes.length, true);
+    header.set(nameBytes, 30);
+  }
+  return header;
+}
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function columnName(index: number) {
+  let name = "";
+  let value = index + 1;
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    value = Math.floor((value - 1) / 26);
+  }
+  return name;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }

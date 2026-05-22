@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsDateString,
   IsIn,
   IsInt,
@@ -173,4 +174,10 @@ export class ManualOrderEntryDto {
 export class AddOrderNoteDto {
   @IsString()
   body!: string;
+}
+
+export class ExportOrdersToDriveDto {
+  @IsArray()
+  @IsString({ each: true })
+  orderIds!: string[];
 }

@@ -1,9 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
-import { AddOrderNoteDto, CreateOrderDto, ManualOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
+import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
 import { OrdersService } from "./orders.service";
 
-@UseGuards(JwtAuthGuard)
 @Controller("orders")
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
@@ -13,31 +12,43 @@ export class OrdersController {
     return this.ordersService.list();
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post()
   create(@Body() dto: CreateOrderDto) {
     return this.ordersService.create(dto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post("manual")
   createManual(@Body() dto: ManualOrderEntryDto) {
     return this.ordersService.createManual(dto);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post("export/google-drive")
+  exportToGoogleDrive(@Body() dto: ExportOrdersToDriveDto) {
+    return this.ordersService.exportToGoogleDrive(dto.orderIds);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch(":id/status")
   updateStatus(@Param("id") id: string, @Body() dto: UpdateOrderStatusDto) {
     return this.ordersService.updateStatus(id, dto.status);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch(":id")
   update(@Param("id") id: string, @Body() dto: UpdateOrderDto) {
     return this.ordersService.update(id, dto);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post(":id/notes")
   addNote(@Param("id") id: string, @Body() dto: AddOrderNoteDto) {
     return this.ordersService.addNote(id, dto.body);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete(":id")
   remove(@Param("id") id: string) {
     return this.ordersService.remove(id);

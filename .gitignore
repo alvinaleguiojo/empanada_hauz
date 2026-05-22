@@ -7,3 +7,4 @@ dist
 coverage
 apps/api/generated
 apps/api/prisma/dev.db
+loha-*.json

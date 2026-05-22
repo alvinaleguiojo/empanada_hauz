@@ -2,14 +2,13 @@
 
 ## Containers
 
-- `postgres`: persistent PostgreSQL 16 instance
 - `redis`: BullMQ and cache backend
 - `api`: NestJS application
 - `web`: Next.js application
 
 ## Recommended production setup
 
-1. Use managed PostgreSQL and Redis when available.
+1. Use managed MongoDB and Redis when available.
 2. Keep `api` and `web` as separate services behind a reverse proxy.
 3. Terminate TLS at Nginx, Caddy, or a cloud load balancer.
 4. Restrict Messenger webhook ingress to the API only.
@@ -21,6 +20,8 @@
 - Set strong `JWT_SECRET`.
 - Set valid `OPENAI_API_KEY`.
 - Set `META_VERIFY_TOKEN` and `META_PAGE_ACCESS_TOKEN`.
+- To append created orders to Google Sheets, set `GOOGLE_SHEETS_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, and `GOOGLE_PRIVATE_KEY`. Optionally set `GOOGLE_SHEETS_ORDERS_SHEET_NAME`; it defaults to `Orders`.
+- To upload Excel exports to a normal Google Drive folder, set `GOOGLE_DRIVE_EXPORT_FOLDER_ID`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and `GOOGLE_OAUTH_REFRESH_TOKEN`. Service accounts require a Google Workspace shared drive because they do not have storage quota in normal My Drive.
 - Set `CORS_ORIGIN` to the deployed frontend URL.
 - Set `NEXT_PUBLIC_API_URL` to the public API URL.
 - Set `NEXT_PUBLIC_SOCKET_URL` to the public Socket.IO namespace URL.
@@ -35,7 +36,7 @@ docker-compose up -d
 ## Database rollout
 
 ```bash
-npm run prisma:deploy --workspace @empanada-hauz/api
+npm run prisma:push --workspace @empanada-hauz/api
 npm run prisma:seed --workspace @empanada-hauz/api
 ```
 

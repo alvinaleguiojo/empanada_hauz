@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
@@ -84,7 +84,7 @@ enum DeliveryStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
   email        String   @unique
   passwordHash String
   name         String
@@ -94,7 +94,7 @@ model User {
 }
 
 model Customer {
-  id                      String         @id @default(cuid())
+  id                      String         @id @default(auto()) @map("_id") @db.ObjectId
   messengerPsid           String?        @unique
   phoneNumber             String?
   name                    String
@@ -102,7 +102,7 @@ model Customer {
   notes                   String?
   totalOrders             Int            @default(0)
   repeatCustomerCount     Int            @default(0)
-  totalSpent              Decimal        @default(0) @db.Decimal(10, 2)
+  totalSpent              Float          @default(0)
   favoriteOrderQuantity   Int?
   preferredDeliveryMethod DeliveryMethod?
   lastOrderDate           DateTime?
@@ -117,8 +117,8 @@ model Customer {
 }
 
 model Conversation {
-  id          String             @id @default(cuid())
-  customerId  String
+  id          String             @id @default(auto()) @map("_id") @db.ObjectId
+  customerId  String             @db.ObjectId
   channel     String             @default("messenger")
   status      ConversationStatus @default(open)
   lastMessage String?
@@ -131,8 +131,8 @@ model Conversation {
 }
 
 model Message {
-  id               String           @id @default(cuid())
-  conversationId   String
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId   String           @db.ObjectId
   metaMessageId    String?
   direction        MessageDirection
   type             MessageType      @default(text)
@@ -150,7 +150,7 @@ model Message {
 }
 
 model Batch {
-  id                        String    @id @default(cuid())
+  id                        String    @id @default(auto()) @map("_id") @db.ObjectId
   name                      BatchName
   batchDate                 DateTime
   maxCapacity               Int
@@ -169,16 +169,16 @@ model Batch {
 }
 
 model Order {
-  id                String          @id @default(cuid())
-  customerId        String
-  batchId           String?
-  deliveryId        String?
+  id                String          @id @default(auto()) @map("_id") @db.ObjectId
+  customerId        String          @db.ObjectId
+  batchId           String?         @db.ObjectId
+  deliveryId        String?         @db.ObjectId
   conversationId    String?
   orderNumber       String          @unique
   quantity          Int
-  unitPrice         Decimal         @db.Decimal(10, 2)
-  totalAmount       Decimal         @db.Decimal(10, 2)
-  deliveryFee       Decimal         @default(0) @db.Decimal(10, 2)
+  unitPrice         Float
+  totalAmount       Float
+  deliveryFee       Float           @default(0)
   location          String?
   address           String?
   deliveryMethod    DeliveryMethod
@@ -200,8 +200,8 @@ model Order {
 }
 
 model OrderNote {
-  id        String   @id @default(cuid())
-  orderId   String
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId   String   @db.ObjectId
   body      String
   createdAt DateTime @default(now())
   order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -210,7 +210,7 @@ model OrderNote {
 }
 
 model Delivery {
-  id                String         @id @default(cuid())
+  id                String         @id @default(auto()) @map("_id") @db.ObjectId
   areaGroup         String?
   status            DeliveryStatus @default(pending)
   scheduledAt       DateTime?
@@ -225,23 +225,23 @@ model Delivery {
 }
 
 model InventoryItem {
-  id                 String            @id @default(cuid())
+  id                 String            @id @default(auto()) @map("_id") @db.ObjectId
   itemType           InventoryItemType @unique
   displayName        String
   unit               String
-  currentStock       Decimal           @db.Decimal(10, 2)
-  reorderLevel       Decimal           @db.Decimal(10, 2)
+  currentStock       Float
+  reorderLevel       Float
   estimatedDaysLeft  Int?
-  costPerUnit        Decimal           @db.Decimal(10, 2)
+  costPerUnit        Float
   updatedAt          DateTime          @updatedAt
   createdAt          DateTime          @default(now())
   logs               InventoryLog[]
 }
 
 model InventoryLog {
-  id              String        @id @default(cuid())
-  inventoryItemId String
-  changeAmount    Decimal       @db.Decimal(10, 2)
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  inventoryItemId String        @db.ObjectId
+  changeAmount    Float
   reason          String
   createdAt       DateTime      @default(now())
   inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
@@ -250,8 +250,8 @@ model InventoryLog {
 }
 
 model ProductionLog {
-  id           String   @id @default(cuid())
-  batchId      String
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  batchId      String   @db.ObjectId
   stage        String
   quantity     Int
   notes        String?
@@ -262,10 +262,10 @@ model ProductionLog {
 }
 
 model Expense {
-  id          String   @id @default(cuid())
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
   category    String
   description String
-  amount      Decimal  @db.Decimal(10, 2)
+  amount      Float
   expenseDate DateTime
   createdAt   DateTime @default(now())
 
@@ -273,9 +273,9 @@ model Expense {
 }
 
 model AnalyticsSnapshot {
-  id                  String   @id @default(cuid())
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
   snapshotDate        DateTime @unique
-  revenue             Decimal  @db.Decimal(12, 2)
+  revenue             Float
   pcsSold             Int
   averageOrderSize    Float
   repeatCustomerRate  Float
