@@ -13,7 +13,7 @@ export class CustomersService {
   }
 
   async findOrCreateByMessenger(psid: string, name = "Messenger Customer") {
-    const existing = await this.prisma.customer.findUnique({
+    const existing = await this.prisma.customer.findFirst({
       where: { messengerPsid: psid }
     });
 
