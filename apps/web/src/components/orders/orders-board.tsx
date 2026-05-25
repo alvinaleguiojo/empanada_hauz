@@ -113,6 +113,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [selectedDate, setSelectedDate] = useState(getTodayDateInputValue);
   const [statusFilter, setStatusFilter] = useState("all");
   const [editMode, setEditMode] = useState(false);
+  const [copiedDetails, setCopiedDetails] = useState(false);
   const [copiedNotes, setCopiedNotes] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [detailOpen, setDetailOpen] = useState(false);
@@ -199,6 +200,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       });
       setEditMode(false);
       setError(null);
+      setCopiedDetails(false);
       setCopiedNotes(false);
       setNoteDraft("");
     }
@@ -314,6 +316,20 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       window.setTimeout(() => setCopiedNotes(false), 1600);
     } catch {
       setCopiedNotes(false);
+    }
+  }
+
+  async function copyOrderDetails() {
+    if (!selectedOrder) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(formatOrderDetailsForCopy(selectedOrder));
+      setCopiedDetails(true);
+      window.setTimeout(() => setCopiedDetails(false), 1600);
+    } catch {
+      setCopiedDetails(false);
     }
   }
 
@@ -529,6 +545,12 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-sm font-medium text-foreground/68">Order details</p>
                         <div className="flex flex-wrap gap-2">
+                          {!editMode ? (
+                            <Button variant="ghost" className="px-3" onClick={copyOrderDetails}>
+                              {copiedDetails ? <Check size={14} /> : <Copy size={14} />}
+                              {copiedDetails ? "Copied" : "Copy"}
+                            </Button>
+                          ) : null}
                           <Button
                             variant="ghost"
                             className="px-3 text-danger hover:text-danger"
@@ -838,6 +860,31 @@ function getOrderLineItems(order: any): OrderLineItemView[] {
 
   const productMatch = body.match(/^Product:\s*(.+)$/im);
   return productMatch ? [{ name: productMatch[1].trim(), quantity: Number(order?.quantity ?? 0) }] : [];
+}
+
+function formatOrderDetailsForCopy(order: any) {
+  const lineItems = getOrderLineItems(order);
+  const displayItems = lineItems.length > 0 ? lineItems : [{ name: "Empanada", quantity: Number(order?.quantity ?? 0) }];
+  const itemLines = displayItems.map((item) => {
+    const amount = item.subtotal !== undefined ? ` - Php ${item.subtotal}` : "";
+    const price = item.price !== undefined ? ` x Php ${item.price}` : "";
+    return `${item.name}: ${item.quantity} pcs${price}${amount}`;
+  });
+  const address = order?.address ?? order?.location ?? "No address provided";
+
+  return [
+    `Order: ${order?.orderNumber ?? ""}`,
+    `Customer: ${order?.customer?.name ?? ""}`,
+    `Phone: ${order?.customer?.phoneNumber ?? "No phone number"}`,
+    `Address: ${address}`,
+    `Schedule: ${formatSchedule(order?.preferredSchedule)}`,
+    `Delivery: ${order?.deliveryMethod ?? ""}`,
+    `Payment: ${formatPaymentMethod(order?.paymentMethod)}`,
+    "Items:",
+    ...itemLines.map((line) => `- ${line}`),
+    `Quantity: ${order?.quantity ?? 0} pcs`,
+    `Total to pay: Php ${String(order?.totalAmount ?? 0)}`
+  ].join("\n");
 }
 
 function formatNoteTime(value?: string | null) {
