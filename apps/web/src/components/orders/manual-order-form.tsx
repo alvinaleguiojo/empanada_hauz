@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 type ManualOrderFormState = {
   customerName: string;
   phoneNumber: string;
+  productName: string;
   quantity: string;
   unitPrice: string;
   deliveryFee: string;
@@ -33,6 +34,14 @@ type CustomerSuggestion = {
   preferredDeliveryMethod?: string | null;
   notes?: string | null;
 };
+
+const productOptions = [
+  { label: "Pork Regular - Php 20", value: "Pork Regular", price: 20 },
+  { label: "Pork with Egg - Php 25", value: "Pork with Egg", price: 25 },
+  { label: "Ham & Cheese - Php 25", value: "Ham & Cheese", price: 25 },
+  { label: "Chicken - Php 20", value: "Chicken", price: 20 },
+  { label: "Ube with Cheese - Php 25", value: "Ube with Cheese", price: 25 }
+];
 
 export function ManualOrderForm() {
   const router = useRouter();
@@ -95,6 +104,15 @@ export function ManualOrderForm() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function selectProduct(productName: string) {
+    const product = productOptions.find((option) => option.value === productName);
+    setForm((current) => ({
+      ...current,
+      productName,
+      unitPrice: product ? String(product.price) : current.unitPrice
+    }));
+  }
+
   const customerSuggestions = useMemo(() => {
     const query = form.customerName.trim().toLowerCase();
     if (query.length < 2) {
@@ -134,6 +152,9 @@ export function ManualOrderForm() {
 
     startTransition(async () => {
       try {
+        const productNote = form.productName ? `Product: ${form.productName}` : "";
+        const notes = [productNote, form.notes.trim()].filter(Boolean).join("\n");
+
         await apiFetch("/orders/manual", {
           method: "POST",
           body: JSON.stringify({
@@ -146,7 +167,7 @@ export function ManualOrderForm() {
             phoneNumber: form.phoneNumber || undefined,
             location: form.location || undefined,
             address: form.address || undefined,
-            notes: form.notes || undefined
+            notes: notes || undefined
           })
         });
         setForm(createInitialFormState({ preferredSchedule: getLocalDateTimeInputValue() }));
@@ -204,6 +225,7 @@ export function ManualOrderForm() {
               ) : null}
             </div>
             <Input placeholder="Phone number" value={form.phoneNumber} onChange={(e) => update("phoneNumber", e.target.value)} />
+            <Select value={form.productName} onChange={selectProduct} options={productOptions} placeholder="Select product" />
             <Input placeholder="Quantity" type="number" min="1" value={form.quantity} onChange={(e) => update("quantity", e.target.value)} required />
             <Input placeholder="Unit price" type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => update("unitPrice", e.target.value)} required />
             <Select value={form.deliveryMethod} onChange={(value) => update("deliveryMethod", value)} options={deliveryOptions} />
@@ -233,8 +255,9 @@ function createInitialFormState(overrides?: Partial<ManualOrderFormState>): Manu
   return {
     customerName: "",
     phoneNumber: "",
+    productName: productOptions[0].value,
     quantity: "20",
-    unitPrice: "15",
+    unitPrice: String(productOptions[0].price),
     deliveryFee: "0",
     deliveryMethod: "pickup",
     paymentMethod: "cod",
