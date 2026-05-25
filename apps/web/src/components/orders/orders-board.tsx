@@ -65,6 +65,13 @@ type OrderNoteView = {
   createdAt?: string | null;
 };
 
+type OrderLineItemView = {
+  name: string;
+  quantity: number;
+  price?: number;
+  subtotal?: number;
+};
+
 const statusTone: Record<string, string> = {
   inquiry: "bg-white/[0.08] text-foreground/75",
   awaiting_confirmation: "bg-amber-500/15 text-amber-200",
@@ -420,38 +427,42 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                   <Badge className={cn("border-0", statusTone[status])}>{columnOrders.length}</Badge>
                 </div>
                 <div className="space-y-2.5">
-                  {columnOrders.map((order) => (
-                    <button
-                      key={order.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedId(order.id);
-                        setDetailOpen(true);
-                      }}
-                      className={cn(
-                        "w-full rounded-lg border px-3.5 py-3 text-left transition",
-                        selectedOrder?.id === order.id
-                          ? "border-accent/60 bg-accent/[0.08] shadow-[0_0_0_1px_rgb(var(--accent)/0.18)]"
-                          : "border-line/70 bg-black/[0.08] hover:border-accent/35 hover:bg-white/[0.04]"
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-[17px] font-semibold leading-tight">{order.customer?.name}</p>
-                          <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-foreground/30">{order.orderNumber}</p>
+                  {columnOrders.map((order) => {
+                    const orderLineItems = getOrderLineItems(order);
+                    return (
+                      <button
+                        key={order.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(order.id);
+                          setDetailOpen(true);
+                        }}
+                        className={cn(
+                          "w-full rounded-lg border px-3.5 py-3 text-left transition",
+                          selectedOrder?.id === order.id
+                            ? "border-accent/60 bg-accent/[0.08] shadow-[0_0_0_1px_rgb(var(--accent)/0.18)]"
+                            : "border-line/70 bg-black/[0.08] hover:border-accent/35 hover:bg-white/[0.04]"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-[17px] font-semibold leading-tight">{order.customer?.name}</p>
+                            <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-foreground/30">{order.orderNumber}</p>
+                          </div>
+                          <Badge className={cn("border-0 text-[11px]", statusTone[order.status])}>{order.deliveryMethod}</Badge>
                         </div>
-                        <Badge className={cn("border-0 text-[11px]", statusTone[order.status])}>{order.deliveryMethod}</Badge>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <CompactStat label="Qty" value={`${order.quantity}`} suffix="pcs" />
-                        <CompactStat label="Total" value={`Php ${String(order.totalAmount)}`} />
-                      </div>
-                      <div className="mt-3 space-y-1.5 text-sm text-foreground/62">
-                        <InfoLine icon={MapPin} text={order.location ?? "No area"} />
-                        <InfoLine icon={Clock3} text={formatSchedule(order.preferredSchedule)} />
-                      </div>
-                    </button>
-                  ))}
+                        <OrderItemsList items={orderLineItems} fallbackQuantity={order.quantity} />
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <CompactStat label="Qty" value={`${order.quantity}`} suffix="pcs" />
+                          <CompactStat label="To Pay" value={`Php ${String(order.totalAmount)}`} />
+                        </div>
+                        <div className="mt-3 space-y-1.5 text-sm text-foreground/62">
+                          <InfoLine icon={MapPin} text={order.location ?? "No area"} />
+                          <InfoLine icon={Clock3} text={formatSchedule(order.preferredSchedule)} />
+                        </div>
+                      </button>
+                    );
+                  })}
                   {columnOrders.length === 0 ? <div className="h-2" /> : null}
                 </div>
               </Card>
@@ -571,10 +582,14 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           </div>
                           <div className="grid grid-cols-2 gap-3">
                             <MiniStat label="Quantity" value={`${selectedOrder.quantity} pcs`} />
-                            <MiniStat label="Total" value={`Php ${String(selectedOrder.totalAmount)}`} />
+                            <MiniStat label="Total to Pay" value={`Php ${String(selectedOrder.totalAmount)}`} />
                             <MiniStat label="Method" value={selectedOrder.deliveryMethod} />
                             <MiniStat label="Payment" value={formatPaymentMethod(selectedOrder.paymentMethod)} />
                             <MiniStat label="Schedule" value={formatSchedule(selectedOrder.preferredSchedule)} />
+                          </div>
+                          <div className="rounded-lg border border-line/75 bg-black/[0.08] p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Items Ordered</p>
+                            <OrderItemsList items={getOrderLineItems(selectedOrder)} fallbackQuantity={selectedOrder.quantity} className="mt-3" />
                           </div>
                           {selectedOrder.deliveryMethod === "maxim" ? (
                             <div className="grid gap-3 sm:grid-cols-2">
@@ -656,6 +671,36 @@ function InfoLine({ icon: Icon, text }: { icon: typeof MapPin; text: string }) {
     <div className="flex items-start gap-2">
       <Icon size={13} className="mt-0.5 shrink-0 text-foreground/30" />
       <span className="line-clamp-2">{text}</span>
+    </div>
+  );
+}
+
+function OrderItemsList({
+  items,
+  fallbackQuantity,
+  className
+}: {
+  items: OrderLineItemView[];
+  fallbackQuantity?: number;
+  className?: string;
+}) {
+  const displayItems = items.length > 0 ? items : [{ name: "Empanada", quantity: Number(fallbackQuantity ?? 0) }];
+
+  return (
+    <div className={cn("mt-3 space-y-1.5 rounded-lg border border-line/70 bg-white/[0.03] p-2.5", className)}>
+      {displayItems.map((item) => (
+        <div key={`${item.name}-${item.quantity}-${item.price ?? "price"}`} className="flex items-start justify-between gap-3 text-xs">
+          <div className="min-w-0">
+            <p className="truncate font-medium text-foreground/82">{item.name}</p>
+            <p className="mt-0.5 text-foreground/42">
+              {item.quantity} pcs{item.price !== undefined ? ` x Php ${item.price}` : ""}
+            </p>
+          </div>
+          {item.subtotal !== undefined ? (
+            <span className="shrink-0 font-semibold text-foreground/78">Php {item.subtotal}</span>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }
@@ -761,6 +806,38 @@ function getOrderNotes(order: any): OrderNoteView[] {
         }
       ]
     : [];
+}
+
+function getOrderLineItems(order: any): OrderLineItemView[] {
+  const noteBodies = getOrderNotes(order).map((note) => note.body);
+  const body: string = noteBodies.find((note) => note.includes("Items:")) ?? String(order?.notes ?? "");
+  const itemLines = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "));
+
+  const items = itemLines
+    .map((line): OrderLineItemView | null => {
+      const match = line.match(/^-\s+(.+?)\s+x\s+(\d+)(?:\s+@\s+Php\s+([\d.]+)\s+=\s+Php\s+([\d.]+))?$/i);
+      if (!match) {
+        return null;
+      }
+
+      return {
+        name: match[1],
+        quantity: Number(match[2]),
+        ...(match[3] ? { price: Number(match[3]) } : {}),
+        ...(match[4] ? { subtotal: Number(match[4]) } : {})
+      };
+    })
+    .filter((item): item is OrderLineItemView => Boolean(item));
+
+  if (items.length > 0) {
+    return items;
+  }
+
+  const productMatch = body.match(/^Product:\s*(.+)$/im);
+  return productMatch ? [{ name: productMatch[1].trim(), quantity: Number(order?.quantity ?? 0) }] : [];
 }
 
 function formatNoteTime(value?: string | null) {
