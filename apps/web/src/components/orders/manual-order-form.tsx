@@ -93,7 +93,6 @@ export function ManualOrderForm() {
     { label: "COD", value: "cod" },
     { label: "GCash", value: "gcash" }
   ];
-
   const statusOptions = [
     { label: "Inquiry", value: "inquiry" },
     { label: "Awaiting confirmation", value: "awaiting_confirmation" },
@@ -103,7 +102,7 @@ export function ManualOrderForm() {
     { label: "Ready for booking", value: "ready_for_booking" }
   ];
 
-  function update(key: string, value: string) {
+  function update(key: keyof ManualOrderFormState, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
@@ -153,6 +152,10 @@ export function ManualOrderForm() {
         return { ...item, quantity: nextQuantity > 0 ? String(nextQuantity) : "" };
       })
     );
+  }
+
+  function clearLineItems() {
+    setLineItems((current) => current.map((item) => ({ ...item, quantity: "" })));
   }
 
   const customerSuggestions = useMemo(() => {
@@ -254,89 +257,134 @@ export function ManualOrderForm() {
 
       {open ? (
         <div className="border-t border-line/80 bg-black/[0.04] px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
-          <form id="manual-order-form" className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" onSubmit={submit}>
-            <div className="relative">
-              <Input placeholder="Customer name" value={form.customerName} onChange={(e) => update("customerName", e.target.value)} required />
-              {customerSuggestions.length > 0 ? (
-                <div className="absolute left-0 right-0 z-20 mt-2 overflow-hidden rounded-lg border border-line/90 bg-panel p-1.5 shadow-2xl shadow-black/35">
-                  <div className="space-y-1">
-                    {customerSuggestions.map((customer) => (
-                      <button
-                        key={customer.id}
-                        type="button"
-                        onClick={() => applyCustomerSuggestion(customer)}
-                        className="flex w-full flex-col items-start rounded-md px-3 py-2.5 text-left transition hover:bg-white/[0.07]"
-                      >
-                        <span className="text-sm font-medium text-foreground">{customer.name}</span>
-                        <span className="text-xs text-foreground/50">
-                          {[customer.phoneNumber, customer.defaultAddress].filter(Boolean).join(" • ") || "Use saved customer info"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+          <form id="manual-order-form" className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]" onSubmit={submit}>
+            <div className="min-w-0 space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="relative">
+                  <Input placeholder="Customer name" value={form.customerName} onChange={(e) => update("customerName", e.target.value)} required />
+                  {customerSuggestions.length > 0 ? (
+                    <div className="absolute left-0 right-0 z-20 mt-2 overflow-hidden rounded-lg border border-line/90 bg-panel p-1.5 shadow-2xl shadow-black/35">
+                      <div className="space-y-1">
+                        {customerSuggestions.map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            onClick={() => applyCustomerSuggestion(customer)}
+                            className="flex w-full flex-col items-start rounded-md px-3 py-2.5 text-left transition hover:bg-white/[0.07]"
+                          >
+                            <span className="text-sm font-medium text-foreground">{customer.name}</span>
+                            <span className="text-xs text-foreground/50">
+                              {[customer.phoneNumber, customer.defaultAddress].filter(Boolean).join(" - ") || "Use saved customer info"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-            <Input placeholder="Phone number" value={form.phoneNumber} onChange={(e) => update("phoneNumber", e.target.value)} />
-            <div className="rounded-lg border border-line/80 bg-black/10 p-3 xl:col-span-2">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Items</p>
-                <p className="text-sm font-semibold text-foreground">Php {formatPeso(orderSummary.itemSubtotal)}</p>
+                <Input placeholder="Phone number" value={form.phoneNumber} onChange={(e) => update("phoneNumber", e.target.value)} />
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <Select value={form.deliveryMethod} onChange={(value) => update("deliveryMethod", value)} options={deliveryOptions} />
+                <Select value={form.paymentMethod} onChange={(value) => update("paymentMethod", value)} options={paymentOptions} />
+                {form.deliveryMethod === "maxim" ? (
+                  <Input placeholder="Delivery fee" type="number" min="0" step="0.01" value={form.deliveryFee} onChange={(e) => update("deliveryFee", e.target.value)} />
+                ) : null}
+                <Input placeholder="Area / location" value={form.location} onChange={(e) => update("location", e.target.value)} />
+                <Input placeholder="Full address" value={form.address} onChange={(e) => update("address", e.target.value)} />
+                <Input type="datetime-local" value={form.preferredSchedule} onChange={(e) => update("preferredSchedule", e.target.value)} />
+                <Select value={form.status} onChange={(value) => update("status", value)} options={statusOptions} />
+                <Input className="md:col-span-2" placeholder="Notes" value={form.notes} onChange={(e) => update("notes", e.target.value)} />
+              </div>
+            </div>
+
+            <div className="min-w-0 rounded-lg border border-line/80 bg-black/10">
+              <div className="flex items-center justify-between gap-3 border-b border-line/75 px-4 py-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Order Items</p>
+                  <p className="mt-1 text-xs text-foreground/45">{orderSummary.quantity} pcs selected</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearLineItems}
+                  className="rounded-md border border-line/70 px-3 py-1.5 text-xs text-foreground/62 transition hover:border-accent/40 hover:text-foreground"
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="divide-y divide-line/65">
                 {lineItems.map((item) => {
                   const product = productOptions.find((option) => option.value === item.productName);
+                  const quantity = Number(item.quantity || 0);
+                  const subtotal = quantity * (product?.price ?? 0);
                   return (
-                    <div key={item.productName} className="flex items-center gap-2 rounded-lg border border-line/70 bg-white/[0.03] p-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{product?.value}</p>
-                        <p className="text-xs text-foreground/45">Php {product?.price ?? 0}</p>
+                    <div
+                      key={item.productName}
+                      className={cn(
+                        "grid grid-cols-[minmax(0,1fr)_132px] items-center gap-3 px-4 py-3 transition",
+                        quantity > 0 && "bg-accent/[0.06]"
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{product?.value}</p>
+                        <p className="mt-0.5 text-xs text-foreground/45">
+                          Php {product?.price ?? 0}{quantity > 0 ? ` - Php ${formatPeso(subtotal)}` : ""}
+                        </p>
                       </div>
-                      <button
-                        type="button"
-                        aria-label={`Decrease ${item.productName}`}
-                        onClick={() => stepLineItem(item.productName, -1)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
-                      >
-                        <Minus size={14} />
-                      </button>
-                      <Input
-                        aria-label={`${item.productName} quantity`}
-                        className="h-8 w-16 px-2 text-center"
-                        type="number"
-                        min="0"
-                        value={item.quantity}
-                        onChange={(e) => updateLineItem(item.productName, e.target.value)}
-                      />
-                      <button
-                        type="button"
-                        aria-label={`Increase ${item.productName}`}
-                        onClick={() => stepLineItem(item.productName, 1)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
-                      >
-                        <Plus size={14} />
-                      </button>
+                      <div className="grid grid-cols-[34px_minmax(48px,1fr)_34px] items-center gap-2">
+                        <button
+                          type="button"
+                          aria-label={`Decrease ${item.productName}`}
+                          onClick={() => stepLineItem(item.productName, -1)}
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <Input
+                          aria-label={`${item.productName} quantity`}
+                          className="h-8 px-2 text-center"
+                          type="number"
+                          min="0"
+                          value={item.quantity}
+                          onChange={(e) => updateLineItem(item.productName, e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          aria-label={`Increase ${item.productName}`}
+                          onClick={() => stepLineItem(item.productName, 1)}
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
               </div>
+              <div className="space-y-2 border-t border-line/75 px-4 py-3">
+                <div className="flex items-center justify-between text-sm text-foreground/58">
+                  <span>Items subtotal</span>
+                  <span>Php {formatPeso(orderSummary.itemSubtotal)}</span>
+                </div>
+                {orderSummary.deliveryFee > 0 ? (
+                  <div className="flex items-center justify-between text-sm text-foreground/58">
+                    <span>Delivery fee</span>
+                    <span>Php {formatPeso(orderSummary.deliveryFee)}</span>
+                  </div>
+                ) : null}
+                <div className="flex items-center justify-between border-t border-line/70 pt-2">
+                  <span className="text-sm font-medium text-foreground/75">Total to pay</span>
+                  <span className="text-xl font-semibold">Php {formatPeso(orderSummary.total)}</span>
+                </div>
+              </div>
             </div>
-            <Select value={form.deliveryMethod} onChange={(value) => update("deliveryMethod", value)} options={deliveryOptions} />
-            <Select value={form.paymentMethod} onChange={(value) => update("paymentMethod", value)} options={paymentOptions} />
-            {form.deliveryMethod === "maxim" ? (
-              <Input placeholder="Delivery fee" type="number" min="0" step="0.01" value={form.deliveryFee} onChange={(e) => update("deliveryFee", e.target.value)} />
-            ) : null}
-            <Input placeholder="Area / location" value={form.location} onChange={(e) => update("location", e.target.value)} />
-            <Input placeholder="Full address" value={form.address} onChange={(e) => update("address", e.target.value)} />
-            <Input type="datetime-local" value={form.preferredSchedule} onChange={(e) => update("preferredSchedule", e.target.value)} />
-            <Select value={form.status} onChange={(value) => update("status", value)} options={statusOptions} />
-            <Input className="xl:col-span-2" placeholder="Notes" value={form.notes} onChange={(e) => update("notes", e.target.value)} />
-            <div className="flex flex-col gap-2 rounded-lg border border-line/75 bg-black/[0.08] px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between xl:col-span-4">
-              <span className="text-foreground/55">{orderSummary.quantity} pcs selected</span>
-              <span className="font-semibold">Total to pay: Php {formatPeso(orderSummary.total)}</span>
-            </div>
-            <div className="flex justify-end xl:col-span-4">
-              <Button type="submit" form="manual-order-form" disabled={pending} className="w-full sm:w-auto">
+
+            <div className="flex flex-col gap-3 border-t border-line/75 pt-4 sm:flex-row sm:items-center sm:justify-between xl:col-span-2">
+              <p className="text-sm text-foreground/50">
+                {orderSummary.quantity > 0 ? `${orderSummary.quantity} pcs ready to add` : "Add item quantities to continue"}
+              </p>
+              <Button type="submit" form="manual-order-form" disabled={pending || orderSummary.quantity < 1} className="w-full sm:w-auto">
                 {pending ? "Saving..." : "Add Order"}
               </Button>
             </div>
