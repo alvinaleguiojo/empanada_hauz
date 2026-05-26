@@ -310,15 +310,26 @@ function MaximTrackingPanel({ order }: { order: TrackingOrder }) {
       </div>
 
       {order.delivery?.trackingLink ? (
-        <a
-          href={order.delivery.trackingLink}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-accent/45 bg-accent/12 px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent/18 sm:w-auto"
-        >
-          <ExternalLink size={16} />
-          Open Maxim Tracking
-        </a>
+        <div className="mt-5 overflow-hidden rounded-lg border border-line/80 bg-black/[0.06]">
+          <div className="flex flex-col gap-3 border-b border-line/75 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Live Maxim Tracking</p>
+            <a
+              href={order.delivery.trackingLink}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-accent/45 bg-accent/12 px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent/18 sm:w-auto"
+            >
+              <ExternalLink size={16} />
+              Open Maxim Tracking
+            </a>
+          </div>
+          <iframe
+            title="Maxim tracking"
+            src={order.delivery.trackingLink}
+            className="h-[620px] w-full border-0 bg-white"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        </div>
       ) : null}
 
       {order.delivery?.bookingNotes ? (
