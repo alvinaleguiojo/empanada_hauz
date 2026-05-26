@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, Check, ChevronRight, Clock3, Copy, MapPin, Search, Trash2, UploadCloud } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Clock3, Copy, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,14 @@ const statusFilterOptions = [
   ...statusSelectOptions
 ];
 
+const productOptions = [
+  { label: "Pork Regular", value: "Pork Regular", price: 20 },
+  { label: "Pork with Egg", value: "Pork with Egg", price: 25 },
+  { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
+  { label: "Chicken", value: "Chicken", price: 20 },
+  { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 }
+];
+
 type OrderNoteView = {
   id: string;
   body: string;
@@ -70,6 +78,12 @@ type OrderLineItemView = {
   quantity: number;
   price?: number;
   subtotal?: number;
+};
+
+type EditableOrderLineItem = {
+  productName: string;
+  quantity: string;
+  price: number;
 };
 
 const statusTone: Record<string, string> = {
@@ -124,8 +138,6 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [form, setForm] = useState({
     customerName: "",
     phoneNumber: "",
-    quantity: "0",
-    unitPrice: "0",
     deliveryFee: "0",
     deliveryMethod: "pickup",
     paymentMethod: "cod",
@@ -134,6 +146,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     preferredSchedule: "",
     notes: ""
   });
+  const [lineItems, setLineItems] = useState<EditableOrderLineItem[]>(() => createEditableLineItems());
 
   useEffect(() => {
     setItems(orders);
@@ -188,16 +201,15 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       setForm({
         customerName: selectedOrder.customer?.name ?? "",
         phoneNumber: selectedOrder.customer?.phoneNumber ?? "",
-        quantity: String(selectedOrder.quantity ?? 0),
-        unitPrice: String(selectedOrder.unitPrice ?? 0),
         deliveryFee: String(selectedOrder.deliveryFee ?? 0),
         deliveryMethod: selectedOrder.deliveryMethod ?? "pickup",
         paymentMethod: selectedOrder.paymentMethod ?? "cod",
         location: selectedOrder.location ?? "",
         address: selectedOrder.address ?? "",
         preferredSchedule: selectedOrder.preferredSchedule ? toInputDate(selectedOrder.preferredSchedule) : getLocalDateTimeInputValue(),
-        notes: selectedOrder.notes ?? ""
+        notes: stripItemsBlock(selectedOrder.notes ?? "")
       });
+      setLineItems(createEditableLineItems(selectedOrder));
       setEditMode(false);
       setError(null);
       setCopiedDetails(false);
@@ -233,6 +245,34 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     return `${totals.totalOrders} orders`;
   }, [search, selectedDate, statusFilter, totals.totalOrders, totals.visibleOrders]);
 
+  const orderItemSummary = useMemo(() => {
+    const items = lineItems
+      .map((item) => {
+        const quantity = Number(item.quantity || 0);
+        return quantity > 0
+          ? {
+              name: item.productName,
+              quantity,
+              price: item.price,
+              subtotal: quantity * item.price
+            }
+          : null;
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+    const quantity = items.reduce((sum, item) => sum + item.quantity, 0);
+    const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
+    const deliveryFee = form.deliveryMethod === "maxim" ? Number(form.deliveryFee || 0) : 0;
+
+    return {
+      items,
+      quantity,
+      subtotal,
+      deliveryFee,
+      total: subtotal + deliveryFee,
+      unitPrice: quantity > 0 ? subtotal / quantity : 0
+    };
+  }, [form.deliveryFee, form.deliveryMethod, lineItems]);
+
   function updateStatus() {
     if (!selectedOrder) {
       return;
@@ -260,20 +300,26 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     setError(null);
     startTransition(async () => {
       try {
+        if (orderItemSummary.quantity < 1) {
+          setError("Add at least one item quantity before saving.");
+          return;
+        }
+
+        const notes = buildOrderNotes(orderItemSummary.items, form.notes);
         const updated = await apiFetch<any>(`/orders/${selectedOrder.id}`, {
           method: "PATCH",
           body: JSON.stringify({
             customerName: form.customerName,
             phoneNumber: form.phoneNumber || undefined,
-            quantity: Number(form.quantity),
-            unitPrice: Number(form.unitPrice),
-            deliveryFee: form.deliveryMethod === "maxim" ? Number(form.deliveryFee || 0) : 0,
+            quantity: orderItemSummary.quantity,
+            unitPrice: orderItemSummary.unitPrice,
+            deliveryFee: orderItemSummary.deliveryFee,
             deliveryMethod: form.deliveryMethod,
             paymentMethod: form.paymentMethod,
             location: form.location || undefined,
             address: form.address || undefined,
             preferredSchedule: form.preferredSchedule ? new Date(form.preferredSchedule).toISOString() : undefined,
-            notes: form.notes || undefined
+            notes: notes || undefined
           })
         });
         setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
@@ -282,6 +328,25 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         setError(err instanceof Error ? err.message : "Unable to save order details");
       }
     });
+  }
+
+  function updateLineItem(productName: string, quantity: string) {
+    const normalized = quantity === "" ? "" : String(Math.max(0, Number(quantity)));
+    setLineItems((current) =>
+      current.map((item) => (item.productName === productName ? { ...item, quantity: normalized } : item))
+    );
+  }
+
+  function stepLineItem(productName: string, delta: number) {
+    setLineItems((current) =>
+      current.map((item) => {
+        if (item.productName !== productName) {
+          return item;
+        }
+        const nextQuantity = Math.max(0, Number(item.quantity || 0) + delta);
+        return { ...item, quantity: nextQuantity > 0 ? String(nextQuantity) : "" };
+      })
+    );
   }
 
   function addNote() {
@@ -575,9 +640,62 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                         <div className="grid gap-3">
                           <Input value={form.customerName} onChange={(e) => setForm((c) => ({ ...c, customerName: e.target.value }))} placeholder="Customer name" />
                           <Input value={form.phoneNumber} onChange={(e) => setForm((c) => ({ ...c, phoneNumber: e.target.value }))} placeholder="Phone number" />
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <Input type="number" min="1" value={form.quantity} onChange={(e) => setForm((c) => ({ ...c, quantity: e.target.value }))} placeholder="Quantity" />
-                            <Input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => setForm((c) => ({ ...c, unitPrice: e.target.value }))} placeholder="Unit price" />
+                          <div className="overflow-hidden rounded-lg border border-line/80 bg-black/10">
+                            <div className="flex items-center justify-between gap-3 border-b border-line/75 px-4 py-3">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Order Items</p>
+                                <p className="mt-1 text-xs text-foreground/45">{orderItemSummary.quantity} pcs selected</p>
+                              </div>
+                              <p className="text-sm font-semibold">Php {formatPeso(orderItemSummary.subtotal)}</p>
+                            </div>
+                            <div className="divide-y divide-line/65">
+                              {lineItems.map((item) => {
+                                const quantity = Number(item.quantity || 0);
+                                const subtotal = quantity * item.price;
+                                return (
+                                  <div
+                                    key={item.productName}
+                                    className={cn(
+                                      "grid grid-cols-[minmax(0,1fr)_132px] items-center gap-3 px-4 py-3 transition",
+                                      quantity > 0 && "bg-accent/[0.06]"
+                                    )}
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold">{item.productName}</p>
+                                      <p className="mt-0.5 text-xs text-foreground/45">
+                                        Php {item.price}{quantity > 0 ? ` - Php ${formatPeso(subtotal)}` : ""}
+                                      </p>
+                                    </div>
+                                    <div className="grid grid-cols-[34px_minmax(48px,1fr)_34px] items-center gap-2">
+                                      <button
+                                        type="button"
+                                        aria-label={`Decrease ${item.productName}`}
+                                        onClick={() => stepLineItem(item.productName, -1)}
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
+                                      >
+                                        <Minus size={14} />
+                                      </button>
+                                      <Input
+                                        aria-label={`${item.productName} quantity`}
+                                        className="h-8 px-2 text-center"
+                                        type="number"
+                                        min="0"
+                                        value={item.quantity}
+                                        onChange={(e) => updateLineItem(item.productName, e.target.value)}
+                                      />
+                                      <button
+                                        type="button"
+                                        aria-label={`Increase ${item.productName}`}
+                                        onClick={() => stepLineItem(item.productName, 1)}
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
+                                      >
+                                        <Plus size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                           <Select value={form.deliveryMethod} onChange={(value) => setForm((c) => ({ ...c, deliveryMethod: value }))} options={deliverySelectOptions} />
                           <Select value={form.paymentMethod} onChange={(value) => setForm((c) => ({ ...c, paymentMethod: value }))} options={paymentSelectOptions} />
@@ -590,9 +708,13 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           <textarea
                             value={form.notes}
                             onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))}
-                            placeholder="Notes"
+                            placeholder="Additional notes"
                             className="min-h-28 w-full rounded-lg border border-line/80 bg-black/10 px-3.5 py-3 text-sm outline-none transition placeholder:text-foreground/38 hover:border-foreground/18 focus:border-accent/60"
                           />
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <MiniStat label="Quantity" value={`${orderItemSummary.quantity} pcs`} />
+                            <MiniStat label="Total to Pay" value={`Php ${formatPeso(orderItemSummary.total)}`} />
+                          </div>
                         </div>
                       ) : (
                         <>
@@ -832,7 +954,7 @@ function getOrderNotes(order: any): OrderNoteView[] {
 
 function getOrderLineItems(order: any): OrderLineItemView[] {
   const noteBodies = getOrderNotes(order).map((note) => note.body);
-  const body: string = noteBodies.find((note) => note.includes("Items:")) ?? String(order?.notes ?? "");
+  const body: string = String(order?.notes ?? "") || (noteBodies.find((note) => note.includes("Items:")) ?? "");
   const itemLines = body
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -860,6 +982,69 @@ function getOrderLineItems(order: any): OrderLineItemView[] {
 
   const productMatch = body.match(/^Product:\s*(.+)$/im);
   return productMatch ? [{ name: productMatch[1].trim(), quantity: Number(order?.quantity ?? 0) }] : [];
+}
+
+function createEditableLineItems(order?: any): EditableOrderLineItem[] {
+  const parsedItems = order ? getOrderLineItems(order) : [];
+  const parsedByName = new Map(parsedItems.map((item) => [item.name.toLowerCase(), item]));
+  const knownItems = productOptions.map((product) => {
+    const existing = parsedByName.get(product.value.toLowerCase());
+    return {
+      productName: product.value,
+      quantity: existing?.quantity ? String(existing.quantity) : "",
+      price: existing?.price ?? product.price
+    };
+  });
+  const knownNames = new Set(productOptions.map((product) => product.value.toLowerCase()));
+  const customItems = parsedItems
+    .filter((item) => !knownNames.has(item.name.toLowerCase()))
+    .map((item) => ({
+      productName: item.name,
+      quantity: item.quantity ? String(item.quantity) : "",
+      price: item.price ?? Number(order?.unitPrice ?? 0)
+    }));
+
+  if (parsedItems.length > 0) {
+    return [...knownItems, ...customItems];
+  }
+
+  const fallbackQuantity = Number(order?.quantity ?? 0);
+  return knownItems.map((item, index) => ({
+    ...item,
+    quantity: index === 0 && fallbackQuantity > 0 ? String(fallbackQuantity) : item.quantity
+  }));
+}
+
+function buildOrderNotes(items: Array<{ name: string; quantity: number; price: number; subtotal: number }>, notes: string) {
+  const itemsNote = [
+    "Items:",
+    ...items.map((item) => `- ${item.name} x ${item.quantity} @ Php ${formatPeso(item.price)} = Php ${formatPeso(item.subtotal)}`)
+  ].join("\n");
+  return [itemsNote, notes.trim()].filter(Boolean).join("\n\n");
+}
+
+function stripItemsBlock(value: string) {
+  const lines = value.split(/\r?\n/);
+  const result: string[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    if (lines[index].trim().toLowerCase() === "items:") {
+      index += 1;
+      while (index < lines.length && lines[index].trim().startsWith("- ")) {
+        index += 1;
+      }
+      while (index < lines.length && lines[index].trim() === "") {
+        index += 1;
+      }
+      continue;
+    }
+
+    result.push(lines[index]);
+    index += 1;
+  }
+
+  return result.join("\n").trim();
 }
 
 function formatOrderDetailsForCopy(order: any) {
@@ -900,6 +1085,10 @@ function formatPaymentMethod(value?: string | null) {
 
 function formatSchedule(value?: string | null) {
   return value ? scheduleFormatter.format(new Date(value)) : "Not scheduled";
+}
+
+function formatPeso(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function formatExportDate(value?: string | null) {
