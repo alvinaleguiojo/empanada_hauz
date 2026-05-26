@@ -92,6 +92,7 @@ export default async function TrackOrderPage({ params }: PageProps) {
   const note = getPublicNote(order);
   const progress = statusRank[order.status] ?? 0;
   const isCancelled = order.status === "cancelled";
+  const showsMaximTracking = isMaximTrackingOrder(order);
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
@@ -128,7 +129,7 @@ export default async function TrackOrderPage({ params }: PageProps) {
                   isCancelled ? "bg-danger/15 text-danger" : "bg-accent/15 text-accent"
                 )}
               >
-                {order.deliveryMethod}
+                {showsMaximTracking ? "maxim" : order.deliveryMethod}
               </span>
             </div>
 
@@ -170,7 +171,7 @@ export default async function TrackOrderPage({ params }: PageProps) {
             />
             <InfoPanel
               icon={MapPin}
-              label={order.deliveryMethod === "maxim" ? "Delivery Address" : "Pickup / Area"}
+              label={showsMaximTracking ? "Delivery Address" : "Pickup / Area"}
               value={order.address ?? order.location ?? "No address provided"}
             />
             <InfoPanel icon={ReceiptText} label="Total to Pay" value={`Php ${formatPeso(order.totalAmount)}`} />
@@ -220,7 +221,7 @@ export default async function TrackOrderPage({ params }: PageProps) {
           </div>
         </section>
 
-        {order.deliveryMethod === "maxim" ? <MaximTrackingPanel order={order} /> : null}
+        {showsMaximTracking ? <MaximTrackingPanel order={order} /> : null}
       </div>
     </main>
   );
@@ -309,6 +310,15 @@ function MaximTrackingPanel({ order }: { order: TrackingOrder }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function isMaximTrackingOrder(order: TrackingOrder) {
+  return (
+    order.deliveryMethod === "maxim" ||
+    Boolean(order.delivery) ||
+    order.status === "ready_for_booking" ||
+    order.status === "booked"
   );
 }
 
