@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsOptional, IsString, Min } from "class-validator";
+import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Min } from "class-validator";
 
 export class CreateManualDeliveryDto {
   @IsString()
@@ -35,4 +35,34 @@ export class CreateManualDeliveryDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class UpdateDeliveryTrackingDto {
+  @IsOptional()
+  @IsIn(["pending", "grouped", "ready_for_booking", "booked", "completed", "cancelled"])
+  status?: "pending" | "grouped" | "ready_for_booking" | "booked" | "completed" | "cancelled";
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  eta?: string;
+
+  @IsOptional()
+  @IsString()
+  trackingLink?: string;
+
+  @IsOptional()
+  @IsString()
+  riderName?: string;
+
+  @IsOptional()
+  @IsString()
+  riderPlate?: string;
+
+  @IsOptional()
+  @IsString()
+  bookingNotes?: string;
 }

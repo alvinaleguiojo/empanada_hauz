@@ -1,8 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { OrdersService } from "../orders/orders.service";
-import { CreateManualDeliveryDto } from "./dto";
+import { CreateManualDeliveryDto, UpdateDeliveryTrackingDto } from "./dto";
 
 @Injectable()
 export class DeliveriesService {
@@ -35,6 +35,13 @@ export class DeliveriesService {
       preferredSchedule: order.preferredSchedule,
       deliveryFee: order.deliveryFee,
       areaGroup: order.location,
+      deliveryStatus: order.delivery?.status,
+      scheduledAt: order.delivery?.scheduledAt,
+      eta: order.delivery?.eta,
+      trackingLink: order.delivery?.trackingLink,
+      riderName: order.delivery?.riderName,
+      riderPlate: order.delivery?.riderPlate,
+      bookingNotes: order.delivery?.bookingNotes,
       copyDetails: [
         order.customer.name,
         order.customer.phoneNumber ?? "No phone",
@@ -91,6 +98,66 @@ export class DeliveriesService {
       }
     });
 
+    this.realtime.emit("deliveries.updated", updated);
+    return updated;
+  }
+
+  async updateTracking(orderId: string, dto: UpdateDeliveryTrackingDto) {
+    const existing = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true, delivery: true }
+    });
+
+    if (!existing) {
+      throw new NotFoundException("Order not found");
+    }
+
+    const copyPayload = [
+      existing.customer.name,
+      existing.customer.phoneNumber ?? "No phone",
+      existing.address ?? existing.location ?? "No address",
+      `${existing.quantity} pcs`,
+      `Php ${existing.totalAmount}`,
+      existing.preferredSchedule?.toISOString() ?? "No schedule"
+    ].join(" | ");
+
+    const deliveryData = {
+      areaGroup: existing.location,
+      status: dto.status ?? "booked",
+      scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : existing.delivery?.scheduledAt ?? new Date(),
+      eta: dto.eta ? new Date(dto.eta) : null,
+      trackingLink: dto.trackingLink?.trim() || null,
+      riderName: dto.riderName?.trim() || null,
+      riderPlate: dto.riderPlate?.trim() || null,
+      bookingNotes: dto.bookingNotes?.trim() || null,
+      copyPayload
+    };
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const delivery = existing.deliveryId
+        ? await tx.delivery.update({
+            where: { id: existing.deliveryId },
+            data: deliveryData
+          })
+        : await tx.delivery.create({
+            data: deliveryData
+          });
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: {
+          deliveryId: delivery.id,
+          deliveryMethod: "maxim",
+          status: dto.status === "completed" ? "completed" : dto.status === "cancelled" ? "cancelled" : "booked"
+        },
+        include: {
+          customer: true,
+          delivery: true
+        }
+      });
+    });
+
+    this.realtime.emit("orders.updated", updated);
     this.realtime.emit("deliveries.updated", updated);
     return updated;
   }

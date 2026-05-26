@@ -69,6 +69,10 @@ export class OrdersService {
             status: order.delivery.status,
             areaGroup: order.delivery.areaGroup,
             scheduledAt: order.delivery.scheduledAt,
+            eta: order.delivery.eta,
+            trackingLink: order.delivery.trackingLink,
+            riderName: order.delivery.riderName,
+            riderPlate: order.delivery.riderPlate,
             bookingNotes: order.delivery.bookingNotes,
             copyPayload: order.delivery.copyPayload,
             updatedAt: order.delivery.updatedAt

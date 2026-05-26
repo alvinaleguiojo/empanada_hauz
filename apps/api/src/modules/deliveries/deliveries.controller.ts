@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
-import { CreateManualDeliveryDto } from "./dto";
+import { CreateManualDeliveryDto, UpdateDeliveryTrackingDto } from "./dto";
 import { DeliveriesService } from "./deliveries.service";
 
 @UseGuards(JwtAuthGuard)
@@ -21,5 +21,10 @@ export class DeliveriesController {
   @Post("manual")
   createManual(@Body() dto: CreateManualDeliveryDto) {
     return this.deliveriesService.createManual(dto);
+  }
+
+  @Patch("orders/:orderId")
+  updateTracking(@Param("orderId") orderId: string, @Body() dto: UpdateDeliveryTrackingDto) {
+    return this.deliveriesService.updateTracking(orderId, dto);
   }
 }

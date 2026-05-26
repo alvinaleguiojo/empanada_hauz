@@ -215,6 +215,10 @@ model Delivery {
   areaGroup         String?
   status            DeliveryStatus @default(pending)
   scheduledAt       DateTime?
+  eta               DateTime?
+  trackingLink      String?
+  riderName         String?
+  riderPlate        String?
   bookingNotes      String?
   copyPayload       String?
   createdAt         DateTime       @default(now())

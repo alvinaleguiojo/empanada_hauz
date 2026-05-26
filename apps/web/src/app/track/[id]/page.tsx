@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { CheckCircle2, Clock3, MapPin, PackageCheck, ReceiptText, Truck } from "lucide-react";
+import { CheckCircle2, Clock3, ExternalLink, MapPin, PackageCheck, ReceiptText, Truck, UserRound } from "lucide-react";
 import { API_URL } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +26,10 @@ type TrackingOrder = {
     status?: string | null;
     areaGroup?: string | null;
     scheduledAt?: string | null;
+    eta?: string | null;
+    trackingLink?: string | null;
+    riderName?: string | null;
+    riderPlate?: string | null;
     bookingNotes?: string | null;
     copyPayload?: string | null;
     updatedAt?: string | null;
@@ -301,7 +305,21 @@ function MaximTrackingPanel({ order }: { order: TrackingOrder }) {
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         <InfoPanel icon={MapPin} label="Drop-off" value={order.address ?? order.location ?? "No address provided"} />
         <InfoPanel icon={Clock3} label="Booking Time" value={order.delivery?.scheduledAt ? formatDate(order.delivery.scheduledAt) : "Not booked yet"} />
+        <InfoPanel icon={Clock3} label="ETA" value={order.delivery?.eta ? formatDate(order.delivery.eta) : "No ETA yet"} />
+        <InfoPanel icon={UserRound} label="Rider" value={formatRider(order)} />
       </div>
+
+      {order.delivery?.trackingLink ? (
+        <a
+          href={order.delivery.trackingLink}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-accent/45 bg-accent/12 px-4 py-3 text-sm font-semibold text-accent transition hover:bg-accent/18 sm:w-auto"
+        >
+          <ExternalLink size={16} />
+          Open Maxim Tracking
+        </a>
+      ) : null}
 
       {order.delivery?.bookingNotes ? (
         <div className="mt-4 rounded-lg border border-line/70 bg-black/[0.06] px-3.5 py-3">
@@ -320,6 +338,10 @@ function isMaximTrackingOrder(order: TrackingOrder) {
     order.status === "ready_for_booking" ||
     order.status === "booked"
   );
+}
+
+function formatRider(order: TrackingOrder) {
+  return [order.delivery?.riderName, order.delivery?.riderPlate].filter(Boolean).join(" - ") || "No rider details yet";
 }
 
 function normalizeOrderItems(value: unknown): OrderLineItem[] {
