@@ -789,57 +789,55 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           <Input value={form.location} onChange={(e) => setForm((c) => ({ ...c, location: e.target.value }))} placeholder="Area / location" />
                           <Input value={form.address} onChange={(e) => setForm((c) => ({ ...c, address: e.target.value }))} placeholder="Address" />
                           <Input type="datetime-local" value={form.preferredSchedule} onChange={(e) => setForm((c) => ({ ...c, preferredSchedule: e.target.value }))} />
-                          {form.deliveryMethod === "maxim" ? (
-                            <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Maxim Tracking</p>
-                                <p className="mt-1 text-xs text-foreground/45">Paste the booking link and rider details after booking Maxim.</p>
-                              </div>
-                              <div className="grid gap-3 sm:grid-cols-2">
-                                <Input
-                                  value={form.maximTrackingLink}
-                                  onChange={(e) => setForm((c) => ({ ...c, maximTrackingLink: e.target.value }))}
-                                  placeholder="Maxim tracking link"
-                                  className="sm:col-span-2"
-                                />
-                                <Input
-                                  value={form.maximRiderName}
-                                  onChange={(e) => setForm((c) => ({ ...c, maximRiderName: e.target.value }))}
-                                  placeholder="Rider name"
-                                />
-                                <Input
-                                  value={form.maximRiderPlate}
-                                  onChange={(e) => setForm((c) => ({ ...c, maximRiderPlate: e.target.value }))}
-                                  placeholder="Plate / rider ID"
-                                />
-                                <Input
-                                  type="datetime-local"
-                                  value={form.maximScheduledAt}
-                                  onChange={(e) => setForm((c) => ({ ...c, maximScheduledAt: e.target.value }))}
-                                />
-                                <Input
-                                  type="datetime-local"
-                                  value={form.maximEta}
-                                  onChange={(e) => setForm((c) => ({ ...c, maximEta: e.target.value }))}
-                                />
-                              </div>
-                              <select
-                                value={form.maximStatus}
-                                onChange={(e) => setForm((c) => ({ ...c, maximStatus: e.target.value }))}
-                                className="h-10 w-full rounded-lg border border-line/80 bg-black/10 px-3 text-sm text-foreground outline-none transition hover:border-foreground/18 focus:border-accent/60"
-                              >
-                                <option value="booked">Booked</option>
-                                <option value="completed">Completed</option>
-                                <option value="cancelled">Cancelled</option>
-                              </select>
-                              <textarea
-                                value={form.maximBookingNotes}
-                                onChange={(e) => setForm((c) => ({ ...c, maximBookingNotes: e.target.value }))}
-                                placeholder="Maxim booking notes"
-                                className="min-h-20 w-full rounded-lg border border-line/80 bg-black/10 px-3.5 py-3 text-sm outline-none transition placeholder:text-foreground/38 hover:border-foreground/18 focus:border-accent/60"
+                          <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Maxim Tracking</p>
+                              <p className="mt-1 text-xs text-foreground/45">Paste the booking link and rider details after booking Maxim.</p>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <Input
+                                value={form.maximTrackingLink}
+                                onChange={(e) => setForm((c) => ({ ...c, maximTrackingLink: e.target.value }))}
+                                placeholder="Maxim tracking link"
+                                className="sm:col-span-2"
+                              />
+                              <Input
+                                value={form.maximRiderName}
+                                onChange={(e) => setForm((c) => ({ ...c, maximRiderName: e.target.value }))}
+                                placeholder="Rider name"
+                              />
+                              <Input
+                                value={form.maximRiderPlate}
+                                onChange={(e) => setForm((c) => ({ ...c, maximRiderPlate: e.target.value }))}
+                                placeholder="Plate / rider ID"
+                              />
+                              <Input
+                                type="datetime-local"
+                                value={form.maximScheduledAt}
+                                onChange={(e) => setForm((c) => ({ ...c, maximScheduledAt: e.target.value }))}
+                              />
+                              <Input
+                                type="datetime-local"
+                                value={form.maximEta}
+                                onChange={(e) => setForm((c) => ({ ...c, maximEta: e.target.value }))}
                               />
                             </div>
-                          ) : null}
+                            <select
+                              value={form.maximStatus}
+                              onChange={(e) => setForm((c) => ({ ...c, maximStatus: e.target.value }))}
+                              className="h-10 w-full rounded-lg border border-line/80 bg-black/10 px-3 text-sm text-foreground outline-none transition hover:border-foreground/18 focus:border-accent/60"
+                            >
+                              <option value="booked">Booked</option>
+                              <option value="completed">Completed</option>
+                              <option value="cancelled">Cancelled</option>
+                            </select>
+                            <textarea
+                              value={form.maximBookingNotes}
+                              onChange={(e) => setForm((c) => ({ ...c, maximBookingNotes: e.target.value }))}
+                              placeholder="Maxim booking notes"
+                              className="min-h-20 w-full rounded-lg border border-line/80 bg-black/10 px-3.5 py-3 text-sm outline-none transition placeholder:text-foreground/38 hover:border-foreground/18 focus:border-accent/60"
+                            />
+                          </div>
                           <textarea
                             value={form.notes}
                             onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))}
