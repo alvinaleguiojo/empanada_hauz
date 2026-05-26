@@ -12,6 +12,11 @@ export class OrdersController {
     return this.ordersService.list();
   }
 
+  @Get("track/:id")
+  track(@Param("id") id: string) {
+    return this.ordersService.track(id);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post()
   create(@Body() dto: CreateOrderDto) {

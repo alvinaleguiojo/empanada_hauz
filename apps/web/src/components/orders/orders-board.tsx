@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, Check, ChevronRight, Clock3, Copy, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Clock3, Copy, Link2, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -128,6 +128,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [editMode, setEditMode] = useState(false);
   const [copiedDetails, setCopiedDetails] = useState(false);
+  const [copiedTracking, setCopiedTracking] = useState(false);
   const [copiedNotes, setCopiedNotes] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [detailOpen, setDetailOpen] = useState(false);
@@ -213,6 +214,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       setEditMode(false);
       setError(null);
       setCopiedDetails(false);
+      setCopiedTracking(false);
       setCopiedNotes(false);
       setNoteDraft("");
     }
@@ -395,6 +397,20 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       window.setTimeout(() => setCopiedDetails(false), 1600);
     } catch {
       setCopiedDetails(false);
+    }
+  }
+
+  async function copyTrackingLink() {
+    if (!selectedOrder || typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/track/${selectedOrder.id}`);
+      setCopiedTracking(true);
+      window.setTimeout(() => setCopiedTracking(false), 1600);
+    } catch {
+      setCopiedTracking(false);
     }
   }
 
@@ -621,6 +637,12 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                             <Button variant="ghost" className="px-3" onClick={copyOrderDetails}>
                               {copiedDetails ? <Check size={14} /> : <Copy size={14} />}
                               {copiedDetails ? "Copied" : "Copy"}
+                            </Button>
+                          ) : null}
+                          {!editMode ? (
+                            <Button variant="ghost" className="px-3" onClick={copyTrackingLink}>
+                              {copiedTracking ? <Check size={14} /> : <Link2 size={14} />}
+                              {copiedTracking ? "Copied" : "Track Link"}
                             </Button>
                           ) : null}
                           <Button

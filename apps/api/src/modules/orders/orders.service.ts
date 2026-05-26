@@ -29,6 +29,59 @@ export class OrdersService {
     });
   }
 
+  async track(id: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        delivery: true,
+        orderNotes: { orderBy: { createdAt: "desc" }, take: 5 }
+      }
+    });
+
+    if (!order) {
+      throw new NotFoundException("Order not found");
+    }
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      quantity: order.quantity,
+      unitPrice: order.unitPrice,
+      totalAmount: order.totalAmount,
+      deliveryFee: order.deliveryFee,
+      deliveryMethod: order.deliveryMethod,
+      paymentMethod: order.paymentMethod,
+      location: order.location,
+      address: order.address,
+      preferredSchedule: order.preferredSchedule,
+      items: order.items,
+      notes: order.notes,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      customer: {
+        name: order.customer.name,
+        phoneNumber: order.customer.phoneNumber
+      },
+      delivery: order.delivery
+        ? {
+            status: order.delivery.status,
+            areaGroup: order.delivery.areaGroup,
+            scheduledAt: order.delivery.scheduledAt,
+            bookingNotes: order.delivery.bookingNotes,
+            copyPayload: order.delivery.copyPayload,
+            updatedAt: order.delivery.updatedAt
+          }
+        : null,
+      orderNotes: order.orderNotes.map((note) => ({
+        id: note.id,
+        body: note.body,
+        createdAt: note.createdAt
+      }))
+    };
+  }
+
   async create(dto: CreateOrderDto) {
     const batch = await this.batchesService.assignBatch(dto.quantity);
     const deliveryFee = dto.deliveryFee ?? 0;
