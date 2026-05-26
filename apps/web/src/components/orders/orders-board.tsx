@@ -724,6 +724,14 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                         <div className="grid gap-3">
                           <Input value={form.customerName} onChange={(e) => setForm((c) => ({ ...c, customerName: e.target.value }))} placeholder="Customer name" />
                           <Input value={form.phoneNumber} onChange={(e) => setForm((c) => ({ ...c, phoneNumber: e.target.value }))} placeholder="Phone number" />
+                          <div className="rounded-lg border border-accent/35 bg-accent/[0.06] p-3">
+                            <p className="mb-2 text-xs uppercase tracking-[0.18em] text-accent">Maxim Link</p>
+                            <Input
+                              value={form.maximTrackingLink}
+                              onChange={(e) => setForm((c) => ({ ...c, maximTrackingLink: e.target.value }))}
+                              placeholder="Paste Maxim tracking link here"
+                            />
+                          </div>
                           <div className="overflow-hidden rounded-lg border border-line/80 bg-black/10">
                             <div className="flex items-center justify-between gap-3 border-b border-line/75 px-4 py-3">
                               <div>
@@ -795,12 +803,6 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                               <p className="mt-1 text-xs text-foreground/45">Paste the booking link and rider details after booking Maxim.</p>
                             </div>
                             <div className="grid gap-3 sm:grid-cols-2">
-                              <Input
-                                value={form.maximTrackingLink}
-                                onChange={(e) => setForm((c) => ({ ...c, maximTrackingLink: e.target.value }))}
-                                placeholder="Maxim tracking link"
-                                className="sm:col-span-2"
-                              />
                               <Input
                                 value={form.maximRiderName}
                                 onChange={(e) => setForm((c) => ({ ...c, maximRiderName: e.target.value }))}
