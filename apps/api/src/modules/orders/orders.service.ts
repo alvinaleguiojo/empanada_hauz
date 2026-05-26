@@ -48,6 +48,7 @@ export class OrdersService {
         address: dto.address,
         preferredSchedule: dto.preferredSchedule ? new Date(dto.preferredSchedule) : undefined,
         scheduleReminderSentAt: null,
+        items: dto.items,
         notes: dto.notes,
         ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}),
         batchId: batch?.id,
@@ -94,6 +95,7 @@ export class OrdersService {
         address: dto.address,
         preferredSchedule: dto.preferredSchedule ? new Date(dto.preferredSchedule) : undefined,
         scheduleReminderSentAt: null,
+        items: dto.items,
         notes: dto.notes,
         ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}),
         batchId: batch?.id,
@@ -180,6 +182,7 @@ export class OrdersService {
                 scheduleReminderSentAt: null
               }
             : {}),
+          ...(dto.items !== undefined ? { items: dto.items } : {}),
           ...(dto.notes !== undefined ? { notes: dto.notes } : {})
         },
         include: {

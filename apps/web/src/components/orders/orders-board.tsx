@@ -305,7 +305,6 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
           return;
         }
 
-        const notes = buildOrderNotes(orderItemSummary.items, form.notes);
         const updated = await apiFetch<any>(`/orders/${selectedOrder.id}`, {
           method: "PATCH",
           body: JSON.stringify({
@@ -314,12 +313,13 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             quantity: orderItemSummary.quantity,
             unitPrice: orderItemSummary.unitPrice,
             deliveryFee: orderItemSummary.deliveryFee,
+            items: orderItemSummary.items,
             deliveryMethod: form.deliveryMethod,
             paymentMethod: form.paymentMethod,
             location: form.location || undefined,
             address: form.address || undefined,
             preferredSchedule: form.preferredSchedule ? new Date(form.preferredSchedule).toISOString() : undefined,
-            notes: notes || undefined
+            notes: form.notes.trim() || undefined
           })
         });
         setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
@@ -510,6 +510,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                 <div className="space-y-2.5">
                   {columnOrders.map((order) => {
                     const orderLineItems = getOrderLineItems(order);
+                    const notePreview = getOrderNotePreview(order);
                     return (
                       <button
                         key={order.id}
@@ -533,6 +534,12 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           <Badge className={cn("border-0 text-[11px]", statusTone[order.status])}>{order.deliveryMethod}</Badge>
                         </div>
                         <OrderItemsList items={orderLineItems} fallbackQuantity={order.quantity} />
+                        {notePreview ? (
+                          <div className="mt-3 rounded-lg border border-line/70 bg-white/[0.03] px-3 py-2.5">
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-foreground/28">Note</p>
+                            <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm leading-5 text-foreground/70">{notePreview}</p>
+                          </div>
+                        ) : null}
                         <div className="mt-3 grid grid-cols-2 gap-2">
                           <CompactStat label="Qty" value={`${order.quantity}`} suffix="pcs" />
                           <CompactStat label="To Pay" value={`Php ${String(order.totalAmount)}`} />
@@ -938,14 +945,17 @@ function getTimeValue(value?: string | null) {
 function getOrderNotes(order: any): OrderNoteView[] {
   const orderNotes: OrderNoteView[] = Array.isArray(order?.orderNotes) ? order.orderNotes : [];
   if (orderNotes.length > 0) {
-    return orderNotes;
+    return orderNotes
+      .map((note) => ({ ...note, body: stripItemsBlock(note.body) }))
+      .filter((note) => note.body.trim());
   }
 
-  return order?.notes
+  const body = stripItemsBlock(order?.notes ?? "");
+  return body
     ? [
         {
           id: "legacy-note",
-          body: order.notes,
+          body,
           createdAt: order.createdAt
         }
       ]
@@ -953,8 +963,13 @@ function getOrderNotes(order: any): OrderNoteView[] {
 }
 
 function getOrderLineItems(order: any): OrderLineItemView[] {
-  const noteBodies = getOrderNotes(order).map((note) => note.body);
-  const body: string = String(order?.notes ?? "") || (noteBodies.find((note) => note.includes("Items:")) ?? "");
+  const storedItems = normalizeStoredOrderItems(order?.items);
+  if (storedItems.length > 0) {
+    return storedItems;
+  }
+
+  const rawNoteBodies: string[] = Array.isArray(order?.orderNotes) ? order.orderNotes.map((note: any) => note.body) : [];
+  const body: string = String(order?.notes ?? "") || (rawNoteBodies.find((note) => note.includes("Items:")) ?? "");
   const itemLines = body
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -982,6 +997,43 @@ function getOrderLineItems(order: any): OrderLineItemView[] {
 
   const productMatch = body.match(/^Product:\s*(.+)$/im);
   return productMatch ? [{ name: productMatch[1].trim(), quantity: Number(order?.quantity ?? 0) }] : [];
+}
+
+function normalizeStoredOrderItems(value: unknown): OrderLineItemView[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item): OrderLineItemView | null => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const candidate = item as Record<string, unknown>;
+      const name = typeof candidate.name === "string" ? candidate.name : "";
+      const quantity = Number(candidate.quantity ?? 0);
+      if (!name || quantity < 1) {
+        return null;
+      }
+
+      const price = candidate.price !== undefined ? Number(candidate.price) : undefined;
+      const subtotal = candidate.subtotal !== undefined ? Number(candidate.subtotal) : undefined;
+      return {
+        name,
+        quantity,
+        ...(price !== undefined && !Number.isNaN(price) ? { price } : {}),
+        ...(subtotal !== undefined && !Number.isNaN(subtotal) ? { subtotal } : {})
+      };
+    })
+    .filter((item): item is OrderLineItemView => Boolean(item));
+}
+
+function getOrderNotePreview(order: any) {
+  return getOrderNotes(order)
+    .map((note) => note.body.trim())
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function createEditableLineItems(order?: any): EditableOrderLineItem[] {
@@ -1013,14 +1065,6 @@ function createEditableLineItems(order?: any): EditableOrderLineItem[] {
     ...item,
     quantity: index === 0 && fallbackQuantity > 0 ? String(fallbackQuantity) : item.quantity
   }));
-}
-
-function buildOrderNotes(items: Array<{ name: string; quantity: number; price: number; subtotal: number }>, notes: string) {
-  const itemsNote = [
-    "Items:",
-    ...items.map((item) => `- ${item.name} x ${item.quantity} @ Php ${formatPeso(item.price)} = Php ${formatPeso(item.subtotal)}`)
-  ].join("\n");
-  return [itemsNote, notes.trim()].filter(Boolean).join("\n\n");
 }
 
 function stripItemsBlock(value: string) {

@@ -186,6 +186,7 @@ model Order {
   preferredSchedule DateTime?
   scheduleReminderSentAt DateTime?
   status            OrderStatus     @default(inquiry)
+  items             Json?
   notes             String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt

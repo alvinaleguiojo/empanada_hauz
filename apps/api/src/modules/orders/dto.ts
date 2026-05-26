@@ -30,6 +30,13 @@ export type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
+export type OrderLineItemDto = {
+  name: string;
+  quantity: number;
+  price?: number;
+  subtotal?: number;
+};
+
 export class CreateOrderDto {
   @IsString()
   customerId!: string;
@@ -64,6 +71,10 @@ export class CreateOrderDto {
   @IsOptional()
   @IsDateString()
   preferredSchedule?: string;
+
+  @IsOptional()
+  @IsArray()
+  items?: OrderLineItemDto[];
 
   @IsOptional()
   @IsString()
@@ -119,6 +130,10 @@ export class UpdateOrderDto {
   preferredSchedule?: string;
 
   @IsOptional()
+  @IsArray()
+  items?: OrderLineItemDto[];
+
+  @IsOptional()
   @IsString()
   notes?: string;
 }
@@ -165,6 +180,10 @@ export class ManualOrderEntryDto {
   @IsOptional()
   @IsString()
   status?: OrderStatus;
+
+  @IsOptional()
+  @IsArray()
+  items?: OrderLineItemDto[];
 
   @IsOptional()
   @IsString()

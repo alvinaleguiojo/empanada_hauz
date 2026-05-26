@@ -202,14 +202,6 @@ export function ManualOrderForm() {
           return;
         }
 
-        const itemsNote = [
-          "Items:",
-          ...orderSummary.items.map(
-            (item) => `- ${item.name} x ${item.quantity} @ Php ${item.price} = Php ${item.subtotal}`
-          )
-        ].join("\n");
-        const notes = [itemsNote, form.notes.trim()].filter(Boolean).join("\n\n");
-
         await apiFetch("/orders/manual", {
           method: "POST",
           body: JSON.stringify({
@@ -217,12 +209,13 @@ export function ManualOrderForm() {
             quantity: orderSummary.quantity,
             unitPrice: orderSummary.unitPrice,
             deliveryFee: orderSummary.deliveryFee,
+            items: orderSummary.items,
             preferredSchedule: form.preferredSchedule || undefined,
             paymentMethod: form.paymentMethod,
             phoneNumber: form.phoneNumber || undefined,
             location: form.location || undefined,
             address: form.address || undefined,
-            notes: notes || undefined
+            notes: form.notes.trim() || undefined
           })
         });
         setForm(createInitialFormState({ preferredSchedule: getLocalDateTimeInputValue() }));
