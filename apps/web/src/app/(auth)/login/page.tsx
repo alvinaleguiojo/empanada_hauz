@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Image from "next/image";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,8 +13,8 @@ import { useAuthStore } from "@/store/auth-store";
 export default function LoginPage() {
   const router = useRouter();
   const setToken = useAuthStore((state) => state.setToken);
-  const [email, setEmail] = useState("admin@empanadahauz.local");
-  const [password, setPassword] = useState("ChangeMe123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent) {
@@ -28,7 +29,8 @@ export default function LoginPage() {
       setToken(result.accessToken);
       localStorage.setItem("empanada-token", result.accessToken);
       document.cookie = `empanada-token=${result.accessToken}; path=/; max-age=86400`;
-      router.push("/dashboard");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push((next?.startsWith("/") ? next : "/dashboard") as Route);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     }
@@ -46,13 +48,14 @@ export default function LoginPage() {
             <h1 className="mt-1 text-2xl font-semibold">Operations Access</h1>
           </div>
         </div>
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" />
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit} autoComplete="off">
+          <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" autoComplete="off" />
           <Input
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             type="password"
             placeholder="Password"
+            autoComplete="off"
           />
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <Button className="w-full" type="submit">
