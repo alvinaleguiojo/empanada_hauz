@@ -152,7 +152,9 @@ export class DeliveriesService {
         },
         include: {
           customer: true,
-          delivery: true
+          batch: true,
+          delivery: true,
+          orderNotes: { orderBy: { createdAt: "desc" } }
         }
       });
     });

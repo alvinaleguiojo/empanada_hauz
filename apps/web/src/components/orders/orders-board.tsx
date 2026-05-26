@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, Check, ChevronRight, Clock3, Copy, Link2, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Clock3, Copy, ExternalLink, Link2, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -145,6 +145,13 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     location: "",
     address: "",
     preferredSchedule: "",
+    maximStatus: "booked",
+    maximScheduledAt: "",
+    maximEta: "",
+    maximTrackingLink: "",
+    maximRiderName: "",
+    maximRiderPlate: "",
+    maximBookingNotes: "",
     notes: ""
   });
   const [lineItems, setLineItems] = useState<EditableOrderLineItem[]>(() => createEditableLineItems());
@@ -208,6 +215,13 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         location: selectedOrder.location ?? "",
         address: selectedOrder.address ?? "",
         preferredSchedule: selectedOrder.preferredSchedule ? toInputDate(selectedOrder.preferredSchedule) : getLocalDateTimeInputValue(),
+        maximStatus: ["booked", "completed", "cancelled"].includes(selectedOrder.delivery?.status) ? selectedOrder.delivery.status : "booked",
+        maximScheduledAt: selectedOrder.delivery?.scheduledAt ? toInputDate(selectedOrder.delivery.scheduledAt) : getLocalDateTimeInputValue(),
+        maximEta: selectedOrder.delivery?.eta ? toInputDate(selectedOrder.delivery.eta) : "",
+        maximTrackingLink: selectedOrder.delivery?.trackingLink ?? "",
+        maximRiderName: selectedOrder.delivery?.riderName ?? "",
+        maximRiderPlate: selectedOrder.delivery?.riderPlate ?? "",
+        maximBookingNotes: selectedOrder.delivery?.bookingNotes ?? "",
         notes: stripItemsBlock(selectedOrder.notes ?? "")
       });
       setLineItems(createEditableLineItems(selectedOrder));
@@ -307,7 +321,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
           return;
         }
 
-        const updated = await apiFetch<any>(`/orders/${selectedOrder.id}`, {
+        let updated = await apiFetch<any>(`/orders/${selectedOrder.id}`, {
           method: "PATCH",
           body: JSON.stringify({
             customerName: form.customerName,
@@ -324,12 +338,53 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             notes: form.notes.trim() || undefined
           })
         });
+
+        if (shouldSaveMaximTracking()) {
+          updated = await apiFetch<any>(`/deliveries/orders/${selectedOrder.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              status: form.maximStatus,
+              scheduledAt: form.maximScheduledAt ? new Date(form.maximScheduledAt).toISOString() : undefined,
+              eta: form.maximEta ? new Date(form.maximEta).toISOString() : undefined,
+              trackingLink: form.maximTrackingLink || undefined,
+              riderName: form.maximRiderName || undefined,
+              riderPlate: form.maximRiderPlate || undefined,
+              bookingNotes: form.maximBookingNotes || undefined
+            })
+          });
+        }
+
         setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
         setEditMode(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to save order details");
       }
     });
+  }
+
+  function shouldSaveMaximTracking() {
+    return (
+      form.deliveryMethod === "maxim" ||
+      selectedStatus === "ready_for_booking" ||
+      selectedStatus === "booked" ||
+      Boolean(
+        form.maximTrackingLink.trim() ||
+          form.maximRiderName.trim() ||
+          form.maximRiderPlate.trim() ||
+          form.maximBookingNotes.trim() ||
+          form.maximEta
+      )
+    );
+  }
+
+  function shouldShowMaximTrackingFields() {
+    return (
+      form.deliveryMethod === "maxim" ||
+      selectedStatus === "ready_for_booking" ||
+      selectedStatus === "booked" ||
+      selectedOrder?.deliveryMethod === "maxim" ||
+      Boolean(selectedOrder?.delivery)
+    );
   }
 
   function updateLineItem(productName: string, quantity: string) {
@@ -728,12 +783,63 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           </div>
                           <Select value={form.deliveryMethod} onChange={(value) => setForm((c) => ({ ...c, deliveryMethod: value }))} options={deliverySelectOptions} />
                           <Select value={form.paymentMethod} onChange={(value) => setForm((c) => ({ ...c, paymentMethod: value }))} options={paymentSelectOptions} />
-                          {form.deliveryMethod === "maxim" ? (
+                          {shouldShowMaximTrackingFields() ? (
                             <Input type="number" min="0" step="0.01" value={form.deliveryFee} onChange={(e) => setForm((c) => ({ ...c, deliveryFee: e.target.value }))} placeholder="Delivery fee" />
                           ) : null}
                           <Input value={form.location} onChange={(e) => setForm((c) => ({ ...c, location: e.target.value }))} placeholder="Area / location" />
                           <Input value={form.address} onChange={(e) => setForm((c) => ({ ...c, address: e.target.value }))} placeholder="Address" />
                           <Input type="datetime-local" value={form.preferredSchedule} onChange={(e) => setForm((c) => ({ ...c, preferredSchedule: e.target.value }))} />
+                          {form.deliveryMethod === "maxim" ? (
+                            <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Maxim Tracking</p>
+                                <p className="mt-1 text-xs text-foreground/45">Paste the booking link and rider details after booking Maxim.</p>
+                              </div>
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <Input
+                                  value={form.maximTrackingLink}
+                                  onChange={(e) => setForm((c) => ({ ...c, maximTrackingLink: e.target.value }))}
+                                  placeholder="Maxim tracking link"
+                                  className="sm:col-span-2"
+                                />
+                                <Input
+                                  value={form.maximRiderName}
+                                  onChange={(e) => setForm((c) => ({ ...c, maximRiderName: e.target.value }))}
+                                  placeholder="Rider name"
+                                />
+                                <Input
+                                  value={form.maximRiderPlate}
+                                  onChange={(e) => setForm((c) => ({ ...c, maximRiderPlate: e.target.value }))}
+                                  placeholder="Plate / rider ID"
+                                />
+                                <Input
+                                  type="datetime-local"
+                                  value={form.maximScheduledAt}
+                                  onChange={(e) => setForm((c) => ({ ...c, maximScheduledAt: e.target.value }))}
+                                />
+                                <Input
+                                  type="datetime-local"
+                                  value={form.maximEta}
+                                  onChange={(e) => setForm((c) => ({ ...c, maximEta: e.target.value }))}
+                                />
+                              </div>
+                              <select
+                                value={form.maximStatus}
+                                onChange={(e) => setForm((c) => ({ ...c, maximStatus: e.target.value }))}
+                                className="h-10 w-full rounded-lg border border-line/80 bg-black/10 px-3 text-sm text-foreground outline-none transition hover:border-foreground/18 focus:border-accent/60"
+                              >
+                                <option value="booked">Booked</option>
+                                <option value="completed">Completed</option>
+                                <option value="cancelled">Cancelled</option>
+                              </select>
+                              <textarea
+                                value={form.maximBookingNotes}
+                                onChange={(e) => setForm((c) => ({ ...c, maximBookingNotes: e.target.value }))}
+                                placeholder="Maxim booking notes"
+                                className="min-h-20 w-full rounded-lg border border-line/80 bg-black/10 px-3.5 py-3 text-sm outline-none transition placeholder:text-foreground/38 hover:border-foreground/18 focus:border-accent/60"
+                              />
+                            </div>
+                          ) : null}
                           <textarea
                             value={form.notes}
                             onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))}
@@ -764,14 +870,43 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                             <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Items Ordered</p>
                             <OrderItemsList items={getOrderLineItems(selectedOrder)} fallbackQuantity={selectedOrder.quantity} className="mt-3" />
                           </div>
-                          {selectedOrder.deliveryMethod === "maxim" ? (
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <MiniStat
-                                label="Item Subtotal"
-                                value={`Php ${String(Number(selectedOrder.totalAmount ?? 0) - Number(selectedOrder.deliveryFee ?? 0))}`}
-                              />
-                              <MiniStat label="Delivery Fee" value={`Php ${String(selectedOrder.deliveryFee ?? 0)}`} />
-                            </div>
+                          {isMaximOrderView(selectedOrder) ? (
+                            <>
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <MiniStat
+                                  label="Item Subtotal"
+                                  value={`Php ${String(Number(selectedOrder.totalAmount ?? 0) - Number(selectedOrder.deliveryFee ?? 0))}`}
+                                />
+                                <MiniStat label="Delivery Fee" value={`Php ${String(selectedOrder.deliveryFee ?? 0)}`} />
+                              </div>
+                              <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                  <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Maxim Tracking</p>
+                                  {selectedOrder.delivery?.trackingLink ? (
+                                    <a
+                                      href={selectedOrder.delivery.trackingLink}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.06] px-3 text-sm font-semibold text-foreground transition hover:bg-white/[0.1]"
+                                    >
+                                      <ExternalLink size={14} />
+                                      Open Maxim
+                                    </a>
+                                  ) : null}
+                                </div>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <MiniStat label="Status" value={selectedOrder.delivery?.status ?? "Not booked"} />
+                                  <MiniStat label="ETA" value={formatSchedule(selectedOrder.delivery?.eta)} />
+                                  <MiniStat label="Rider" value={formatRider(selectedOrder)} />
+                                  <MiniStat label="Booking Time" value={formatSchedule(selectedOrder.delivery?.scheduledAt)} />
+                                </div>
+                                {selectedOrder.delivery?.bookingNotes ? (
+                                  <p className="whitespace-pre-wrap rounded-lg border border-line/70 bg-black/[0.08] px-3 py-2.5 text-sm leading-6 text-foreground/78">
+                                    {selectedOrder.delivery.bookingNotes}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </>
                           ) : null}
                           <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1151,6 +1286,19 @@ function formatPaymentMethod(value?: string | null) {
 
 function formatSchedule(value?: string | null) {
   return value ? scheduleFormatter.format(new Date(value)) : "Not scheduled";
+}
+
+function formatRider(order: any) {
+  return [order?.delivery?.riderName, order?.delivery?.riderPlate].filter(Boolean).join(" - ") || "No rider details";
+}
+
+function isMaximOrderView(order: any) {
+  return (
+    order?.deliveryMethod === "maxim" ||
+    Boolean(order?.delivery) ||
+    order?.status === "ready_for_booking" ||
+    order?.status === "booked"
+  );
 }
 
 function formatPeso(value: number) {
