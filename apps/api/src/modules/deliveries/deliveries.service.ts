@@ -147,8 +147,7 @@ export class DeliveriesService {
         where: { id: orderId },
         data: {
           deliveryId: delivery.id,
-          deliveryMethod: "maxim",
-          status: dto.status === "completed" ? "completed" : dto.status === "cancelled" ? "cancelled" : "booked"
+          deliveryMethod: "maxim"
         },
         include: {
           customer: true,

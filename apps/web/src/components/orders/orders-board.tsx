@@ -354,7 +354,9 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
           });
         }
 
-        setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        const refreshed = await apiFetch<any[]>("/orders");
+        setItems(refreshed);
+        setSelectedId(updated.id);
         setEditMode(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to save order details");
@@ -364,9 +366,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
 
   function shouldSaveMaximTracking() {
     return (
-      form.deliveryMethod === "maxim" ||
-      selectedStatus === "ready_for_booking" ||
-      selectedStatus === "booked" ||
+      Boolean(selectedOrder?.delivery) ||
       Boolean(
         form.maximTrackingLink.trim() ||
           form.maximRiderName.trim() ||
