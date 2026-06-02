@@ -12,11 +12,13 @@ enum UserRole {
   operations
   kitchen
   dispatcher
+  rider
 }
 
 enum DeliveryMethod {
   pickup
   maxim
+  own_delivery
 }
 
 enum PaymentMethod {
@@ -83,6 +85,39 @@ enum DeliveryStatus {
   cancelled
 }
 
+enum RiderStatus {
+  offline
+  online
+  busy
+  suspended
+}
+
+enum VehicleType {
+  motorcycle
+  bicycle
+  car
+}
+
+enum DeliveryJobStatus {
+  requested
+  searching_rider
+  assigned
+  accepted
+  pickup_started
+  picked_up
+  delivering
+  delivered
+  cancelled
+}
+
+enum DeliveryOfferStatus {
+  pending
+  accepted
+  rejected
+  expired
+  cancelled
+}
+
 model User {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   email        String   @unique
@@ -91,6 +126,7 @@ model User {
   role         UserRole
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  riderProfile Rider?
 }
 
 model Customer {
@@ -194,6 +230,7 @@ model Order {
   batch             Batch?          @relation(fields: [batchId], references: [id])
   delivery          Delivery?       @relation(fields: [deliveryId], references: [id])
   orderNotes        OrderNote[]
+  deliveryJobs      DeliveryJob[]
 
   @@index([status, createdAt])
   @@index([batchId, status])
@@ -227,6 +264,99 @@ model Delivery {
 
   @@index([status, scheduledAt])
   @@index([areaGroup])
+}
+
+model Rider {
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String          @unique @db.ObjectId
+  phoneNumber    String?
+  status         RiderStatus     @default(offline)
+  serviceArea    String?
+  rating         Float           @default(5)
+  completedJobs  Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  user           User            @relation(fields: [userId], references: [id])
+  vehicles       Vehicle[]
+  locations      RiderLocation[]
+  jobs           DeliveryJob[]
+  offers         DeliveryOffer[]
+
+  @@index([status, serviceArea])
+}
+
+model Vehicle {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  riderId     String      @db.ObjectId
+  type        VehicleType @default(motorcycle)
+  plateNumber String?
+  model       String?
+  color       String?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  rider       Rider       @relation(fields: [riderId], references: [id])
+
+  @@index([riderId, isActive])
+}
+
+model RiderLocation {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  riderId   String   @db.ObjectId
+  latitude  Float
+  longitude Float
+  heading   Float?
+  speed     Float?
+  createdAt DateTime @default(now())
+  rider     Rider    @relation(fields: [riderId], references: [id])
+
+  @@index([riderId, createdAt])
+}
+
+model DeliveryJob {
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  orderId          String?           @db.ObjectId
+  riderId          String?           @db.ObjectId
+  status           DeliveryJobStatus @default(requested)
+  pickupAddress    String
+  pickupLatitude   Float?
+  pickupLongitude  Float?
+  dropoffAddress   String
+  dropoffLatitude  Float?
+  dropoffLongitude Float?
+  distanceKm       Float?
+  estimatedFare    Float            @default(0)
+  finalFare        Float?
+  notes            String?
+  requestedAt      DateTime          @default(now())
+  acceptedAt       DateTime?
+  pickedUpAt       DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  order            Order?            @relation(fields: [orderId], references: [id])
+  rider            Rider?            @relation(fields: [riderId], references: [id])
+  offers           DeliveryOffer[]
+
+  @@index([status, requestedAt])
+  @@index([riderId, status])
+  @@index([orderId])
+}
+
+model DeliveryOffer {
+  id        String              @id @default(auto()) @map("_id") @db.ObjectId
+  jobId     String              @db.ObjectId
+  riderId   String              @db.ObjectId
+  status    DeliveryOfferStatus @default(pending)
+  expiresAt DateTime?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  job       DeliveryJob         @relation(fields: [jobId], references: [id])
+  rider     Rider               @relation(fields: [riderId], references: [id])
+
+  @@unique([jobId, riderId])
+  @@index([riderId, status])
 }
 
 model InventoryItem {

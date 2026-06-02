@@ -9,6 +9,7 @@ import { OrdersModule } from "./modules/orders/orders.module";
 import { BatchesModule } from "./modules/batches/batches.module";
 import { KitchenModule } from "./modules/kitchen/kitchen.module";
 import { DeliveriesModule } from "./modules/deliveries/deliveries.module";
+import { DeliveryNetworkModule } from "./modules/delivery-network/delivery-network.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
@@ -38,6 +39,7 @@ import { RealtimeModule } from "./common/realtime.module";
     BatchesModule,
     KitchenModule,
     DeliveriesModule,
+    DeliveryNetworkModule,
     AnalyticsModule,
     InventoryModule,
     NotificationsModule

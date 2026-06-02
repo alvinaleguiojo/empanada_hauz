@@ -1,23 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bell, Boxes, ChevronLeft, ClipboardList, CookingPot, Inbox, LayoutDashboard, Package, Truck } from "lucide-react";
+import { BarChart3, Bell, Bike, Boxes, ChevronLeft, ClipboardList, CookingPot, Inbox, LayoutDashboard, Package, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { socket } from "@/lib/socket";
 import { useRealtimeStore } from "@/store/realtime-store";
 
 const items = [
-  { href: "/dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
-  { href: "/inbox" as const, label: "Inbox", icon: Inbox },
-  { href: "/orders" as const, label: "Orders", icon: ClipboardList },
-  { href: "/batches" as const, label: "Batches", icon: Boxes },
-  { href: "/kitchen" as const, label: "Kitchen", icon: CookingPot },
-  { href: "/deliveries" as const, label: "Deliveries", icon: Truck },
-  { href: "/analytics" as const, label: "Analytics", icon: BarChart3 },
-  { href: "/inventory" as const, label: "Inventory", icon: Package }
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/orders", label: "Orders", icon: ClipboardList },
+  { href: "/batches", label: "Batches", icon: Boxes },
+  { href: "/kitchen", label: "Kitchen", icon: CookingPot },
+  { href: "/deliveries", label: "Deliveries", icon: Truck },
+  { href: "/delivery-network", label: "Riders", icon: Bike },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/inventory", label: "Inventory", icon: Package }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -142,7 +144,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={item.href as Route}
                   aria-label={sidebarCollapsed ? item.label : undefined}
                   title={sidebarCollapsed ? item.label : undefined}
                   className={cn(

@@ -9,7 +9,7 @@ import {
   Min
 } from "class-validator";
 
-export const DELIVERY_METHODS = ["pickup", "maxim"] as const;
+export const DELIVERY_METHODS = ["pickup", "maxim", "own_delivery"] as const;
 export const PAYMENT_METHODS = ["cod", "gcash"] as const;
 export const ORDER_STATUSES = [
   "inquiry",
