@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import * as bcrypt from "bcryptjs";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { PrismaService } from "../../database/prisma.service";
+import { MapsService, RouteEstimate } from "./maps.service";
 import {
   AssignDeliveryJobDto,
   CreateDeliveryJobDto,
@@ -17,7 +18,8 @@ import {
 export class DeliveryNetworkService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly realtime: RealtimeGateway
+    private readonly realtime: RealtimeGateway,
+    private readonly maps: MapsService
   ) {}
 
   async listRiders() {
@@ -124,17 +126,33 @@ export class DeliveryNetworkService {
       await this.ensureOrder(dto.orderId);
     }
 
+    const routeEstimate = await this.maps.estimateRoute(
+      {
+        address: dto.pickupAddress,
+        latitude: dto.pickupLatitude,
+        longitude: dto.pickupLongitude
+      },
+      {
+        address: dto.dropoffAddress,
+        latitude: dto.dropoffLatitude,
+        longitude: dto.dropoffLongitude
+      }
+    );
+    const distanceKm = routeEstimate?.distanceKm ?? dto.distanceKm;
+
     const job = await this.prisma.deliveryJob.create({
       data: {
         orderId: dto.orderId,
         pickupAddress: dto.pickupAddress,
-        pickupLatitude: dto.pickupLatitude,
-        pickupLongitude: dto.pickupLongitude,
+        pickupLatitude: routeEstimate?.origin.latitude ?? dto.pickupLatitude,
+        pickupLongitude: routeEstimate?.origin.longitude ?? dto.pickupLongitude,
         dropoffAddress: dto.dropoffAddress,
-        dropoffLatitude: dto.dropoffLatitude,
-        dropoffLongitude: dto.dropoffLongitude,
-        distanceKm: dto.distanceKm,
-        estimatedFare: dto.estimatedFare ?? this.estimateFare(dto.distanceKm),
+        dropoffLatitude: routeEstimate?.destination.latitude ?? dto.dropoffLatitude,
+        dropoffLongitude: routeEstimate?.destination.longitude ?? dto.dropoffLongitude,
+        distanceKm,
+        estimatedDurationMinutes: routeEstimate?.durationMinutes,
+        estimatedArrivalAt: routeEstimate?.estimatedArrivalAt,
+        estimatedFare: dto.estimatedFare ?? this.estimateFare(distanceKm),
         notes: dto.notes?.trim() || null,
         status: "requested"
       },
@@ -164,33 +182,53 @@ export class DeliveryNetworkService {
       throw new BadRequestException("Order already has an open delivery job");
     }
 
-    const job = await this.prisma.$transaction(async (tx) => {
-      await tx.order.update({
+    const routeEstimate = await this.maps.estimateRoute(
+      {
+        address: dto.pickupAddress,
+        latitude: dto.pickupLatitude,
+        longitude: dto.pickupLongitude
+      },
+      {
+        address: order.address ?? order.location ?? "No address"
+      }
+    );
+    const estimatedFare = dto.estimatedFare ?? this.resolveEstimatedFare(routeEstimate, Number(order.deliveryFee || 0));
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updatedOrder = await tx.order.update({
         where: { id: order.id },
         data: {
           deliveryMethod: "own_delivery",
           status: order.status === "ready_for_booking" ? "booked" : order.status
-        }
+        },
+        include: { customer: true, delivery: true, batch: true, orderNotes: true }
       });
 
-      return tx.deliveryJob.create({
+      const job = await tx.deliveryJob.create({
         data: {
           orderId: order.id,
           pickupAddress: dto.pickupAddress,
-          pickupLatitude: dto.pickupLatitude,
-          pickupLongitude: dto.pickupLongitude,
+          pickupLatitude: routeEstimate?.origin.latitude ?? dto.pickupLatitude,
+          pickupLongitude: routeEstimate?.origin.longitude ?? dto.pickupLongitude,
           dropoffAddress: order.address ?? order.location ?? "No address",
-          estimatedFare: dto.estimatedFare ?? Number(order.deliveryFee || 0),
+          dropoffLatitude: routeEstimate?.destination.latitude,
+          dropoffLongitude: routeEstimate?.destination.longitude,
+          distanceKm: routeEstimate?.distanceKm,
+          estimatedDurationMinutes: routeEstimate?.durationMinutes,
+          estimatedArrivalAt: routeEstimate?.estimatedArrivalAt,
+          estimatedFare,
           notes: order.notes,
           status: "requested"
         },
         include: this.jobIncludes()
       });
+
+      return { job, updatedOrder };
     });
 
-    this.realtime.emit("orders.updated", job.order);
-    this.realtime.emit("delivery-network.jobs.updated", job);
-    return job;
+    this.realtime.emit("orders.updated", result.updatedOrder);
+    this.realtime.emit("delivery-network.jobs.updated", result.job);
+    return result.job;
   }
 
   async assignJob(id: string, dto: AssignDeliveryJobDto) {
@@ -283,11 +321,23 @@ export class DeliveryNetworkService {
     return updated;
   }
 
+  private resolveEstimatedFare(routeEstimate: RouteEstimate | null, fallbackFare: number) {
+    if (routeEstimate) {
+      return this.estimateFare(routeEstimate.distanceKm);
+    }
+
+    return fallbackFare;
+  }
+
   private estimateFare(distanceKm?: number) {
     if (!distanceKm) {
       return 0;
     }
-    return Number((50 + distanceKm * 12).toFixed(2));
+
+    const baseFare = Number(process.env.DELIVERY_BASE_FARE ?? 50);
+    const perKmRate = Number(process.env.DELIVERY_PER_KM_RATE ?? 12);
+    const serviceFee = Number(process.env.DELIVERY_SERVICE_FEE ?? 0);
+    return Math.ceil(baseFare + distanceKm * perKmRate + serviceFee);
   }
 
   private jobIncludes() {

@@ -325,6 +325,8 @@ model DeliveryJob {
   dropoffLatitude  Float?
   dropoffLongitude Float?
   distanceKm       Float?
+  estimatedDurationMinutes Int?
+  estimatedArrivalAt DateTime?
   estimatedFare    Float            @default(0)
   finalFare        Float?
   notes            String?

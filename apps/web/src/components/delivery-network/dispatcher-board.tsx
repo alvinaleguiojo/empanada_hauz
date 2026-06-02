@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Bike, Check, MapPin, Plus, Send, UserPlus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -25,11 +25,43 @@ type DeliveryJob = {
   status: string;
   pickupAddress: string;
   dropoffAddress: string;
+  distanceKm?: number | null;
+  estimatedDurationMinutes?: number | null;
+  estimatedArrivalAt?: string | null;
   estimatedFare: number;
   finalFare?: number | null;
   requestedAt: string;
   order?: { orderNumber: string; customer: { name: string; phoneNumber?: string | null } } | null;
   rider?: { id: string; user: { name: string }; vehicles: Array<{ plateNumber?: string | null }> } | null;
+};
+
+type GooglePlaceResult = {
+  formatted_address?: string;
+  name?: string;
+  geometry?: {
+    location?: {
+      lat: () => number;
+      lng: () => number;
+    };
+  };
+};
+
+type GoogleAutocomplete = {
+  addListener: (eventName: "place_changed", callback: () => void) => void;
+  getPlace: () => GooglePlaceResult;
+};
+
+type GoogleMapsWindow = Window & {
+  google?: {
+    maps?: {
+      places?: {
+        Autocomplete: new (
+          input: HTMLInputElement,
+          options: { fields: string[]; types?: string[] }
+        ) => GoogleAutocomplete;
+      };
+    };
+  };
 };
 
 const riderStatusOptions = [
@@ -66,7 +98,11 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
   });
   const [jobForm, setJobForm] = useState({
     pickupAddress: "Empanada Hauz",
+    pickupLatitude: "",
+    pickupLongitude: "",
     dropoffAddress: "",
+    dropoffLatitude: "",
+    dropoffLongitude: "",
     distanceKm: "",
     estimatedFare: "",
     notes: ""
@@ -111,11 +147,25 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
         method: "POST",
         body: JSON.stringify({
           ...emptyToUndefined(jobForm),
+          pickupLatitude: jobForm.pickupLatitude ? Number(jobForm.pickupLatitude) : undefined,
+          pickupLongitude: jobForm.pickupLongitude ? Number(jobForm.pickupLongitude) : undefined,
+          dropoffLatitude: jobForm.dropoffLatitude ? Number(jobForm.dropoffLatitude) : undefined,
+          dropoffLongitude: jobForm.dropoffLongitude ? Number(jobForm.dropoffLongitude) : undefined,
           distanceKm: jobForm.distanceKm ? Number(jobForm.distanceKm) : undefined,
           estimatedFare: jobForm.estimatedFare ? Number(jobForm.estimatedFare) : undefined
         })
       });
-      setJobForm({ pickupAddress: "Empanada Hauz", dropoffAddress: "", distanceKm: "", estimatedFare: "", notes: "" });
+      setJobForm({
+        pickupAddress: "Empanada Hauz",
+        pickupLatitude: "",
+        pickupLongitude: "",
+        dropoffAddress: "",
+        dropoffLatitude: "",
+        dropoffLongitude: "",
+        distanceKm: "",
+        estimatedFare: "",
+        notes: ""
+      });
       await reload();
     });
   }
@@ -205,16 +255,42 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
         <Card>
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <p className="text-sm text-foreground/55">Manual dispatch job for the first MVP.</p>
+              <p className="text-sm text-foreground/55">Google Maps fills distance, fare, and ETA when configured.</p>
               <h2 className="text-xl font-semibold">New Delivery Job</h2>
             </div>
             <Send size={20} className="text-foreground/45" />
           </div>
           <form className="grid gap-3 md:grid-cols-2" onSubmit={createJob}>
-            <Input placeholder="Pickup address" value={jobForm.pickupAddress} onChange={(e) => setJobForm({ ...jobForm, pickupAddress: e.target.value })} required />
-            <Input placeholder="Dropoff address" value={jobForm.dropoffAddress} onChange={(e) => setJobForm({ ...jobForm, dropoffAddress: e.target.value })} required />
-            <Input placeholder="Distance km" type="number" min="0" step="0.01" value={jobForm.distanceKm} onChange={(e) => setJobForm({ ...jobForm, distanceKm: e.target.value })} />
-            <Input placeholder="Estimated fare" type="number" min="0" step="0.01" value={jobForm.estimatedFare} onChange={(e) => setJobForm({ ...jobForm, estimatedFare: e.target.value })} />
+            <PlacesAddressInput
+              placeholder="Pickup address"
+              value={jobForm.pickupAddress}
+              onChange={(pickupAddress) => setJobForm({ ...jobForm, pickupAddress, pickupLatitude: "", pickupLongitude: "" })}
+              onPlaceSelect={(place) =>
+                setJobForm({
+                  ...jobForm,
+                  pickupAddress: place.address,
+                  pickupLatitude: String(place.latitude),
+                  pickupLongitude: String(place.longitude)
+                })
+              }
+              required
+            />
+            <PlacesAddressInput
+              placeholder="Dropoff address"
+              value={jobForm.dropoffAddress}
+              onChange={(dropoffAddress) => setJobForm({ ...jobForm, dropoffAddress, dropoffLatitude: "", dropoffLongitude: "" })}
+              onPlaceSelect={(place) =>
+                setJobForm({
+                  ...jobForm,
+                  dropoffAddress: place.address,
+                  dropoffLatitude: String(place.latitude),
+                  dropoffLongitude: String(place.longitude)
+                })
+              }
+              required
+            />
+            <Input placeholder="Distance override km" type="number" min="0" step="0.01" value={jobForm.distanceKm} onChange={(e) => setJobForm({ ...jobForm, distanceKm: e.target.value })} />
+            <Input placeholder="Fare override" type="number" min="0" step="0.01" value={jobForm.estimatedFare} onChange={(e) => setJobForm({ ...jobForm, estimatedFare: e.target.value })} />
             <Input placeholder="Notes" className="md:col-span-2" value={jobForm.notes} onChange={(e) => setJobForm({ ...jobForm, notes: e.target.value })} />
             <Button className="md:col-span-2" disabled={pending}>
               <Plus size={16} />
@@ -267,12 +343,14 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
           <h2 className="text-xl font-semibold">Dispatch Jobs</h2>
           <MapPin size={20} className="text-foreground/45" />
         </div>
-        <Table className="min-w-[1120px]">
+        <Table className="min-w-[1240px]">
           <thead>
             <tr>
               <Th>Job</Th>
               <Th>Pickup</Th>
               <Th>Dropoff</Th>
+              <Th>Distance</Th>
+              <Th>ETA</Th>
               <Th>Fare</Th>
               <Th>Rider</Th>
               <Th>Status</Th>
@@ -287,6 +365,8 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
                 </Td>
                 <Td>{job.pickupAddress}</Td>
                 <Td>{job.dropoffAddress}</Td>
+                <Td>{formatDistance(job.distanceKm)}</Td>
+                <Td>{formatEta(job)}</Td>
                 <Td>Php {job.finalFare ?? job.estimatedFare}</Td>
                 <Td className="min-w-[210px]">
                   {job.rider ? (
@@ -310,6 +390,94 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
   );
 }
 
+function PlacesAddressInput({
+  placeholder,
+  value,
+  onChange,
+  onPlaceSelect,
+  required
+}: {
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+  onPlaceSelect: (place: { address: string; latitude: number; longitude: number }) => void;
+  required?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey || !inputRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+
+    loadGooglePlaces(apiKey)
+      .then(() => {
+        const mapsWindow = window as GoogleMapsWindow;
+        const Autocomplete = mapsWindow.google?.maps?.places?.Autocomplete;
+        if (cancelled || !Autocomplete || !inputRef.current) {
+          return;
+        }
+
+        const autocomplete = new Autocomplete(inputRef.current, {
+          fields: ["formatted_address", "geometry", "name"],
+          types: ["address"]
+        });
+
+        autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace();
+          const location = place.geometry?.location;
+          if (!location) {
+            return;
+          }
+
+          onPlaceSelect({
+            address: place.formatted_address ?? place.name ?? inputRef.current?.value ?? "",
+            latitude: location.lat(),
+            longitude: location.lng()
+          });
+        });
+      })
+      .catch(() => {
+        // Keep the text input usable if the browser key is missing or blocked.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onPlaceSelect]);
+
+  return <Input ref={inputRef} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} required={required} />;
+}
+
+function loadGooglePlaces(apiKey: string) {
+  const mapsWindow = window as GoogleMapsWindow;
+  if (mapsWindow.google?.maps?.places?.Autocomplete) {
+    return Promise.resolve();
+  }
+
+  const existingScript = document.querySelector<HTMLScriptElement>("script[data-google-places]");
+  if (existingScript) {
+    return new Promise<void>((resolve, reject) => {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error("Google Places failed to load")), { once: true });
+    });
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.dataset.googlePlaces = "true";
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener("error", () => reject(new Error("Google Places failed to load")), { once: true });
+    document.head.appendChild(script);
+  });
+}
+
 function AssignSelect({ riders, onAssign }: { riders: Rider[]; onAssign: (riderId: string) => void }) {
   const [value, setValue] = useState("");
   return (
@@ -327,4 +495,23 @@ function AssignSelect({ riders, onAssign }: { riders: Rider[]; onAssign: (riderI
 
 function emptyToUndefined(values: Record<string, string>) {
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim() || undefined]));
+}
+
+function formatDistance(distanceKm?: number | null) {
+  return typeof distanceKm === "number" ? `${distanceKm.toFixed(2)} km` : "Pending";
+}
+
+function formatEta(job: DeliveryJob) {
+  if (job.estimatedDurationMinutes && job.estimatedArrivalAt) {
+    return `${job.estimatedDurationMinutes} min | ${new Date(job.estimatedArrivalAt).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    })}`;
+  }
+
+  if (job.estimatedDurationMinutes) {
+    return `${job.estimatedDurationMinutes} min`;
+  }
+
+  return "Pending";
 }

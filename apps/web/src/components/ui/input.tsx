@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils";
 import * as React from "react";
 
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   return (
     <input
+      ref={ref}
       suppressHydrationWarning
       {...props}
       className={cn(
@@ -12,4 +13,4 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
       )}
     />
   );
-}
+});

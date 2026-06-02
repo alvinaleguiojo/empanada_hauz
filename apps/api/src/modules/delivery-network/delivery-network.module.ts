@@ -1,10 +1,11 @@
 import { Module } from "@nestjs/common";
 import { DeliveryNetworkController } from "./delivery-network.controller";
 import { DeliveryNetworkService } from "./delivery-network.service";
+import { MapsService } from "./maps.service";
 
 @Module({
   controllers: [DeliveryNetworkController],
-  providers: [DeliveryNetworkService],
+  providers: [DeliveryNetworkService, MapsService],
   exports: [DeliveryNetworkService]
 })
 export class DeliveryNetworkModule {}
