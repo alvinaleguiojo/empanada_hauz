@@ -38,7 +38,7 @@ type CustomerSuggestion = {
 };
 
 const productOptions = [
-  { label: "Pork Regular - Php 20", value: "Pork Regular", price: 20 },
+  { label: "Ilocos Empanada - Php 70", value: "Ilocos Empanada", price: 70 },
   { label: "Pork with Egg - Php 25", value: "Pork with Egg", price: 25 },
   { label: "Ham & Cheese - Php 25", value: "Ham & Cheese", price: 25 },
   { label: "Chicken - Php 20", value: "Chicken", price: 20 },
