@@ -61,6 +61,7 @@ const statusFilterOptions = [
 
 const productOptions = [
   { label: "Ilocos Empanada", value: "Ilocos Empanada", price: 70 },
+  { label: "Pork Regular", value: "Pork Regular", price: 20 },
   { label: "Pork with Egg", value: "Pork with Egg", price: 25 },
   { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
   { label: "Chicken", value: "Chicken", price: 20 },
