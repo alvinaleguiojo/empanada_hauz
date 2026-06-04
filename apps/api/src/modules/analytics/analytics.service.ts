@@ -34,6 +34,7 @@ export class AnalyticsService {
     ]);
 
     const sellableTodayOrders = todayOrders.filter((order) => order.status !== "cancelled");
+    const pendingTodayOrders = todayOrders.filter((order) => !["completed", "cancelled"].includes(order.status));
     const completedTodayOrders = todayOrders.filter((order) => order.status === "completed");
     const completed = todayOrders.filter((order) => order.status === "completed").length;
     const cancelled = todayOrders.filter((order) => order.status === "cancelled").length;
@@ -48,13 +49,14 @@ export class AnalyticsService {
       revenueToday: sum(completedTodayOrders, (order) => Number(order.totalAmount)),
       pcsSoldToday: sum(completedTodayOrders, (order) => order.quantity),
       ordersToday: todayOrders.length,
-      activeOrdersToday: sellableTodayOrders.length,
+      activeOrdersToday: pendingTodayOrders.length,
       averageOrderSize:
         completedTodayOrders.length === 0 ? 0 : Number((sum(completedTodayOrders, (order) => order.quantity) / completedTodayOrders.length).toFixed(1)),
       repeatCustomerRate: Number((repeatCustomerRate * 100).toFixed(2)),
       cancelledOrders: cancelled,
       productionEfficiency: sellableTodayOrders.length === 0 ? 0 : Number(((completed / sellableTodayOrders.length) * 100).toFixed(2)),
       topLocations,
+      topItems: buildTopItems(completedTodayOrders),
       revenueTrend,
       piecesTrend
     };
@@ -126,4 +128,55 @@ function buildDailyTrend(
       value: metric === "revenue" ? sum(dayOrders, (order) => Number(order.totalAmount)) : sum(dayOrders, (order) => order.quantity)
     };
   });
+}
+
+function buildTopItems(orders: Array<{ items: unknown; quantity: number }>) {
+  const itemCounts = new Map<string, number>();
+
+  for (const order of orders) {
+    const lineItems = normalizeOrderItems(order.items);
+
+    if (lineItems.length === 0) {
+      addItemCount(itemCounts, "Empanada", order.quantity);
+      continue;
+    }
+
+    for (const item of lineItems) {
+      addItemCount(itemCounts, item.name, item.quantity);
+    }
+  }
+
+  return [...itemCounts.entries()]
+    .map(([name, quantity]) => ({ name, quantity }))
+    .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name))
+    .slice(0, 5);
+}
+
+function normalizeOrderItems(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const name = typeof record.name === "string" ? record.name.trim() : "";
+      const quantity = Number(record.quantity);
+
+      return name && Number.isFinite(quantity) && quantity > 0 ? { name, quantity } : null;
+    })
+    .filter((item): item is { name: string; quantity: number } => Boolean(item));
+}
+
+function addItemCount(counts: Map<string, number>, name: string, quantity: number) {
+  const normalizedQuantity = Number(quantity) || 0;
+  if (normalizedQuantity <= 0) {
+    return;
+  }
+
+  counts.set(name, (counts.get(name) ?? 0) + normalizedQuantity);
 }
