@@ -1,4 +1,5 @@
-import { All, Controller, ForbiddenException, Req, Res } from "@nestjs/common";
+import { All, Controller, ForbiddenException, Req, Res, UseInterceptors } from "@nestjs/common";
+import { NoCacheInterceptor } from "./no-cache.interceptor";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Request, Response } from "express";
@@ -27,6 +28,7 @@ type ToolRegistrar = (
   callback: (args: Record<string, unknown>) => Promise<ToolResult>
 ) => void;
 
+@UseInterceptors(NoCacheInterceptor)
 @Controller("mcp")
 export class McpController {
   constructor(private readonly orders: McpOrdersService) {}
@@ -34,6 +36,7 @@ export class McpController {
   @All()
   async handle(@Req() req: Request, @Res() res: Response) {
     this.assertAuthorized(req);
+    res.setHeader("Cache-Control", "no-store");
 
     const server = this.createServer();
     const transport = new StreamableHTTPServerTransport({
