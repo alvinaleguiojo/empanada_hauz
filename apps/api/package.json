@@ -13,6 +13,7 @@
     "prisma:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/bullmq": "^11.0.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
@@ -34,7 +35,8 @@
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",

@@ -14,6 +14,7 @@ import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { HealthModule } from "./modules/health/health.module";
+import { McpModule } from "./modules/mcp/mcp.module";
 import { DatabaseModule } from "./database/database.module";
 import { RealtimeModule } from "./common/realtime.module";
 
@@ -42,7 +43,8 @@ import { RealtimeModule } from "./common/realtime.module";
     DeliveryNetworkModule,
     AnalyticsModule,
     InventoryModule,
-    NotificationsModule
+    NotificationsModule,
+    McpModule
   ]
 })
 export class AppModule {}
