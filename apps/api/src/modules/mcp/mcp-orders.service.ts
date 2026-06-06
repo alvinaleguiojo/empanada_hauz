@@ -1,13 +1,18 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
+import { DeliveryMethod, ManualOrderEntryDto, PaymentMethod } from "../orders/dto";
+import { OrdersService } from "../orders/orders.service";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 
 @Injectable()
 export class McpOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ordersService: OrdersService
+  ) {}
 
   async listOrders(params: {
     cursor?: string;
@@ -48,6 +53,40 @@ export class McpOrdersService {
     if (!order) {
       throw new NotFoundException("Order not found");
     }
+
+    return this.serializeOrder(order);
+  }
+
+  async createOrder(params: {
+    customerName: string;
+    phoneNumber?: string;
+    quantity: number;
+    unitPrice?: number;
+    deliveryFee?: number;
+    deliveryMethod?: DeliveryMethod;
+    paymentMethod?: PaymentMethod;
+    location?: string;
+    address?: string;
+    preferredSchedule?: string;
+    status?: OrderStatus;
+    items?: ManualOrderEntryDto["items"];
+    notes?: string;
+  }) {
+    const order = await this.ordersService.createManual({
+      customerName: params.customerName,
+      phoneNumber: params.phoneNumber,
+      quantity: params.quantity,
+      unitPrice: params.unitPrice ?? 18,
+      deliveryFee: params.deliveryFee ?? 0,
+      deliveryMethod: params.deliveryMethod ?? "pickup",
+      paymentMethod: params.paymentMethod ?? "cod",
+      location: params.location,
+      address: params.address,
+      preferredSchedule: params.preferredSchedule,
+      status: params.status,
+      items: params.items,
+      notes: params.notes
+    });
 
     return this.serializeOrder(order);
   }

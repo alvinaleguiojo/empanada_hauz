@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Request, Response } from "express";
 import { z } from "zod";
+import { DeliveryMethod, OrderStatus, PaymentMethod } from "../orders/dto";
 import { McpOrdersService } from "./mcp-orders.service";
 
 type ToolResult = {
@@ -18,6 +19,8 @@ type ToolRegistrar = (
     inputSchema: Record<string, z.ZodTypeAny>;
     annotations: {
       readOnlyHint: boolean;
+      destructiveHint?: boolean;
+      idempotentHint?: boolean;
       openWorldHint: boolean;
     };
   },
@@ -108,6 +111,86 @@ export class McpController {
     );
 
     registerTool(
+      "create_order",
+      {
+        title: "Create order",
+        description:
+          "Create a new Empanada Hauz manual order. Defaults to unitPrice 18, deliveryMethod pickup, paymentMethod cod, and deliveryFee 0 when omitted.",
+        inputSchema: {
+          customerName: z.string().min(1),
+          phoneNumber: z.string().optional(),
+          quantity: z.number().int().min(1),
+          unitPrice: z.number().min(0).optional(),
+          deliveryFee: z.number().min(0).optional(),
+          deliveryMethod: z.enum(["pickup", "maxim", "own_delivery"]).optional(),
+          paymentMethod: z.enum(["cod", "gcash"]).optional(),
+          location: z.string().optional(),
+          address: z.string().optional(),
+          preferredSchedule: z.string().datetime().optional(),
+          status: z
+            .enum([
+              "inquiry",
+              "awaiting_confirmation",
+              "confirmed",
+              "queued",
+              "preparing",
+              "frying",
+              "packed",
+              "ready_for_pickup",
+              "ready_for_booking",
+              "booked",
+              "completed",
+              "cancelled"
+            ])
+            .optional(),
+          items: z
+            .array(
+              z.object({
+                name: z.string(),
+                quantity: z.number(),
+                price: z.number().optional(),
+                subtotal: z.number().optional()
+              })
+            )
+            .optional(),
+          notes: z.string().optional()
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      async (args) => {
+        const createArgs = this.toCreateOrderArgs(args);
+        if (!createArgs.customerName || !createArgs.quantity) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "customerName and quantity are required." }]
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                await this.orders.createOrder({
+                  ...createArgs,
+                  customerName: createArgs.customerName,
+                  quantity: createArgs.quantity
+                }),
+                null,
+                2
+              )
+            }
+          ]
+        };
+      }
+    );
+
+    registerTool(
       "summarize_orders",
       {
         title: "Summarize orders",
@@ -158,7 +241,50 @@ export class McpController {
     };
   }
 
+  private toCreateOrderArgs(args: Record<string, unknown>) {
+    return {
+      customerName: this.toOptionalString(args.customerName),
+      phoneNumber: this.toOptionalString(args.phoneNumber),
+      quantity: typeof args.quantity === "number" ? args.quantity : undefined,
+      unitPrice: typeof args.unitPrice === "number" ? args.unitPrice : undefined,
+      deliveryFee: typeof args.deliveryFee === "number" ? args.deliveryFee : undefined,
+      deliveryMethod: this.toDeliveryMethod(args.deliveryMethod),
+      paymentMethod: this.toPaymentMethod(args.paymentMethod),
+      location: this.toOptionalString(args.location),
+      address: this.toOptionalString(args.address),
+      preferredSchedule: this.toOptionalString(args.preferredSchedule),
+      status: this.toOrderStatus(args.status),
+      items: Array.isArray(args.items) ? args.items : undefined,
+      notes: this.toOptionalString(args.notes)
+    };
+  }
+
   private toOptionalString(value: unknown) {
     return typeof value === "string" && value.trim() ? value : undefined;
+  }
+
+  private toDeliveryMethod(value: unknown): DeliveryMethod | undefined {
+    return value === "pickup" || value === "maxim" || value === "own_delivery" ? value : undefined;
+  }
+
+  private toPaymentMethod(value: unknown): PaymentMethod | undefined {
+    return value === "cod" || value === "gcash" ? value : undefined;
+  }
+
+  private toOrderStatus(value: unknown): OrderStatus | undefined {
+    return value === "inquiry" ||
+      value === "awaiting_confirmation" ||
+      value === "confirmed" ||
+      value === "queued" ||
+      value === "preparing" ||
+      value === "frying" ||
+      value === "packed" ||
+      value === "ready_for_pickup" ||
+      value === "ready_for_booking" ||
+      value === "booked" ||
+      value === "completed" ||
+      value === "cancelled"
+      ? value
+      : undefined;
   }
 }
