@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, Prisma } from "@prisma/client";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
-import { DeliveryMethod, ManualOrderEntryDto, PaymentMethod } from "../orders/dto";
+import { DeliveryMethod, ManualOrderEntryDto, OrderStatus, PaymentMethod, UpdateOrderDto } from "../orders/dto";
 import { OrdersService } from "../orders/orders.service";
 
 const DEFAULT_LIMIT = 100;
@@ -91,6 +91,31 @@ export class McpOrdersService {
     return this.serializeOrder(order);
   }
 
+  async updateOrder(params: UpdateOrderDto & { id?: string; orderNumber?: string; status?: OrderStatus }) {
+    const id = await this.resolveOrderId(params);
+    const updateDto = this.toUpdateOrderDto(params);
+    const hasOrderChanges = Object.values(updateDto).some((value) => value !== undefined);
+
+    let order = hasOrderChanges ? await this.ordersService.update(id, updateDto) : null;
+    if (params.status) {
+      order = await this.ordersService.updateStatus(id, params.status);
+    }
+
+    return order ? this.serializeOrder(order) : this.getOrder({ id });
+  }
+
+  async deleteOrder(params: { id?: string; orderNumber?: string }) {
+    const id = await this.resolveOrderId(params);
+    const deleted = await this.ordersService.remove(id);
+
+    return {
+      deleted: true,
+      id: deleted.id,
+      orderNumber: deleted.orderNumber,
+      status: deleted.status
+    };
+  }
+
   async summarizeOrders(params: { fromDate?: string; toDate?: string }) {
     const where = this.buildWhere(params);
     const [totalOrders, totals, byStatus, byDeliveryMethod, byPaymentMethod] = await Promise.all([
@@ -174,6 +199,44 @@ export class McpOrdersService {
       batch: true,
       delivery: true,
       orderNotes: { orderBy: { createdAt: "desc" as const } }
+    };
+  }
+
+  private async resolveOrderId(params: { id?: string; orderNumber?: string }) {
+    if (params.id) {
+      return params.id;
+    }
+
+    if (!params.orderNumber) {
+      throw new BadRequestException("Provide either id or orderNumber.");
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { orderNumber: params.orderNumber },
+      select: { id: true }
+    });
+
+    if (!order) {
+      throw new NotFoundException("Order not found");
+    }
+
+    return order.id;
+  }
+
+  private toUpdateOrderDto(params: UpdateOrderDto): UpdateOrderDto {
+    return {
+      customerName: params.customerName,
+      phoneNumber: params.phoneNumber,
+      quantity: params.quantity,
+      unitPrice: params.unitPrice,
+      deliveryFee: params.deliveryFee,
+      deliveryMethod: params.deliveryMethod,
+      paymentMethod: params.paymentMethod,
+      location: params.location,
+      address: params.address,
+      preferredSchedule: params.preferredSchedule,
+      items: params.items,
+      notes: params.notes
     };
   }
 

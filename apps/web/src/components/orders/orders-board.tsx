@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { ArrowRight, Check, ChevronRight, Clock3, Copy, ExternalLink, Link2, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -157,12 +157,38 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   });
   const [lineItems, setLineItems] = useState<EditableOrderLineItem[]>(() => createEditableLineItems());
 
+  const refreshOrders = useCallback(async () => {
+    const refreshed = await apiFetch<any[]>("/orders");
+    setItems(refreshed);
+    setSelectedId((current) => {
+      if (!current) {
+        return refreshed[0]?.id ?? null;
+      }
+
+      return refreshed.some((order) => order.id === current) ? current : refreshed[0]?.id ?? null;
+    });
+  }, []);
+
   useEffect(() => {
     setItems(orders);
     if (!selectedId && orders[0]?.id) {
       setSelectedId(orders[0].id);
     }
   }, [orders, selectedId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (editMode) {
+        return;
+      }
+
+      refreshOrders().catch((err) => {
+        setError(err instanceof Error ? err.message : "Unable to refresh orders");
+      });
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, [editMode, refreshOrders]);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -355,8 +381,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
           });
         }
 
-        const refreshed = await apiFetch<any[]>("/orders");
-        setItems(refreshed);
+        await refreshOrders();
         setSelectedId(updated.id);
         setEditMode(false);
       } catch (err) {

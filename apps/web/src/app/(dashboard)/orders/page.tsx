@@ -2,6 +2,8 @@ import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersBoard } from "@/components/orders/orders-board";
 import { apiFetch } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 export default async function OrdersPage() {
   const orders = await apiFetch<any[]>("/orders").catch(() => []);
   return (

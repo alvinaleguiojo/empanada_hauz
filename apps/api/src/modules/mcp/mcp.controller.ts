@@ -194,6 +194,108 @@ export class McpController {
     );
 
     registerTool(
+      "edit_order",
+      {
+        title: "Edit order",
+        description:
+          "Edit an existing Empanada Hauz order by database ID or order number. Only provided fields are changed.",
+        inputSchema: {
+          id: z.string().optional(),
+          orderNumber: z.string().optional(),
+          customerName: z.string().optional(),
+          phoneNumber: z.string().optional(),
+          quantity: z.number().int().min(1).optional(),
+          unitPrice: z.number().min(0).optional(),
+          deliveryFee: z.number().min(0).optional(),
+          deliveryMethod: z.enum(["pickup", "maxim", "own_delivery"]).optional(),
+          paymentMethod: z.enum(["cod", "gcash"]).optional(),
+          location: z.string().optional(),
+          address: z.string().optional(),
+          preferredSchedule: z.string().datetime().optional(),
+          status: z
+            .enum([
+              "inquiry",
+              "awaiting_confirmation",
+              "confirmed",
+              "queued",
+              "preparing",
+              "frying",
+              "packed",
+              "ready_for_pickup",
+              "ready_for_booking",
+              "booked",
+              "completed",
+              "cancelled"
+            ])
+            .optional(),
+          items: z
+            .array(
+              z.object({
+                name: z.string(),
+                quantity: z.number(),
+                price: z.number().optional(),
+                subtotal: z.number().optional()
+              })
+            )
+            .optional(),
+          notes: z.string().optional()
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      async (args) => {
+        const updateArgs = this.toUpdateOrderArgs(args);
+        if (!updateArgs.id && !updateArgs.orderNumber) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Provide either id or orderNumber." }]
+          };
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(await this.orders.updateOrder(updateArgs), null, 2) }]
+        };
+      }
+    );
+
+    registerTool(
+      "delete_order",
+      {
+        title: "Delete order",
+        description: "Delete an Empanada Hauz order by database ID or order number.",
+        inputSchema: {
+          id: z.string().optional(),
+          orderNumber: z.string().optional()
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      async (args) => {
+        const id = this.toOptionalString(args.id);
+        const orderNumber = this.toOptionalString(args.orderNumber);
+
+        if (!id && !orderNumber) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Provide either id or orderNumber." }]
+          };
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(await this.orders.deleteOrder({ id, orderNumber }), null, 2) }]
+        };
+      }
+    );
+
+    registerTool(
       "summarize_orders",
       {
         title: "Summarize orders",
@@ -246,6 +348,26 @@ export class McpController {
 
   private toCreateOrderArgs(args: Record<string, unknown>) {
     return {
+      customerName: this.toOptionalString(args.customerName),
+      phoneNumber: this.toOptionalString(args.phoneNumber),
+      quantity: typeof args.quantity === "number" ? args.quantity : undefined,
+      unitPrice: typeof args.unitPrice === "number" ? args.unitPrice : undefined,
+      deliveryFee: typeof args.deliveryFee === "number" ? args.deliveryFee : undefined,
+      deliveryMethod: this.toDeliveryMethod(args.deliveryMethod),
+      paymentMethod: this.toPaymentMethod(args.paymentMethod),
+      location: this.toOptionalString(args.location),
+      address: this.toOptionalString(args.address),
+      preferredSchedule: this.toOptionalString(args.preferredSchedule),
+      status: this.toOrderStatus(args.status),
+      items: Array.isArray(args.items) ? args.items : undefined,
+      notes: this.toOptionalString(args.notes)
+    };
+  }
+
+  private toUpdateOrderArgs(args: Record<string, unknown>) {
+    return {
+      id: this.toOptionalString(args.id),
+      orderNumber: this.toOptionalString(args.orderNumber),
       customerName: this.toOptionalString(args.customerName),
       phoneNumber: this.toOptionalString(args.phoneNumber),
       quantity: typeof args.quantity === "number" ? args.quantity : undefined,
