@@ -5,18 +5,19 @@ import { PrismaService } from "../../database/prisma.service";
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOverview() {
-    const todayRange = getManilaDayRange(new Date());
-    const trendStart = addDays(todayRange.start, -6);
-    const cashFlow = await this.getCashFlow("today");
+  async getOverview(rangeValue?: string) {
+    const range = getCashFlowRange(rangeValue);
+    const trendStart = range.key === "today" ? addDays(range.start, -6) : range.start;
+    const trendDays = range.key === "today" ? 7 : countDays(trendStart, range.end);
+    const cashFlow = await this.getCashFlow(range.key);
 
-    const [todayOrders, trendOrders, allActiveOrders, topLocations] = await Promise.all([
+    const [rangeOrders, trendOrders, allActiveOrders, topLocations] = await Promise.all([
       this.prisma.order.findMany({
-        where: orderBusinessDateWhere(todayRange.start, todayRange.end),
+        where: orderBusinessDateWhere(range.start, range.end),
         include: { customer: true }
       }),
       this.prisma.order.findMany({
-        where: orderBusinessDateWhere(trendStart, todayRange.end)
+        where: orderBusinessDateWhere(trendStart, range.end)
       }),
       this.prisma.order.findMany({
         where: { status: { not: "cancelled" } },
@@ -26,7 +27,7 @@ export class AnalyticsService {
         by: ["location"],
         _count: { _all: true },
         where: {
-          ...orderBusinessDateWhere(todayRange.start, todayRange.end),
+          ...orderBusinessDateWhere(range.start, range.end),
           location: { not: null }
         },
         orderBy: { _count: { location: "desc" } },
@@ -34,33 +35,37 @@ export class AnalyticsService {
       })
     ]);
 
-    const sellableTodayOrders = todayOrders.filter((order) => order.status !== "cancelled");
-    const pendingTodayOrders = todayOrders.filter((order) => !["completed", "cancelled"].includes(order.status));
-    const completedTodayOrders = todayOrders.filter((order) => order.status === "completed");
-    const completed = todayOrders.filter((order) => order.status === "completed").length;
-    const cancelled = todayOrders.filter((order) => order.status === "cancelled").length;
-    const uniqueTodayCustomers = new Set(todayOrders.map((order) => order.customerId));
+    const sellableRangeOrders = rangeOrders.filter((order) => order.status !== "cancelled");
+    const pendingRangeOrders = rangeOrders.filter((order) => !["completed", "cancelled"].includes(order.status));
+    const completedRangeOrders = rangeOrders.filter((order) => order.status === "completed");
+    const completed = completedRangeOrders.length;
+    const cancelled = rangeOrders.filter((order) => order.status === "cancelled").length;
+    const uniqueRangeCustomers = new Set(rangeOrders.map((order) => order.customerId));
     const lifetimeOrderCounts = countBy(allActiveOrders, (order) => order.customerId);
-    const repeatTodayCustomers = [...uniqueTodayCustomers].filter((customerId) => (lifetimeOrderCounts.get(customerId) ?? 0) > 1);
-    const repeatCustomerRate = uniqueTodayCustomers.size === 0 ? 0 : repeatTodayCustomers.length / uniqueTodayCustomers.size;
-    const revenueTrend = buildDailyTrend(trendStart, 7, trendOrders, "revenue");
-    const piecesTrend = buildDailyTrend(trendStart, 7, trendOrders, "pieces");
-    const revenueToday = sum(completedTodayOrders, (order) => Number(order.totalAmount));
+    const repeatRangeCustomers = [...uniqueRangeCustomers].filter((customerId) => (lifetimeOrderCounts.get(customerId) ?? 0) > 1);
+    const repeatCustomerRate = uniqueRangeCustomers.size === 0 ? 0 : repeatRangeCustomers.length / uniqueRangeCustomers.size;
+    const revenueTrend = buildDailyTrend(trendStart, trendDays, trendOrders, "revenue");
+    const piecesTrend = buildDailyTrend(trendStart, trendDays, trendOrders, "pieces");
+    const revenueToday = sum(completedRangeOrders, (order) => Number(order.totalAmount));
 
     return {
+      range: range.key,
+      rangeLabel: range.label,
+      startDate: toDateInputValue(range.start),
+      endDate: toDateInputValue(addDays(range.end, -1)),
       revenueToday,
       expensesToday: cashFlow.totalExpenses,
       moneyOnHandToday: cashFlow.moneyOnHand,
-      pcsSoldToday: sum(completedTodayOrders, (order) => order.quantity),
-      ordersToday: todayOrders.length,
-      activeOrdersToday: pendingTodayOrders.length,
+      pcsSoldToday: sum(completedRangeOrders, (order) => order.quantity),
+      ordersToday: rangeOrders.length,
+      activeOrdersToday: pendingRangeOrders.length,
       averageOrderSize:
-        completedTodayOrders.length === 0 ? 0 : Number((sum(completedTodayOrders, (order) => order.quantity) / completedTodayOrders.length).toFixed(1)),
+        completedRangeOrders.length === 0 ? 0 : Number((sum(completedRangeOrders, (order) => order.quantity) / completedRangeOrders.length).toFixed(1)),
       repeatCustomerRate: Number((repeatCustomerRate * 100).toFixed(2)),
       cancelledOrders: cancelled,
-      productionEfficiency: sellableTodayOrders.length === 0 ? 0 : Number(((completed / sellableTodayOrders.length) * 100).toFixed(2)),
+      productionEfficiency: sellableRangeOrders.length === 0 ? 0 : Number(((completed / sellableRangeOrders.length) * 100).toFixed(2)),
       topLocations,
-      topItems: buildTopItems(completedTodayOrders),
+      topItems: buildTopItems(completedRangeOrders),
       revenueTrend,
       piecesTrend,
       cashFlow

@@ -25,23 +25,25 @@ type AnalyticsData = {
   topItems?: TopItem[];
 };
 
-export function AnalyticsPanels({ data }: { data: AnalyticsData }) {
+export function AnalyticsPanels({ data, rangeLabel = "Today" }: { data: AnalyticsData; rangeLabel?: string }) {
+  const rangeText = rangeLabel.toLowerCase();
+
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="min-h-[330px] p-5">
-          <PanelHeader title="Revenue Trend" subtitle="Completed sales, last 7 business days" />
+          <PanelHeader title="Revenue Trend" subtitle={`Completed sales, ${rangeText}`} />
           <BarTrend items={data.revenueTrend ?? []} tone="accent" valueFormatter={(value) => `Php ${formatCompact(value)}`} />
         </Card>
         <Card className="min-h-[330px] p-5">
-          <PanelHeader title="Pieces Sold Trend" subtitle="Completed sales, last 7 business days" />
+          <PanelHeader title="Pieces Sold Trend" subtitle={`Completed sales, ${rangeText}`} />
           <BarTrend items={data.piecesTrend ?? []} tone="success" valueFormatter={(value) => `${formatCompact(value)} pcs`} />
         </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1">
         <Card className="p-5">
-          <PanelHeader title="Most Ordered Items" subtitle="Today, completed orders" />
+          <PanelHeader title="Most Ordered Items" subtitle={`${rangeLabel}, completed orders`} />
           <RankedList
             emptyLabel="No completed item orders yet."
             items={(data.topItems ?? []).map((item) => ({
@@ -54,7 +56,7 @@ export function AnalyticsPanels({ data }: { data: AnalyticsData }) {
         </Card>
 
         <Card className="p-5">
-          <PanelHeader title="Top Locations" subtitle="Today, scheduled or created orders" />
+          <PanelHeader title="Top Locations" subtitle={`${rangeLabel}, scheduled or created orders`} />
           <RankedList
             emptyLabel="No locations for today yet."
             items={(data.topLocations ?? []).map((item) => {
@@ -121,7 +123,7 @@ function BarTrend({
           );
         })}
       </div>
-      <div className="mt-3 grid grid-cols-7 gap-2">
+      <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => (
           <div key={item.label} className="min-w-0 text-center">
             <p className="truncate text-[11px] text-foreground/45">{item.label}</p>

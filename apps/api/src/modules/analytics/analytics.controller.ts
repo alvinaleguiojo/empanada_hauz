@@ -8,8 +8,8 @@ export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   @Get("overview")
-  getOverview() {
-    return this.analyticsService.getOverview();
+  getOverview(@Query("range") range?: string) {
+    return this.analyticsService.getOverview(range);
   }
 
   @Get("cash-flow")
