@@ -9,13 +9,30 @@ export class AnalyticsService {
     const todayRange = getManilaDayRange(new Date());
     const trendStart = addDays(todayRange.start, -6);
 
-    const [todayOrders, trendOrders, allActiveOrders, topLocations] = await Promise.all([
+    const [todayOrders, trendOrders, trendExpenses, todayExpenses, allActiveOrders, topLocations] = await Promise.all([
       this.prisma.order.findMany({
         where: orderBusinessDateWhere(todayRange.start, todayRange.end),
         include: { customer: true }
       }),
       this.prisma.order.findMany({
         where: orderBusinessDateWhere(trendStart, todayRange.end)
+      }),
+      this.prisma.expense.findMany({
+        where: {
+          expenseDate: {
+            gte: trendStart,
+            lt: todayRange.end
+          }
+        }
+      }),
+      this.prisma.expense.aggregate({
+        where: {
+          expenseDate: {
+            gte: todayRange.start,
+            lt: todayRange.end
+          }
+        },
+        _sum: { amount: true }
       }),
       this.prisma.order.findMany({
         where: { status: { not: "cancelled" } },
@@ -44,9 +61,15 @@ export class AnalyticsService {
     const repeatCustomerRate = uniqueTodayCustomers.size === 0 ? 0 : repeatTodayCustomers.length / uniqueTodayCustomers.size;
     const revenueTrend = buildDailyTrend(trendStart, 7, trendOrders, "revenue");
     const piecesTrend = buildDailyTrend(trendStart, 7, trendOrders, "pieces");
+    const dailyCashFlow = buildDailyCashFlow(trendStart, 7, trendOrders, trendExpenses);
+    const expensesToday = Number(todayExpenses._sum.amount ?? 0);
+    const revenueToday = sum(completedTodayOrders, (order) => Number(order.totalAmount));
 
     return {
-      revenueToday: sum(completedTodayOrders, (order) => Number(order.totalAmount)),
+      revenueToday,
+      expensesToday,
+      moneyOnHandToday: revenueToday - expensesToday,
+      moneyOnHandTotal: sum(dailyCashFlow, (day) => day.moneyOnHand),
       pcsSoldToday: sum(completedTodayOrders, (order) => order.quantity),
       ordersToday: todayOrders.length,
       activeOrdersToday: pendingTodayOrders.length,
@@ -58,7 +81,8 @@ export class AnalyticsService {
       topLocations,
       topItems: buildTopItems(completedTodayOrders),
       revenueTrend,
-      piecesTrend
+      piecesTrend,
+      dailyCashFlow
     };
   }
 }
@@ -130,6 +154,37 @@ function buildDailyTrend(
   });
 }
 
+function buildDailyCashFlow(
+  start: Date,
+  days: number,
+  orders: Array<{ preferredSchedule: Date | null; createdAt: Date; status: string; totalAmount: unknown }>,
+  expenses: Array<{ expenseDate: Date; amount: unknown }>
+) {
+  return Array.from({ length: days }, (_, index) => {
+    const dayStart = addDays(start, index);
+    const dayEnd = addDays(dayStart, 1);
+    const dayOrders = orders.filter((order) => {
+      if (order.status !== "completed") {
+        return false;
+      }
+
+      const businessDate = order.preferredSchedule ?? order.createdAt;
+      return businessDate >= dayStart && businessDate < dayEnd;
+    });
+    const dayExpenses = expenses.filter((expense) => expense.expenseDate >= dayStart && expense.expenseDate < dayEnd);
+    const actualSales = sum(dayOrders, (order) => Number(order.totalAmount));
+    const expenseTotal = sum(dayExpenses, (expense) => Number(expense.amount));
+
+    return {
+      date: toDateInputValue(dayStart),
+      label: new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric" }).format(dayStart),
+      actualSales,
+      expenses: expenseTotal,
+      moneyOnHand: actualSales - expenseTotal
+    };
+  });
+}
+
 function buildTopItems(orders: Array<{ items: unknown; quantity: number }>) {
   const itemCounts = new Map<string, number>();
 
@@ -179,4 +234,13 @@ function addItemCount(counts: Map<string, number>, name: string, quantity: numbe
   }
 
   counts.set(name, (counts.get(name) ?? 0) + normalizedQuantity);
+}
+
+function toDateInputValue(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
 }

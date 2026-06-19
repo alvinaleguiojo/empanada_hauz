@@ -1,4 +1,5 @@
 import { AnalyticsPanels } from "@/components/analytics/analytics-panels";
+import { CashFlowSummary } from "@/components/dashboard/cash-flow-summary";
 import { LiveEvents } from "@/components/dashboard/live-events";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { apiFetch } from "@/lib/api";
@@ -13,9 +14,13 @@ export default async function DashboardPage() {
     productionEfficiency: 0,
     ordersToday: 0,
     activeOrdersToday: 0,
+    expensesToday: 0,
+    moneyOnHandToday: 0,
+    moneyOnHandTotal: 0,
     topLocations: [],
     revenueTrend: [],
-    piecesTrend: []
+    piecesTrend: [],
+    dailyCashFlow: []
   }));
 
   return (
@@ -26,10 +31,11 @@ export default async function DashboardPage() {
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Revenue Sold Today" value={formatPeso(data.revenueToday)} hint="Completed orders only" tone="accent" />
+        <StatCard label="Money on Hand Today" value={formatPeso(data.moneyOnHandToday)} hint={`${formatPeso(data.revenueToday)} sales - ${formatPeso(data.expensesToday)} expenses`} tone="success" />
         <StatCard label="Pieces Sold" value={String(data.pcsSoldToday ?? 0)} hint={`${data.activeOrdersToday ?? 0} active orders pending`} tone="success" />
-        <StatCard label="Repeat Customer" value={`${data.repeatCustomerRate ?? 0}%`} hint="Among today's customers" />
         <StatCard label="Completion Rate" value={`${data.productionEfficiency ?? 0}%`} hint={`${data.cancelledOrders ?? 0} cancelled today`} tone="danger" />
       </div>
+      <CashFlowSummary days={data.dailyCashFlow ?? []} totalMoneyOnHand={data.moneyOnHandTotal ?? 0} />
       <AnalyticsPanels data={data} />
       <LiveEvents />
     </div>
