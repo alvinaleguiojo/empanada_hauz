@@ -1,5 +1,5 @@
 import { AnalyticsPanels } from "@/components/analytics/analytics-panels";
-import { CashFlowSummary } from "@/components/dashboard/cash-flow-summary";
+import { CashFlowSummary, type CashFlowData } from "@/components/dashboard/cash-flow-summary";
 import { LiveEvents } from "@/components/dashboard/live-events";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { apiFetch } from "@/lib/api";
@@ -16,11 +16,10 @@ export default async function DashboardPage() {
     activeOrdersToday: 0,
     expensesToday: 0,
     moneyOnHandToday: 0,
-    moneyOnHandTotal: 0,
     topLocations: [],
     revenueTrend: [],
     piecesTrend: [],
-    dailyCashFlow: []
+    cashFlow: getEmptyCashFlow()
   }));
 
   return (
@@ -35,7 +34,7 @@ export default async function DashboardPage() {
         <StatCard label="Pieces Sold" value={String(data.pcsSoldToday ?? 0)} hint={`${data.activeOrdersToday ?? 0} active orders pending`} tone="success" />
         <StatCard label="Completion Rate" value={`${data.productionEfficiency ?? 0}%`} hint={`${data.cancelledOrders ?? 0} cancelled today`} tone="danger" />
       </div>
-      <CashFlowSummary days={data.dailyCashFlow ?? []} totalMoneyOnHand={data.moneyOnHandTotal ?? 0} />
+      <CashFlowSummary initialData={data.cashFlow ?? getEmptyCashFlow()} />
       <AnalyticsPanels data={data} />
       <LiveEvents />
     </div>
@@ -44,4 +43,17 @@ export default async function DashboardPage() {
 
 function formatPeso(value: number) {
   return `Php ${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function getEmptyCashFlow(): CashFlowData {
+  return {
+    range: "today",
+    label: "Today",
+    startDate: "",
+    endDate: "",
+    totalSales: 0,
+    totalExpenses: 0,
+    moneyOnHand: 0,
+    days: []
+  };
 }

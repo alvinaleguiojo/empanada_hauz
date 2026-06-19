@@ -8,31 +8,15 @@ export class AnalyticsService {
   async getOverview() {
     const todayRange = getManilaDayRange(new Date());
     const trendStart = addDays(todayRange.start, -6);
+    const cashFlow = await this.getCashFlow("today");
 
-    const [todayOrders, trendOrders, trendExpenses, todayExpenses, allActiveOrders, topLocations] = await Promise.all([
+    const [todayOrders, trendOrders, allActiveOrders, topLocations] = await Promise.all([
       this.prisma.order.findMany({
         where: orderBusinessDateWhere(todayRange.start, todayRange.end),
         include: { customer: true }
       }),
       this.prisma.order.findMany({
         where: orderBusinessDateWhere(trendStart, todayRange.end)
-      }),
-      this.prisma.expense.findMany({
-        where: {
-          expenseDate: {
-            gte: trendStart,
-            lt: todayRange.end
-          }
-        }
-      }),
-      this.prisma.expense.aggregate({
-        where: {
-          expenseDate: {
-            gte: todayRange.start,
-            lt: todayRange.end
-          }
-        },
-        _sum: { amount: true }
       }),
       this.prisma.order.findMany({
         where: { status: { not: "cancelled" } },
@@ -61,15 +45,12 @@ export class AnalyticsService {
     const repeatCustomerRate = uniqueTodayCustomers.size === 0 ? 0 : repeatTodayCustomers.length / uniqueTodayCustomers.size;
     const revenueTrend = buildDailyTrend(trendStart, 7, trendOrders, "revenue");
     const piecesTrend = buildDailyTrend(trendStart, 7, trendOrders, "pieces");
-    const dailyCashFlow = buildDailyCashFlow(trendStart, 7, trendOrders, trendExpenses);
-    const expensesToday = Number(todayExpenses._sum.amount ?? 0);
     const revenueToday = sum(completedTodayOrders, (order) => Number(order.totalAmount));
 
     return {
       revenueToday,
-      expensesToday,
-      moneyOnHandToday: revenueToday - expensesToday,
-      moneyOnHandTotal: sum(dailyCashFlow, (day) => day.moneyOnHand),
+      expensesToday: cashFlow.totalExpenses,
+      moneyOnHandToday: cashFlow.moneyOnHand,
       pcsSoldToday: sum(completedTodayOrders, (order) => order.quantity),
       ordersToday: todayOrders.length,
       activeOrdersToday: pendingTodayOrders.length,
@@ -82,7 +63,50 @@ export class AnalyticsService {
       topItems: buildTopItems(completedTodayOrders),
       revenueTrend,
       piecesTrend,
-      dailyCashFlow
+      cashFlow
+    };
+  }
+
+  async getCashFlow(rangeValue?: string) {
+    const range = getCashFlowRange(rangeValue);
+
+    const [orders, expenses] = await Promise.all([
+      this.prisma.order.findMany({
+        where: orderBusinessDateWhere(range.start, range.end),
+        select: {
+          preferredSchedule: true,
+          createdAt: true,
+          status: true,
+          totalAmount: true
+        }
+      }),
+      this.prisma.expense.findMany({
+        where: {
+          expenseDate: {
+            gte: range.start,
+            lt: range.end
+          }
+        },
+        select: {
+          expenseDate: true,
+          amount: true
+        }
+      })
+    ]);
+
+    const days = buildDailyCashFlow(range.start, countDays(range.start, range.end), orders, expenses);
+    const totalSales = sum(days, (day) => day.actualSales);
+    const totalExpenses = sum(days, (day) => day.expenses);
+
+    return {
+      range: range.key,
+      label: range.label,
+      startDate: toDateInputValue(range.start),
+      endDate: toDateInputValue(addDays(range.end, -1)),
+      totalSales,
+      totalExpenses,
+      moneyOnHand: totalSales - totalExpenses,
+      days
     };
   }
 }
@@ -111,10 +135,51 @@ function getManilaDayRange(date: Date) {
   return { start, end: addDays(start, 1) };
 }
 
+function getCashFlowRange(value?: string) {
+  const today = getManilaDayRange(new Date());
+  const key = value === "week" || value === "month" ? value : "today";
+
+  if (key === "week") {
+    const day = Number(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Manila",
+        weekday: "short"
+      })
+        .format(today.start)
+        .replace("Sun", "0")
+        .replace("Mon", "1")
+        .replace("Tue", "2")
+        .replace("Wed", "3")
+        .replace("Thu", "4")
+        .replace("Fri", "5")
+        .replace("Sat", "6")
+    );
+    const daysFromMonday = day === 0 ? 6 : day - 1;
+    const start = addDays(today.start, -daysFromMonday);
+    return { key, label: "This Week", start, end: today.end };
+  }
+
+  if (key === "month") {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit"
+    }).format(today.start);
+    const start = new Date(`${parts}-01T00:00:00+08:00`);
+    return { key, label: "This Month", start, end: today.end };
+  }
+
+  return { key, label: "Today", start: today.start, end: today.end };
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function countDays(start: Date, end: Date) {
+  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
 }
 
 function sum<T>(items: T[], getValue: (item: T) => number) {
