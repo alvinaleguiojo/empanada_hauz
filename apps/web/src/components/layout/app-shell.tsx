@@ -5,7 +5,7 @@ import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bell, Bike, Boxes, ChevronLeft, ClipboardList, CookingPot, Inbox, LayoutDashboard, Package, Truck } from "lucide-react";
+import { BarChart3, Bell, Bike, Boxes, ChevronLeft, ClipboardList, CookingPot, Inbox, LayoutDashboard, Package, ReceiptText, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { socket } from "@/lib/socket";
 import { useRealtimeStore } from "@/store/realtime-store";
@@ -19,6 +19,7 @@ const items = [
   { href: "/deliveries", label: "Deliveries", icon: Truck },
   { href: "/delivery-network", label: "Riders", icon: Bike },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/expenses", label: "Expenses", icon: ReceiptText },
   { href: "/inventory", label: "Inventory", icon: Package }
 ];
 
