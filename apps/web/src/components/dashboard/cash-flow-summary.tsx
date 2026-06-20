@@ -20,9 +20,9 @@ export type CashFlowData = {
   days: CashFlowDay[];
 };
 
-export type CashRange = "today" | "week" | "month";
+export type CashRange = "today" | "week" | "month" | "custom";
 
-export const rangeOptions: Array<{ label: string; value: CashRange }> = [
+export const rangeOptions: Array<{ label: string; value: Exclude<CashRange, "custom"> }> = [
   { label: "Today", value: "today" },
   { label: "This Week", value: "week" },
   { label: "This Month", value: "month" }

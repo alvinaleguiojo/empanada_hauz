@@ -1,17 +1,27 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
+
+type CashRangeKey = "today" | "week" | "month" | "custom";
+
+type CashFlowRange = {
+  key: CashRangeKey;
+  label: string;
+  start: Date;
+  end: Date;
+};
 
 @Injectable()
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOverview(rangeValue?: string) {
-    const range = getCashFlowRange(rangeValue);
+  async getOverview(rangeValue?: string, startDate?: string, endDate?: string) {
+    const range = getCashFlowRange(rangeValue, startDate, endDate);
     const trendStart = range.key === "today" ? addDays(range.start, -6) : range.start;
     const trendDays = range.key === "today" ? 7 : countDays(trendStart, range.end);
-    const cashFlow = await this.getCashFlow(range.key);
+    const cashFlowPromise = this.getCashFlowForRange(range);
 
-    const [rangeOrders, trendOrders, allActiveOrders, topLocations] = await Promise.all([
+    const [cashFlow, rangeOrders, trendOrders, allActiveOrders, topLocations] = await Promise.all([
+      cashFlowPromise,
       this.prisma.order.findMany({
         where: orderBusinessDateWhere(range.start, range.end),
         include: { customer: true }
@@ -72,9 +82,11 @@ export class AnalyticsService {
     };
   }
 
-  async getCashFlow(rangeValue?: string) {
-    const range = getCashFlowRange(rangeValue);
+  async getCashFlow(rangeValue?: string, startDate?: string, endDate?: string) {
+    return this.getCashFlowForRange(getCashFlowRange(rangeValue, startDate, endDate));
+  }
 
+  private async getCashFlowForRange(range: CashFlowRange) {
     const [orders, expenses] = await Promise.all([
       this.prisma.order.findMany({
         where: orderBusinessDateWhere(range.start, range.end),
@@ -140,8 +152,24 @@ function getManilaDayRange(date: Date) {
   return { start, end: addDays(start, 1) };
 }
 
-function getCashFlowRange(value?: string) {
+function getCashFlowRange(value?: string, startDate?: string, endDate?: string): CashFlowRange {
   const today = getManilaDayRange(new Date());
+
+  if (value === "custom" || startDate || endDate) {
+    if (!startDate || !endDate) {
+      throw new BadRequestException("Custom date range requires both startDate and endDate.");
+    }
+
+    const start = parseManilaDateInput(startDate, "startDate");
+    const inclusiveEnd = parseManilaDateInput(endDate, "endDate");
+
+    if (start > inclusiveEnd) {
+      throw new BadRequestException("startDate must be before or equal to endDate.");
+    }
+
+    return { key: "custom", label: "Custom Range", start, end: addDays(inclusiveEnd, 1) };
+  }
+
   const key = value === "week" || value === "month" ? value : "today";
 
   if (key === "week") {
@@ -175,6 +203,20 @@ function getCashFlowRange(value?: string) {
   }
 
   return { key, label: "Today", start: today.start, end: today.end };
+}
+
+function parseManilaDateInput(value: string, fieldName: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new BadRequestException(`${fieldName} must use YYYY-MM-DD format.`);
+  }
+
+  const date = new Date(`${value}T00:00:00+08:00`);
+
+  if (Number.isNaN(date.getTime()) || toDateInputValue(date) !== value) {
+    throw new BadRequestException(`${fieldName} is not a valid date.`);
+  }
+
+  return date;
 }
 
 function addDays(date: Date, days: number) {

@@ -8,12 +8,12 @@ export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   @Get("overview")
-  getOverview(@Query("range") range?: string) {
-    return this.analyticsService.getOverview(range);
+  getOverview(@Query("range") range?: string, @Query("startDate") startDate?: string, @Query("endDate") endDate?: string) {
+    return this.analyticsService.getOverview(range, startDate, endDate);
   }
 
   @Get("cash-flow")
-  getCashFlow(@Query("range") range?: string) {
-    return this.analyticsService.getCashFlow(range);
+  getCashFlow(@Query("range") range?: string, @Query("startDate") startDate?: string, @Query("endDate") endDate?: string) {
+    return this.analyticsService.getCashFlow(range, startDate, endDate);
   }
 }
