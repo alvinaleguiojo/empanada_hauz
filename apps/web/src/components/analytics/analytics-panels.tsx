@@ -29,19 +29,19 @@ export function AnalyticsPanels({ data, rangeLabel = "Today" }: { data: Analytic
   const rangeText = rangeLabel.toLowerCase();
 
   return (
-    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <Card className="min-w-0 p-4 sm:min-h-[330px] sm:p-5">
+    <div className="grid min-w-0 gap-4">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+        <Card className="min-w-0 p-4 sm:p-5 xl:min-h-[430px]">
           <PanelHeader title="Revenue Trend" subtitle={`Completed sales, ${rangeText}`} />
           <BarTrend items={data.revenueTrend ?? []} tone="accent" valueFormatter={(value) => `Php ${formatCompact(value)}`} />
         </Card>
-        <Card className="min-w-0 p-4 sm:min-h-[330px] sm:p-5">
+        <Card className="min-w-0 p-4 sm:p-5 xl:min-h-[430px]">
           <PanelHeader title="Pieces Sold Trend" subtitle={`Completed sales, ${rangeText}`} />
           <BarTrend items={data.piecesTrend ?? []} tone="success" valueFormatter={(value) => `${formatCompact(value)} pcs`} />
         </Card>
       </div>
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-1">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <Card className="min-w-0 p-4 sm:p-5">
           <PanelHeader title="Most Ordered Items" subtitle={`${rangeLabel}, completed orders`} />
           <RankedList
@@ -130,7 +130,7 @@ function BarTrend({
 
   return (
     <div className="mt-5 min-w-0 overflow-hidden rounded-lg border border-white/[0.08] bg-[linear-gradient(145deg,rgba(30,39,65,0.92),rgba(20,27,45,0.96))] shadow-inner shadow-white/[0.03] sm:mt-6">
-      <svg className="block aspect-[2.35/1] w-full max-w-full sm:aspect-[2.75/1]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Trend line chart" preserveAspectRatio="none">
+      <svg className="block aspect-[2.35/1] w-full max-w-full sm:aspect-[2.45/1] xl:aspect-[2.2/1]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Trend line chart" preserveAspectRatio="none">
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={lineColor} stopOpacity="0.32" />
