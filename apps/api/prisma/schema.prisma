@@ -215,6 +215,7 @@ model Order {
   unitPrice         Float
   totalAmount       Float
   deliveryFee       Float           @default(0)
+  discountAmount    Float           @default(0)
   location          String?
   address           String?
   deliveryMethod    DeliveryMethod

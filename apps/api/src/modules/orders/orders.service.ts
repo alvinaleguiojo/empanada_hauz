@@ -51,6 +51,7 @@ export class OrdersService {
       unitPrice: order.unitPrice,
       totalAmount: order.totalAmount,
       deliveryFee: order.deliveryFee,
+      discountAmount: order.discountAmount,
       deliveryMethod: order.deliveryMethod,
       paymentMethod: order.paymentMethod,
       location: order.location,
@@ -89,7 +90,8 @@ export class OrdersService {
   async create(dto: CreateOrderDto) {
     const batch = await this.batchesService.assignBatch(dto.quantity);
     const deliveryFee = dto.deliveryFee ?? 0;
-    const totalAmount = dto.quantity * dto.unitPrice + deliveryFee;
+    const discountAmount = dto.discountAmount ?? 0;
+    const totalAmount = Math.max(0, dto.quantity * dto.unitPrice + deliveryFee - discountAmount);
 
     const order = await this.prisma.order.create({
       data: {
@@ -99,6 +101,7 @@ export class OrdersService {
         unitPrice: dto.unitPrice,
         totalAmount,
         deliveryFee,
+        discountAmount,
         deliveryMethod: dto.deliveryMethod,
         paymentMethod: dto.paymentMethod ?? "cod",
         location: dto.location,
@@ -137,7 +140,8 @@ export class OrdersService {
       ? null
       : await this.batchesService.assignBatch(dto.quantity);
     const deliveryFee = dto.deliveryFee ?? 0;
-    const totalAmount = dto.quantity * dto.unitPrice + deliveryFee;
+    const discountAmount = dto.discountAmount ?? 0;
+    const totalAmount = Math.max(0, dto.quantity * dto.unitPrice + deliveryFee - discountAmount);
     const order = await this.prisma.order.create({
       data: {
         orderNumber: `EMP-${Date.now()}`,
@@ -146,6 +150,7 @@ export class OrdersService {
         unitPrice: dto.unitPrice,
         totalAmount,
         deliveryFee,
+        discountAmount,
         deliveryMethod: dto.deliveryMethod,
         paymentMethod: dto.paymentMethod ?? "cod",
         location: dto.location,
@@ -209,7 +214,8 @@ export class OrdersService {
     const quantity = dto.quantity ?? existing.quantity;
     const unitPrice = dto.unitPrice ?? Number(existing.unitPrice);
     const deliveryFee = dto.deliveryFee ?? Number(existing.deliveryFee);
-    const totalAmount = quantity * unitPrice + deliveryFee;
+    const discountAmount = dto.discountAmount ?? Number(existing.discountAmount);
+    const totalAmount = Math.max(0, quantity * unitPrice + deliveryFee - discountAmount);
 
     const order = await this.prisma.$transaction(async (tx) => {
       await tx.customer.update({
@@ -229,6 +235,7 @@ export class OrdersService {
           ...(dto.unitPrice !== undefined ? { unitPrice: dto.unitPrice } : {}),
           totalAmount,
           ...(dto.deliveryFee !== undefined ? { deliveryFee } : {}),
+          ...(dto.discountAmount !== undefined ? { discountAmount } : {}),
           ...(dto.deliveryMethod !== undefined ? { deliveryMethod: dto.deliveryMethod } : {}),
           ...(dto.paymentMethod !== undefined ? { paymentMethod: dto.paymentMethod } : {}),
           ...(dto.location !== undefined ? { location: dto.location } : {}),

@@ -53,6 +53,11 @@ export class CreateOrderDto {
   @Min(0)
   deliveryFee?: number;
 
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
   @IsIn(DELIVERY_METHODS)
   deliveryMethod!: DeliveryMethod;
 
@@ -110,6 +115,11 @@ export class UpdateOrderDto {
   deliveryFee?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
+  @IsOptional()
   @IsIn(DELIVERY_METHODS)
   deliveryMethod?: DeliveryMethod;
 
@@ -157,6 +167,11 @@ export class ManualOrderEntryDto {
   @IsNumber()
   @Min(0)
   deliveryFee?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
 
   @IsIn(DELIVERY_METHODS)
   deliveryMethod!: DeliveryMethod;

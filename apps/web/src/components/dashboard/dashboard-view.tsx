@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays, Loader2 } from "lucide-react";
 import { AnalyticsPanels } from "@/components/analytics/analytics-panels";
 import { CashFlowSummary, rangeOptions, type CashFlowData, type CashRange } from "@/components/dashboard/cash-flow-summary";
@@ -54,31 +54,13 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
   const [customStartDate, setCustomStartDate] = useState(initialData.startDate ?? initialData.cashFlow?.startDate ?? "");
   const [customEndDate, setCustomEndDate] = useState(initialData.endDate ?? initialData.cashFlow?.endDate ?? "");
   const [error, setError] = useState("");
+  const requestIdRef = useRef(0);
   const activeRange = data.range ?? data.cashFlow?.range ?? "today";
   const rangeLabel = data.rangeLabel ?? data.cashFlow?.label ?? "Today";
   const rangeText = rangeLabel.toLowerCase();
 
-  async function selectRange(range: CashRange) {
-    if (range === activeRange || loadingRange) {
-      return;
-    }
-
-    setLoadingRange(range);
-    setError("");
-    try {
-      const nextData = await apiFetch<DashboardData>(`/analytics/overview?range=${range}`);
-      setData(nextData);
-      setCustomStartDate(nextData.startDate ?? nextData.cashFlow?.startDate ?? "");
-      setCustomEndDate(nextData.endDate ?? nextData.cashFlow?.endDate ?? "");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load dashboard data.");
-    } finally {
-      setLoadingRange(null);
-    }
-  }
-
-  async function applyCustomRange() {
-    if (!customStartDate || !customEndDate || loadingRange) {
+  useEffect(() => {
+    if (!customOpen || !isCompleteDate(customStartDate) || !isCompleteDate(customEndDate)) {
       return;
     }
 
@@ -87,21 +69,86 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
       return;
     }
 
+    const timeoutId = window.setTimeout(() => {
+      void loadCustomRange(customStartDate, customEndDate);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [customOpen, customStartDate, customEndDate]);
+
+  async function selectRange(range: CashRange) {
+    if (range === activeRange || loadingRange) {
+      return;
+    }
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    setLoadingRange(range);
+    setError("");
+    try {
+      const nextData = await apiFetch<DashboardData>(`/analytics/overview?range=${range}`);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      setData(nextData);
+      setCustomStartDate(nextData.startDate ?? nextData.cashFlow?.startDate ?? "");
+      setCustomEndDate(nextData.endDate ?? nextData.cashFlow?.endDate ?? "");
+    } catch (err) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Unable to load dashboard data.");
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoadingRange(null);
+      }
+    }
+  }
+
+  async function loadCustomRange(startDate: string, endDate: string, closeOnSuccess = false) {
+    if (!startDate || !endDate) {
+      return;
+    }
+
+    if (startDate > endDate) {
+      setError("Start date must be before or equal to end date.");
+      return;
+    }
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     setLoadingRange("custom");
     setError("");
     try {
       const params = new URLSearchParams({
         range: "custom",
-        startDate: customStartDate,
-        endDate: customEndDate
+        startDate,
+        endDate
       });
-      setData(await apiFetch<DashboardData>(`/analytics/overview?${params.toString()}`));
-      setCustomOpen(false);
+      const nextData = await apiFetch<DashboardData>(`/analytics/overview?${params.toString()}`);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      setData(nextData);
+      setCustomStartDate(nextData.startDate ?? nextData.cashFlow?.startDate ?? startDate);
+      setCustomEndDate(nextData.endDate ?? nextData.cashFlow?.endDate ?? endDate);
+      if (closeOnSuccess) {
+        setCustomOpen(false);
+      }
     } catch (err) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Unable to load dashboard data.");
     } finally {
-      setLoadingRange(null);
+      if (requestId === requestIdRef.current) {
+        setLoadingRange(null);
+      }
     }
+  }
+
+  function applyCustomRange() {
+    return loadCustomRange(customStartDate, customEndDate, true);
   }
 
   return (
@@ -190,4 +237,8 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
 
 function formatPeso(value: number) {
   return `Php ${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function isCompleteDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
