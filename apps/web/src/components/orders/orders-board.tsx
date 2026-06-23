@@ -60,12 +60,13 @@ const statusFilterOptions = [
 ];
 
 const productOptions = [
-  { label: "Ilocos Empanada", value: "Ilocos Empanada", price: 70 },
   { label: "Pork Regular", value: "Pork Regular", price: 20 },
   { label: "Pork with Egg", value: "Pork with Egg", price: 25 },
   { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
   { label: "Chicken", value: "Chicken", price: 20 },
-  { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 }
+  { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 },
+  { label: "Choco Flavor", value: "Choco Flavor", price: 25 },
+  { label: "Mango Flavor", value: "Mango Flavor", price: 25 }
 ];
 
 type OrderNoteView = {
