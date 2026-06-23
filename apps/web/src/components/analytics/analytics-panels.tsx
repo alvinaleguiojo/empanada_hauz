@@ -111,11 +111,11 @@ function BarTrend({
     const value = Number(item.value) || 0;
     const x = items.length === 1 ? width / 2 : paddingX + (index / (items.length - 1)) * (width - paddingX * 2);
     const y = top + (1 - value / max) * plotHeight;
-    return { ...item, value, x, y };
+    return { ...item, index, value, x, y };
   });
   const path = createSmoothPath(points);
   const fillPath = path ? `${path} L ${points[points.length - 1].x} ${height - bottom} L ${points[0].x} ${height - bottom} Z` : "";
-  const highlight = points.reduce((best, point) => (point.value > best.value ? point : best), points[0]);
+  const displayPoints = getDisplayPoints(points, 6);
   const gradientId = `trend-fill-${tone}`;
   const glowId = `trend-glow-${tone}`;
   const lineColor = tone === "accent" ? "#ff5f94" : "#30d18e";
@@ -123,8 +123,8 @@ function BarTrend({
   const guideColor = tone === "accent" ? "#36d7ff" : "#41f3ca";
 
   return (
-    <div className="mt-6 overflow-hidden rounded-lg border border-white/[0.08] bg-[#171a49] shadow-inner shadow-white/[0.03]">
-      <svg className="h-56 w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Trend line chart" preserveAspectRatio="none">
+    <div className="mt-6 overflow-hidden rounded-lg border border-[#2f3c78]/70 bg-[#171a49] shadow-inner shadow-white/[0.03]">
+      <svg className="h-[clamp(12rem,42vw,14rem)] w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Trend line chart" preserveAspectRatio="none">
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={tone === "accent" ? "#ff5f94" : "#30d18e"} stopOpacity="0.34" />
@@ -151,33 +151,40 @@ function BarTrend({
         </defs>
 
         <rect width={width} height={height} fill="#171a49" />
-        <rect width={width} height={height} fill="url(#chart-backdrop)" opacity="0" />
-        <path d={`M0 0 H${width} V${height} H0 Z`} fill="url(#trend-panel-gradient)" opacity="0" />
+        <path d={`M0 0 H${width} V${height} H0 Z`} fill="#251a68" opacity="0.34" />
         <path d={fillPath} fill={`url(#${gradientId})`} />
-        {points.map((point) => (
-          <g key={point.label}>
+        {displayPoints.map((point) => (
+          <g key={`${point.label}-${point.index}`}>
             <line x1={point.x} x2={point.x} y1={top + 10} y2={height - bottom + 8} stroke={guideColor} strokeOpacity="0.62" strokeWidth="2" />
             <circle cx={point.x} cy={height - bottom + 10} r="2.4" fill={guideColor} opacity="0.9" />
           </g>
         ))}
         <path d={path} fill="none" stroke={`url(#${gradientId}-line)`} strokeLinecap="round" strokeLinejoin="round" strokeWidth="6.5" filter={`url(#${glowId})`} />
-        {highlight ? (
-          <g>
-            <circle cx={highlight.x} cy={highlight.y} r="18" fill="#1a2052" stroke={lineColor} strokeWidth="6" />
-            <circle cx={highlight.x} cy={highlight.y} r="7" fill={lineColor} opacity="0.92" />
-          </g>
-        ) : null}
-        {points.map((point) => (
-          <g key={`${point.label}-label`}>
+        {displayPoints.map((point) => (
+          <g key={`${point.label}-${point.index}-label`}>
             <title>{`${point.label}: ${valueFormatter(point.value)}`}</title>
-            <text x={point.x} y={height - 18} textAnchor="middle" fill="#55dff6" fontSize="16" fontWeight="700">
-              {compactLabel(point.label)}
+            <text x={point.x} y={height - 18} textAnchor="middle" fill="#55dff6" fontSize="15" fontWeight="700">
+              {compactDateLabel(point.label)}
             </text>
           </g>
         ))}
       </svg>
     </div>
   );
+}
+
+function getDisplayPoints<T extends { index: number; x: number; y: number }>(points: T[], maxCount: number) {
+  if (points.length <= maxCount) {
+    return points;
+  }
+
+  const lastIndex = points.length - 1;
+  const indexes = new Set<number>();
+  for (let slot = 0; slot < maxCount; slot += 1) {
+    indexes.add(Math.round((slot / (maxCount - 1)) * lastIndex));
+  }
+
+  return points.filter((point) => indexes.has(point.index));
 }
 
 function createSmoothPath(points: Array<{ x: number; y: number }>) {
@@ -206,12 +213,17 @@ function createSmoothPath(points: Array<{ x: number; y: number }>) {
   return commands.join(" ");
 }
 
-function compactLabel(label: string) {
+function compactDateLabel(label: string) {
   const trimmed = label.trim();
-  if (trimmed.length <= 5) {
+  const dayMatch = trimmed.match(/\b([A-Za-z]{3,9})\s+(\d{1,2})\b/);
+  if (dayMatch) {
+    return dayMatch[2];
+  }
+
+  if (trimmed.length <= 6) {
     return trimmed;
   }
-  return trimmed.slice(0, 5);
+  return trimmed.slice(0, 6);
 }
 
 function RankedList({
@@ -234,16 +246,34 @@ function RankedList({
       {items.map((item, index) => {
         const width = Math.max((item.value / max) * 100, 6);
         return (
-          <div key={`${item.label}-${index}`} className="rounded-lg border border-line/70 bg-black/[0.06] p-3">
+          <div
+            key={`${item.label}-${index}`}
+            className={cn(
+              "rounded-lg border p-3 shadow-[0_18px_50px_rgba(0,0,0,0.16)]",
+              tone === "accent"
+                ? "border-orange-300/15 bg-[linear-gradient(135deg,rgba(255,106,52,0.14),rgba(255,255,255,0.035)_48%,rgba(255,184,76,0.08))]"
+                : "border-emerald-300/15 bg-[linear-gradient(135deg,rgba(48,209,142,0.16),rgba(255,255,255,0.035)_48%,rgba(85,231,255,0.08))]"
+            )}
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-foreground/88">{item.label}</p>
-                <p className="mt-1 text-xs text-foreground/45">Rank {index + 1}</p>
+                <span
+                  className={cn(
+                    "mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-semibold text-white shadow-sm",
+                    tone === "accent" ? "bg-[linear-gradient(135deg,#ff6638,#ffb347)]" : "bg-[linear-gradient(135deg,#24d38d,#55e7ff)]"
+                  )}
+                >
+                  Rank {index + 1}
+                </span>
               </div>
               <p className="shrink-0 text-sm font-semibold">{item.valueLabel}</p>
             </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.06]">
-              <div className={cn("h-full rounded-full", tone === "accent" ? "bg-accent" : "bg-success")} style={{ width: `${width}%` }} />
+            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/[0.08] shadow-inner shadow-black/30">
+              <div
+                className={cn("h-full rounded-full", tone === "accent" ? "bg-[linear-gradient(90deg,#ff6638,#ffb347)]" : "bg-[linear-gradient(90deg,#24d38d,#55e7ff)]")}
+                style={{ width: `${width}%` }}
+              />
             </div>
           </div>
         );
