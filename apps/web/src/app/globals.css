@@ -3,32 +3,59 @@
 @tailwind utilities;
 
 :root {
-  --background: 247 245 239;
-  --foreground: 26 28 32;
-  --panel: 255 255 255;
-  --line: 224 222 214;
-  --accent: 207 87 40;
-  --muted: 111 118 128;
-  --danger: 190 52 52;
-  --success: 45 129 87;
+  --background: 16 22 36;
+  --foreground: 244 247 251;
+  --panel: 22 29 47;
+  --line: 66 77 105;
+  --accent: 239 102 55;
+  --muted: 147 158 184;
+  --danger: 245 82 96;
+  --success: 48 209 142;
 }
 
 .dark {
-  --background: 13 17 23;
-  --foreground: 242 243 245;
-  --panel: 22 27 34;
-  --line: 39 47 58;
-  --accent: 231 109 54;
-  --muted: 136 143 153;
-  --danger: 224 79 79;
-  --success: 65 169 110;
+  --background: 16 22 36;
+  --foreground: 244 247 251;
+  --panel: 22 29 47;
+  --line: 66 77 105;
+  --accent: 239 102 55;
+  --muted: 147 158 184;
+  --danger: 245 82 96;
+  --success: 48 209 142;
 }
 
 body {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 220px), rgb(var(--background));
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 8% 2%, rgba(239, 102, 55, 0.24), transparent 30rem),
+    radial-gradient(circle at 94% 22%, rgba(23, 198, 214, 0.17), transparent 28rem),
+    linear-gradient(135deg, #111827 0%, #151b30 48%, #1b2539 100%);
   color: rgb(var(--foreground));
   color-scheme: dark;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  text-rendering: geometricPrecision;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 72%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: auto -8rem -12rem auto;
+  width: 34rem;
+  height: 34rem;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(48, 209, 142, 0.12), transparent 68%);
 }
 
 * {
@@ -37,6 +64,21 @@ body {
 
 ::selection {
   background: rgb(var(--accent) / 0.28);
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(8, 12, 22, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid rgba(8, 12, 22, 0.5);
+  border-radius: 999px;
+  background: rgba(147, 158, 184, 0.45);
 }
 
 :focus-visible {

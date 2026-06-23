@@ -8,7 +8,8 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
       suppressHydrationWarning
       {...props}
       className={cn(
-        "h-10 w-full rounded-lg border border-line/80 bg-black/10 px-3.5 text-sm text-foreground outline-none ring-0 transition placeholder:text-foreground/38 hover:border-foreground/18 focus:border-accent/60 focus:bg-black/15",
+        "h-10 w-full rounded-lg border border-white/[0.09] bg-[#101827]/80 px-3.5 text-sm text-foreground outline-none ring-0 transition",
+        "shadow-inner shadow-black/25 placeholder:text-foreground/34 hover:border-white/[0.16] focus:border-accent/70 focus:bg-[#111c2f] focus:shadow-[0_0_0_3px_rgb(var(--accent)/0.12)]",
         props.className
       )}
     />

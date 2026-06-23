@@ -53,14 +53,14 @@ export function Select({
         type="button"
         suppressHydrationWarning
         onClick={() => setOpen((current) => !current)}
-        className="flex h-10 w-full items-center justify-between rounded-lg border border-line/80 bg-black/10 px-3.5 text-left text-sm text-foreground transition hover:border-foreground/18 focus:border-accent/60"
+        className="flex h-10 w-full items-center justify-between rounded-lg border border-white/[0.09] bg-[#101827]/80 px-3.5 text-left text-sm text-foreground shadow-inner shadow-black/25 transition hover:border-white/[0.16] focus:border-accent/70 focus:shadow-[0_0_0_3px_rgb(var(--accent)/0.12)]"
       >
         <span className={cn(!selected && "text-foreground/45")}>{selected?.label ?? placeholder ?? "Select"}</span>
         <ChevronDown size={18} className={cn("shrink-0 text-foreground/45 transition", open && "rotate-180")} />
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-lg border border-line/90 bg-panel p-1.5 shadow-2xl shadow-black/35">
+        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-lg border border-white/[0.1] bg-[#141d31]/95 p-1.5 shadow-2xl shadow-black/45 backdrop-blur-xl">
           <div className="space-y-1">
             {options.map((option) => {
               const active = option.value === value;
@@ -75,7 +75,7 @@ export function Select({
                   }}
                   className={cn(
                     "flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm transition",
-                    active ? "bg-accent text-white" : "text-foreground/78 hover:bg-white/[0.07] hover:text-foreground"
+                    active ? "bg-accent text-white shadow-sm shadow-accent/20" : "text-foreground/78 hover:bg-white/[0.08] hover:text-foreground"
                   )}
                 >
                   <span>{option.label}</span>

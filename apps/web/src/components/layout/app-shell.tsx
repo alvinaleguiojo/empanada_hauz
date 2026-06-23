@@ -88,18 +88,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="relative min-h-screen overflow-hidden text-foreground">
       <div
         className={cn(
-          "mx-auto grid min-h-screen max-w-[1600px] grid-cols-1 gap-3 p-3 transition-[grid-template-columns] sm:gap-4 sm:p-4",
-          sidebarCollapsed ? "lg:grid-cols-[76px_1fr]" : "lg:grid-cols-[240px_1fr]"
+          "relative z-10 mx-auto grid min-h-screen max-w-[1660px] grid-cols-1 gap-3 p-3 transition-[grid-template-columns] sm:gap-4 sm:p-4",
+          sidebarCollapsed ? "lg:grid-cols-[82px_1fr]" : "lg:grid-cols-[260px_1fr]"
         )}
       >
-        <aside className="rounded-lg border border-line/80 bg-panel/95 p-3 shadow-sm shadow-black/10 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:p-4">
-          <div className={cn("mb-3 flex items-center justify-between gap-3 border-b border-line/70 pb-3 lg:mb-7 lg:pb-5", sidebarCollapsed && "lg:flex-col lg:items-center lg:gap-2")}>
+        <aside className="rounded-lg border border-white/[0.09] bg-[#101827]/88 p-3 shadow-[0_24px_80px_rgba(0,0,0,0.32)] backdrop-blur-2xl lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:p-4">
+          <div className={cn("mb-3 flex items-center justify-between gap-3 border-b border-white/[0.08] pb-3 lg:mb-7 lg:pb-5", sidebarCollapsed && "lg:flex-col lg:items-center lg:gap-2")}>
             <div className={cn("min-w-0", sidebarCollapsed && "lg:sr-only")}>
               <div className="flex items-center gap-3">
-                <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-line/80 bg-white">
+                <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-white/[0.14] bg-white shadow-[0_0_0_4px_rgba(255,255,255,0.04)]">
                   <Image
                     src="/empanada hauz logo.jpg"
                     alt="Empanada Hauz"
@@ -110,13 +110,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-foreground/42">Empanada Hauz</p>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-accent">Empanada Hauz</p>
                   <h1 className="mt-1 truncate text-lg font-semibold leading-tight">Food Operations</h1>
                 </div>
               </div>
             </div>
             {sidebarCollapsed ? (
-              <div className="relative hidden h-10 w-10 overflow-hidden rounded-lg border border-line/80 bg-white lg:block">
+              <div className="relative hidden h-10 w-10 overflow-hidden rounded-lg border border-white/[0.14] bg-white lg:block">
                 <Image src="/empanada hauz logo.jpg" alt="Empanada Hauz" fill sizes="40px" className="object-cover" priority />
               </div>
             ) : null}
@@ -126,7 +126,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               onClick={toggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line/80 bg-black/10 text-foreground/62 transition hover:border-accent/35 hover:text-foreground lg:inline-flex"
+              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.06] text-foreground/70 transition hover:border-accent/45 hover:bg-accent/10 hover:text-foreground lg:inline-flex"
             >
               <ChevronLeft size={17} className={cn("transition", sidebarCollapsed && "rotate-180")} />
             </button>
@@ -142,11 +142,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   aria-label={sidebarCollapsed ? item.label : undefined}
                   title={sidebarCollapsed ? item.label : undefined}
                   className={cn(
-                    "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition lg:gap-3 lg:px-3.5",
+                    "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition lg:gap-3 lg:px-3.5",
                     sidebarCollapsed && "lg:justify-center lg:px-0",
                     active
-                      ? "bg-accent text-white shadow-sm shadow-accent/20"
-                      : "text-foreground/66 hover:bg-white/[0.06] hover:text-foreground"
+                      ? "bg-[linear-gradient(135deg,rgb(var(--accent)),#ff8a4d)] text-white shadow-[0_16px_35px_rgb(var(--accent)/0.26)]"
+                      : "text-foreground/64 hover:bg-white/[0.07] hover:text-foreground"
                   )}
                 >
                   <Icon size={17} />
@@ -156,14 +156,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
         </aside>
-        <main className="relative min-w-0">
+        <main className="relative min-w-0 rounded-lg border border-white/[0.04] bg-[#0e1524]/38 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-sm sm:p-4">
           <div className="mb-4 flex justify-end">
             <div className="relative">
               <button
                 type="button"
                 suppressHydrationWarning
                 onClick={() => setNotificationsOpen((value) => !value)}
-                className="relative inline-flex h-10 w-10 items-center justify-center rounded-lg border border-line/80 bg-panel/95 transition hover:bg-white/[0.06]"
+                className="relative inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.09] bg-panel/80 shadow-lg shadow-black/15 transition hover:bg-white/[0.08]"
               >
                 <Bell size={18} />
                 {unreadCount > 0 ? (
@@ -173,7 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ) : null}
               </button>
               {notificationsOpen ? (
-                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-1.5rem)] max-w-[360px] rounded-lg border border-line/90 bg-panel p-4 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
+                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-1.5rem)] max-w-[360px] rounded-lg border border-white/[0.1] bg-[#141d31]/96 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-semibold">Notifications</h3>
                     <div className="flex items-center gap-2">
