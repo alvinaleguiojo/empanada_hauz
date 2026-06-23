@@ -101,38 +101,117 @@ function BarTrend({
     return <EmptyState label="No trend data yet." />;
   }
 
+  const width = 720;
+  const height = 230;
+  const paddingX = 44;
+  const top = 22;
+  const bottom = 52;
+  const plotHeight = height - top - bottom;
+  const points = items.map((item, index) => {
+    const value = Number(item.value) || 0;
+    const x = items.length === 1 ? width / 2 : paddingX + (index / (items.length - 1)) * (width - paddingX * 2);
+    const y = top + (1 - value / max) * plotHeight;
+    return { ...item, value, x, y };
+  });
+  const path = createSmoothPath(points);
+  const fillPath = path ? `${path} L ${points[points.length - 1].x} ${height - bottom} L ${points[0].x} ${height - bottom} Z` : "";
+  const highlight = points.reduce((best, point) => (point.value > best.value ? point : best), points[0]);
+  const gradientId = `trend-fill-${tone}`;
+  const glowId = `trend-glow-${tone}`;
+  const lineColor = tone === "accent" ? "#ff5f94" : "#30d18e";
+  const lineEndColor = tone === "accent" ? "#ffb03d" : "#55e7ff";
+  const guideColor = tone === "accent" ? "#36d7ff" : "#41f3ca";
+
   return (
-    <div className="mt-6">
-      <div className="flex h-48 items-end gap-2 rounded-lg border border-line/65 bg-black/[0.06] p-3">
-        {items.map((item) => {
-          const value = Number(item.value) || 0;
-          const height = Math.max((value / max) * 100, value > 0 ? 8 : 2);
-          return (
-            <div key={item.label} className="flex h-full min-w-0 flex-1 flex-col justify-end gap-2">
-              <div className="flex min-h-0 flex-1 items-end">
-                <div
-                  title={`${item.label}: ${valueFormatter(value)}`}
-                  className={cn(
-                    "w-full rounded-md transition",
-                    tone === "accent" ? "bg-accent shadow-[0_0_22px_rgb(var(--accent)/0.16)]" : "bg-success shadow-[0_0_22px_rgb(var(--success)/0.16)]"
-                  )}
-                  style={{ height: `${height}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
-        {items.map((item) => (
-          <div key={item.label} className="min-w-0 text-center">
-            <p className="truncate text-[11px] text-foreground/45">{item.label}</p>
-            <p className="mt-1 truncate text-[11px] font-semibold text-foreground/70">{valueFormatter(Number(item.value) || 0)}</p>
-          </div>
+    <div className="mt-6 overflow-hidden rounded-lg border border-white/[0.08] bg-[#171a49] shadow-inner shadow-white/[0.03]">
+      <svg className="h-56 w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Trend line chart" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={tone === "accent" ? "#ff5f94" : "#30d18e"} stopOpacity="0.34" />
+            <stop offset="100%" stopColor="#3a1d7a" stopOpacity="0.18" />
+          </linearGradient>
+          <linearGradient id={`${gradientId}-line`} x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="#ffd23f" />
+            <stop offset="44%" stopColor={lineColor} />
+            <stop offset="100%" stopColor={lineEndColor} />
+          </linearGradient>
+          <filter id={glowId} x="-20%" y="-80%" width="140%" height="260%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feColorMatrix
+              in="blur"
+              type="matrix"
+              values="1 0 0 0 1  0 0.25 0 0 0.28  0 0 0.45 0 0.65  0 0 0 0.75 0"
+              result="glow"
+            />
+            <feMerge>
+              <feMergeNode in="glow" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        <rect width={width} height={height} fill="#171a49" />
+        <rect width={width} height={height} fill="url(#chart-backdrop)" opacity="0" />
+        <path d={`M0 0 H${width} V${height} H0 Z`} fill="url(#trend-panel-gradient)" opacity="0" />
+        <path d={fillPath} fill={`url(#${gradientId})`} />
+        {points.map((point) => (
+          <g key={point.label}>
+            <line x1={point.x} x2={point.x} y1={top + 10} y2={height - bottom + 8} stroke={guideColor} strokeOpacity="0.62" strokeWidth="2" />
+            <circle cx={point.x} cy={height - bottom + 10} r="2.4" fill={guideColor} opacity="0.9" />
+          </g>
         ))}
-      </div>
+        <path d={path} fill="none" stroke={`url(#${gradientId}-line)`} strokeLinecap="round" strokeLinejoin="round" strokeWidth="6.5" filter={`url(#${glowId})`} />
+        {highlight ? (
+          <g>
+            <circle cx={highlight.x} cy={highlight.y} r="18" fill="#1a2052" stroke={lineColor} strokeWidth="6" />
+            <circle cx={highlight.x} cy={highlight.y} r="7" fill={lineColor} opacity="0.92" />
+          </g>
+        ) : null}
+        {points.map((point) => (
+          <g key={`${point.label}-label`}>
+            <title>{`${point.label}: ${valueFormatter(point.value)}`}</title>
+            <text x={point.x} y={height - 18} textAnchor="middle" fill="#55dff6" fontSize="16" fontWeight="700">
+              {compactLabel(point.label)}
+            </text>
+          </g>
+        ))}
+      </svg>
     </div>
   );
+}
+
+function createSmoothPath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) {
+    return "";
+  }
+
+  if (points.length === 1) {
+    const point = points[0];
+    return `M ${point.x} ${point.y}`;
+  }
+
+  const commands = [`M ${points[0].x} ${points[0].y}`];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const previous = points[index - 1] ?? current;
+    const afterNext = points[index + 2] ?? next;
+    const cp1x = current.x + (next.x - previous.x) / 6;
+    const cp1y = current.y + (next.y - previous.y) / 6;
+    const cp2x = next.x - (afterNext.x - current.x) / 6;
+    const cp2y = next.y - (afterNext.y - current.y) / 6;
+    commands.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`);
+  }
+
+  return commands.join(" ");
+}
+
+function compactLabel(label: string) {
+  const trimmed = label.trim();
+  if (trimmed.length <= 5) {
+    return trimmed;
+  }
+  return trimmed.slice(0, 5);
 }
 
 function RankedList({
