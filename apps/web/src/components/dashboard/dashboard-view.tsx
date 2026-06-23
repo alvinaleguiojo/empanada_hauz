@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { CalendarDays, Loader2 } from "lucide-react";
 import { AnalyticsPanels } from "@/components/analytics/analytics-panels";
 import { CashFlowSummary, rangeOptions, type CashFlowData, type CashRange } from "@/components/dashboard/cash-flow-summary";
@@ -58,23 +58,6 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
   const activeRange = data.range ?? data.cashFlow?.range ?? "today";
   const rangeLabel = data.rangeLabel ?? data.cashFlow?.label ?? "Today";
   const rangeText = rangeLabel.toLowerCase();
-
-  useEffect(() => {
-    if (!customOpen || !isCompleteDate(customStartDate) || !isCompleteDate(customEndDate)) {
-      return;
-    }
-
-    if (customStartDate > customEndDate) {
-      setError("Start date must be before or equal to end date.");
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      void loadCustomRange(customStartDate, customEndDate);
-    }, 300);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [customOpen, customStartDate, customEndDate]);
 
   async function selectRange(range: CashRange) {
     if (range === activeRange || loadingRange) {
@@ -237,8 +220,4 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
 
 function formatPeso(value: number) {
   return `Php ${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-}
-
-function isCompleteDate(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
