@@ -102,69 +102,87 @@ function BarTrend({
   }
 
   const width = 720;
-  const height = 230;
-  const paddingX = 44;
-  const top = 22;
-  const bottom = 52;
+  const height = 260;
+  const paddingX = 78;
+  const top = 34;
+  const bottom = 58;
   const plotHeight = height - top - bottom;
+  const niceMax = Math.max(Math.ceil(max / 4) * 4, 4);
   const points = items.map((item, index) => {
     const value = Number(item.value) || 0;
     const x = items.length === 1 ? width / 2 : paddingX + (index / (items.length - 1)) * (width - paddingX * 2);
-    const y = top + (1 - value / max) * plotHeight;
+    const y = top + (1 - value / niceMax) * plotHeight;
     return { ...item, index, value, x, y };
   });
   const path = createSmoothPath(points);
   const fillPath = path ? `${path} L ${points[points.length - 1].x} ${height - bottom} L ${points[0].x} ${height - bottom} Z` : "";
-  const displayPoints = getDisplayPoints(points, 6);
+  const displayPoints = getDisplayPoints(points, 5);
+  const activePoint = points.reduce((best, point) => (point.value > best.value ? point : best), points[0]);
+  const yTicks = [niceMax, niceMax * 0.75, niceMax * 0.5, niceMax * 0.25].map((value) => ({
+    value,
+    y: top + (1 - value / niceMax) * plotHeight
+  }));
   const gradientId = `trend-fill-${tone}`;
-  const glowId = `trend-glow-${tone}`;
-  const lineColor = tone === "accent" ? "#ff5f94" : "#30d18e";
-  const lineEndColor = tone === "accent" ? "#ffb03d" : "#55e7ff";
-  const guideColor = tone === "accent" ? "#36d7ff" : "#41f3ca";
+  const lineGradientId = `trend-line-${tone}`;
+  const lineColor = tone === "accent" ? "rgb(var(--accent))" : "rgb(var(--success))";
+  const lineSoftColor = tone === "accent" ? "#ffb347" : "#55e7ff";
+  const mutedText = "#91a0bb";
 
   return (
-    <div className="mt-6 overflow-hidden rounded-lg border border-[#2f3c78]/70 bg-[#171a49] shadow-inner shadow-white/[0.03]">
-      <svg className="h-[clamp(12rem,42vw,14rem)] w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Trend line chart" preserveAspectRatio="none">
+    <div className="mt-6 overflow-hidden rounded-lg border border-white/[0.08] bg-[linear-gradient(145deg,rgba(30,39,65,0.92),rgba(20,27,45,0.96))] shadow-inner shadow-white/[0.03]">
+      <svg className="aspect-[2.75/1] min-h-44 w-full max-h-64" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Trend line chart" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={tone === "accent" ? "#ff5f94" : "#30d18e"} stopOpacity="0.34" />
-            <stop offset="100%" stopColor="#3a1d7a" stopOpacity="0.18" />
+            <stop offset="0%" stopColor={lineColor} stopOpacity="0.32" />
+            <stop offset="72%" stopColor={lineColor} stopOpacity="0.08" />
+            <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
           </linearGradient>
-          <linearGradient id={`${gradientId}-line`} x1="0" x2="1" y1="0" y2="0">
-            <stop offset="0%" stopColor="#ffd23f" />
-            <stop offset="44%" stopColor={lineColor} />
-            <stop offset="100%" stopColor={lineEndColor} />
+          <linearGradient id={lineGradientId} x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor={lineSoftColor} />
+            <stop offset="45%" stopColor={lineColor} />
+            <stop offset="100%" stopColor={tone === "accent" ? "#ff7a45" : "#30d18e"} />
           </linearGradient>
-          <filter id={glowId} x="-20%" y="-80%" width="140%" height="260%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feColorMatrix
-              in="blur"
-              type="matrix"
-              values="1 0 0 0 1  0 0.25 0 0 0.28  0 0 0.45 0 0.65  0 0 0 0.75 0"
-              result="glow"
-            />
-            <feMerge>
-              <feMergeNode in="glow" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
 
-        <rect width={width} height={height} fill="#171a49" />
-        <path d={`M0 0 H${width} V${height} H0 Z`} fill="#251a68" opacity="0.34" />
-        <path d={fillPath} fill={`url(#${gradientId})`} />
-        {displayPoints.map((point) => (
-          <g key={`${point.label}-${point.index}`}>
-            <line x1={point.x} x2={point.x} y1={top + 10} y2={height - bottom + 8} stroke={guideColor} strokeOpacity="0.62" strokeWidth="2" />
-            <circle cx={point.x} cy={height - bottom + 10} r="2.4" fill={guideColor} opacity="0.9" />
+        <rect width={width} height={height} rx="20" fill="transparent" />
+        {yTicks.map((tick) => (
+          <g key={tick.value}>
+            <line x1={paddingX} x2={width - paddingX} y1={tick.y} y2={tick.y} stroke="white" strokeOpacity="0.045" strokeWidth="1" />
+            <text x={32} y={tick.y + 5} fill={mutedText} fontSize="17" fontWeight="600" opacity="0.82">
+              {formatTick(tick.value)}
+            </text>
           </g>
         ))}
-        <path d={path} fill="none" stroke={`url(#${gradientId}-line)`} strokeLinecap="round" strokeLinejoin="round" strokeWidth="6.5" filter={`url(#${glowId})`} />
+        <path d={fillPath} fill={`url(#${gradientId})`} />
+        {activePoint ? (
+          <g>
+            <line
+              x1={activePoint.x}
+              x2={activePoint.x}
+              y1={activePoint.y + 8}
+              y2={height - bottom}
+              stroke={lineColor}
+              strokeDasharray="9 9"
+              strokeLinecap="round"
+              strokeOpacity="0.72"
+              strokeWidth="3"
+            />
+            <circle cx={activePoint.x} cy={activePoint.y} r="7" fill="rgb(var(--panel))" stroke={lineColor} strokeWidth="4" />
+          </g>
+        ) : null}
+        <path d={path} fill="none" stroke={`url(#${lineGradientId})`} strokeLinecap="round" strokeLinejoin="round" strokeWidth="5" />
         {displayPoints.map((point) => (
           <g key={`${point.label}-${point.index}-label`}>
             <title>{`${point.label}: ${valueFormatter(point.value)}`}</title>
-            <text x={point.x} y={height - 18} textAnchor="middle" fill="#55dff6" fontSize="15" fontWeight="700">
-              {compactDateLabel(point.label)}
+            <text
+              x={point.x}
+              y={height - 20}
+              textAnchor="middle"
+              fill={activePoint?.index === point.index ? lineColor : mutedText}
+              fontSize="17"
+              fontWeight={activePoint?.index === point.index ? "800" : "600"}
+            >
+              {compactDateLabel(point.label, point.index)}
             </text>
           </g>
         ))}
@@ -213,17 +231,26 @@ function createSmoothPath(points: Array<{ x: number; y: number }>) {
   return commands.join(" ");
 }
 
-function compactDateLabel(label: string) {
+function compactDateLabel(label: string, index: number) {
   const trimmed = label.trim();
-  const dayMatch = trimmed.match(/\b([A-Za-z]{3,9})\s+(\d{1,2})\b/);
+  const dayMatch = trimmed.match(/\b[A-Za-z]{3,9}\s+(\d{1,2})\b/);
   if (dayMatch) {
-    return dayMatch[2];
+    return dayMatch[1];
+  }
+
+  const monthMatch = trimmed.match(/\b([A-Za-z]{3,9})\b/);
+  if (monthMatch) {
+    return monthMatch[1].slice(0, 3);
   }
 
   if (trimmed.length <= 6) {
     return trimmed;
   }
-  return trimmed.slice(0, 6);
+  return `P${index + 1}`;
+}
+
+function formatTick(value: number) {
+  return Intl.NumberFormat("en-US", { maximumFractionDigits: 0, notation: value >= 10000 ? "compact" : "standard" }).format(value);
 }
 
 function RankedList({
