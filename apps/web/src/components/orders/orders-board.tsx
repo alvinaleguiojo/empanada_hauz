@@ -66,7 +66,7 @@ const productOptions = [
   { label: "Chicken", value: "Chicken", price: 20 },
   { label: "Beef", value: "Beef", price: 35 },
   { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 },
-  { label: "Choco Flavor", value: "Choco Flavor", price: 25 },
+  { label: "Choco Flavor", value: "Choco Flavor", price: 30 },
   { label: "Mango Flavor", value: "Mango Flavor", price: 25 }
 ];
 
