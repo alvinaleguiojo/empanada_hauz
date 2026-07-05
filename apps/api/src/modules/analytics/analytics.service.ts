@@ -315,8 +315,7 @@ function buildTopItems(orders: Array<{ items: unknown; quantity: number }>) {
 
   return [...itemCounts.entries()]
     .map(([name, quantity]) => ({ name, quantity }))
-    .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name))
-    .slice(0, 5);
+    .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
 }
 
 function normalizeOrderItems(value: unknown) {
