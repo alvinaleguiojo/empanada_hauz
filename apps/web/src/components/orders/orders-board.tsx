@@ -160,14 +160,18 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [lineItems, setLineItems] = useState<EditableOrderLineItem[]>(() => createEditableLineItems());
 
   const refreshOrders = useCallback(async () => {
-    const refreshed = await apiFetch<any[]>("/orders");
+    const refreshed = await apiFetch<any[]>('/orders');
     setItems(refreshed);
     setSelectedId((current) => {
       if (!current) {
         return refreshed[0]?.id ?? null;
       }
 
-      return refreshed.some((order) => order.id === current) ? current : refreshed[0]?.id ?? null;
+      if (refreshed.some((order) => order.id === current)) {
+        return current;
+      }
+
+      return refreshed[0]?.id ?? null;
     });
   }, []);
 
