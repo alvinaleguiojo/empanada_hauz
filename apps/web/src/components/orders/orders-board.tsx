@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArrowRight, Check, ChevronRight, Clock3, Copy, ExternalLink, Link2, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -139,6 +139,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [deletePending, startDeleteTransition] = useTransition();
   const [exportPending, startExportTransition] = useTransition();
   const [exportResult, setExportResult] = useState<{ name: string; webViewLink?: string } | null>(null);
+  const lastSelectedOrderIdRef = useRef<string | null>(null);
   const [form, setForm] = useState({
     customerName: "",
     phoneNumber: "",
@@ -242,13 +243,44 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       return;
     }
 
-    const selectedOrderId = selectedOrder.id;
-    setSelectedStatus((current) => (current === selectedOrder.status ? current : selectedOrder.status));
-    setForm((currentForm) => {
-      if (editMode) {
-        return currentForm;
-      }
+    const isNewSelection = lastSelectedOrderIdRef.current !== selectedOrder.id;
+    lastSelectedOrderIdRef.current = selectedOrder.id;
 
+    setSelectedStatus((current) => (current === selectedOrder.status ? current : selectedOrder.status));
+
+    if (isNewSelection) {
+      setForm({
+        customerName: selectedOrder.customer?.name ?? "",
+        phoneNumber: selectedOrder.customer?.phoneNumber ?? "",
+        deliveryFee: String(selectedOrder.deliveryFee ?? 0),
+        deliveryMethod: selectedOrder.deliveryMethod ?? "pickup",
+        paymentMethod: selectedOrder.paymentMethod ?? "cod",
+        location: selectedOrder.location ?? "",
+        address: selectedOrder.address ?? "",
+        preferredSchedule: selectedOrder.preferredSchedule ? toInputDate(selectedOrder.preferredSchedule) : getLocalDateTimeInputValue(),
+        maximStatus: ["booked", "completed", "cancelled"].includes(selectedOrder.delivery?.status) ? selectedOrder.delivery.status : "booked",
+        maximScheduledAt: selectedOrder.delivery?.scheduledAt ? toInputDate(selectedOrder.delivery.scheduledAt) : getLocalDateTimeInputValue(),
+        maximEta: selectedOrder.delivery?.eta ? toInputDate(selectedOrder.delivery.eta) : "",
+        maximTrackingLink: selectedOrder.delivery?.trackingLink ?? "",
+        maximRiderName: selectedOrder.delivery?.riderName ?? "",
+        maximRiderPlate: selectedOrder.delivery?.riderPlate ?? "",
+        maximBookingNotes: selectedOrder.delivery?.bookingNotes ?? "",
+        notes: stripItemsBlock(selectedOrder.notes ?? "")
+      });
+      setLineItems(createEditableLineItems(selectedOrder));
+      setError(null);
+      setCopiedDetails(false);
+      setCopiedTracking(false);
+      setCopiedNotes(false);
+      setNoteDraft("");
+      return;
+    }
+
+    if (editMode) {
+      return;
+    }
+
+    setForm((currentForm) => {
       if (currentForm.customerName && currentForm.phoneNumber && currentForm.address && currentForm.location) {
         return currentForm;
       }
@@ -273,24 +305,13 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       };
     });
     setLineItems((currentItems) => {
-      if (editMode) {
-        return currentItems;
-      }
-
-      if (currentItems.some((item) => item.productName) && selectedOrderId === selectedId) {
+      if (currentItems.some((item) => item.productName) && currentItems.some((item) => item.productName !== "")) {
         return currentItems;
       }
 
       return createEditableLineItems(selectedOrder);
     });
-    if (!editMode) {
-      setError(null);
-      setCopiedDetails(false);
-      setCopiedTracking(false);
-      setCopiedNotes(false);
-      setNoteDraft("");
-    }
-  }, [editMode, selectedId, selectedOrder]);
+  }, [editMode, selectedOrder?.id, selectedOrder?.status]);
 
   const totals = useMemo(
     () => ({
