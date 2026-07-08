@@ -141,6 +141,8 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [exportPending, startExportTransition] = useTransition();
   const [exportResult, setExportResult] = useState<{ name: string; webViewLink?: string } | null>(null);
   const lastSelectedOrderIdRef = useRef<string | null>(null);
+  const latestRefreshIdRef = useRef(0);
+  const selectedDateRef = useRef(selectedDate);
   const [form, setForm] = useState({
     customerName: "",
     phoneNumber: "",
@@ -162,20 +164,33 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [lineItems, setLineItems] = useState<EditableOrderLineItem[]>(() => createEditableLineItems());
 
   const refreshOrders = useCallback(async (dateValue = selectedDate) => {
+    const refreshId = latestRefreshIdRef.current + 1;
+    latestRefreshIdRef.current = refreshId;
     const query = dateValue ? `?date=${encodeURIComponent(dateValue)}` : "";
     const refreshed = await apiFetch<any[]>(`/orders${query}`);
-    setItems(refreshed);
+
+    if (refreshId !== latestRefreshIdRef.current || dateValue !== selectedDateRef.current) {
+      return;
+    }
+
+    const nextItems = Array.isArray(refreshed) ? refreshed : [];
+
+    setItems(nextItems);
     setSelectedId((current) => {
       if (!current) {
-        return refreshed[0]?.id ?? null;
+        return nextItems[0]?.id ?? null;
       }
 
-      if (refreshed.some((order) => order.id === current)) {
+      if (nextItems.some((order) => order.id === current)) {
         return current;
       }
 
-      return refreshed[0]?.id ?? null;
+      return nextItems[0]?.id ?? null;
     });
+  }, [selectedDate]);
+
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
   }, [selectedDate]);
 
   useEffect(() => {
@@ -186,9 +201,21 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   }, [orders, selectedId]);
 
   useEffect(() => {
+    let cancelled = false;
+    setIsDateChanging(true);
     refreshOrders(selectedDate).catch((err) => {
-      setError(err instanceof Error ? err.message : "Unable to refresh orders");
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : "Unable to refresh orders");
+      }
+    }).finally(() => {
+      if (!cancelled) {
+        setIsDateChanging(false);
+      }
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [refreshOrders, selectedDate]);
 
   useEffect(() => {
@@ -618,11 +645,12 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             value={selectedDate}
             onChange={(e) => {
               const nextDate = e.target.value;
+              selectedDateRef.current = nextDate;
+              latestRefreshIdRef.current += 1;
               setSelectedDate(nextDate);
+              setItems([]);
+              setSelectedId(null);
               setIsDateChanging(true);
-              refreshOrders(nextDate).catch((err) => {
-                setError(err instanceof Error ? err.message : "Unable to refresh orders");
-              }).finally(() => setIsDateChanging(false));
             }}
             className="w-full sm:h-11 sm:w-[168px]"
           />
