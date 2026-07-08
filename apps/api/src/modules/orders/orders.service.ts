@@ -49,8 +49,11 @@ export class OrdersService {
       OR: [
         { preferredSchedule: { gte: start, lt: end } },
         {
-          preferredSchedule: null,
-          createdAt: { gte: start, lt: end }
+          createdAt: { gte: start, lt: end },
+          OR: [
+            { preferredSchedule: null },
+            { preferredSchedule: { isSet: false } }
+          ]
         }
       ]
     };
