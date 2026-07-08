@@ -105,8 +105,15 @@ export default function CustomerKioskPage() {
     });
   };
 
-  const updateFlavorQuantity = (value: string, quantity: number) => {
-    setSelectedFlavors((current) => current.map((item) => (item.value === value ? { ...item, quantity: Math.max(1, quantity) } : item)));
+  const updateFlavorQuantity = (value: string, quantity: string) => {
+    const normalized = Number(quantity);
+    setSelectedFlavors((current) => {
+      const existing = current.find((item) => item.value === value);
+      if (!existing) {
+        return current;
+      }
+      return current.map((item) => (item.value === value ? { ...item, quantity: Number.isFinite(normalized) && normalized > 0 ? normalized : 1 } : item));
+    });
   };
 
   const isStepValid = step === 0 ? summary.items.length > 0 : true;
@@ -218,7 +225,7 @@ export default function CustomerKioskPage() {
                                 type="number"
                                 min="1"
                                 value={selected.quantity}
-                                onChange={(event) => updateFlavorQuantity(option.value, Number(event.target.value || 1))}
+                                onChange={(event) => updateFlavorQuantity(option.value, event.target.value)}
                                 className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2.5 outline-none"
                               />
                             </label>
