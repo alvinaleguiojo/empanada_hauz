@@ -195,10 +195,8 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
 
   useEffect(() => {
     setItems(orders);
-    if (!selectedId && orders[0]?.id) {
-      setSelectedId(orders[0].id);
-    }
-  }, [orders, selectedId]);
+    setSelectedId((current) => current ?? orders[0]?.id ?? null);
+  }, [orders]);
 
   useEffect(() => {
     let cancelled = false;
