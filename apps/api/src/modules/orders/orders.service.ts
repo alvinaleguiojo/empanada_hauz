@@ -16,8 +16,11 @@ export class OrdersService {
     private readonly googleDriveOrderExport: GoogleDriveOrderExportService
   ) {}
 
-  async list() {
+  async list({ date }: { date?: string } = {}) {
+    const where = date ? this.buildDateFilter(date) : undefined;
+
     return this.prisma.order.findMany({
+      where,
       include: {
         customer: true,
         batch: true,
@@ -27,6 +30,26 @@ export class OrdersService {
       orderBy: { createdAt: "desc" },
       take: 200
     });
+  }
+
+  private buildDateFilter(date: string) {
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) {
+      return undefined;
+    }
+
+    const start = new Date(parsed);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(parsed);
+    end.setHours(23, 59, 59, 999);
+
+    return {
+      OR: [
+        { preferredSchedule: { gte: start, lte: end } },
+        { createdAt: { gte: start, lte: end } }
+      ]
+    };
   }
 
   async track(id: string) {

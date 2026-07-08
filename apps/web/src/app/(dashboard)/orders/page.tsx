@@ -5,7 +5,8 @@ import { apiFetch } from "@/lib/api";
 export const dynamic = "force-dynamic";
 
 export default async function OrdersPage() {
-  const orders = await apiFetch<any[]>("/orders").catch(() => []);
+  const today = new Date().toISOString().slice(0, 10);
+  const orders = await apiFetch<any[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []);
   return (
     <div className="space-y-5">
       <div>

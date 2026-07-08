@@ -160,8 +160,9 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   });
   const [lineItems, setLineItems] = useState<EditableOrderLineItem[]>(() => createEditableLineItems());
 
-  const refreshOrders = useCallback(async () => {
-    const refreshed = await apiFetch<any[]>('/orders');
+  const refreshOrders = useCallback(async (dateValue = selectedDate) => {
+    const query = dateValue ? `?date=${encodeURIComponent(dateValue)}` : "";
+    const refreshed = await apiFetch<any[]>(`/orders${query}`);
     setItems(refreshed);
     setSelectedId((current) => {
       if (!current) {
@@ -174,7 +175,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
 
       return refreshed[0]?.id ?? null;
     });
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
     setItems(orders);
@@ -184,18 +185,24 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   }, [orders, selectedId]);
 
   useEffect(() => {
+    refreshOrders(selectedDate).catch((err) => {
+      setError(err instanceof Error ? err.message : "Unable to refresh orders");
+    });
+  }, [refreshOrders, selectedDate]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       if (editMode) {
         return;
       }
 
-      refreshOrders().catch((err) => {
+      refreshOrders(selectedDate).catch((err) => {
         setError(err instanceof Error ? err.message : "Unable to refresh orders");
       });
     }, 3_000);
 
     return () => window.clearInterval(interval);
-  }, [editMode, refreshOrders]);
+  }, [editMode, refreshOrders, selectedDate]);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -217,19 +224,11 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(query));
 
-      const matchesDate = (() => {
-        if (!selectedDate) {
-          return true;
-        }
-
-        const scheduleDate = getOrderDateValue(item.preferredSchedule) ?? getOrderDateValue(item.createdAt);
-        return Boolean(scheduleDate && scheduleDate === selectedDate);
-      })();
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
 
-      return matchesSearch && matchesDate && matchesStatus;
+      return matchesSearch && matchesStatus;
     }).sort(compareOrdersBySchedule);
-  }, [items, search, selectedDate, statusFilter]);
+  }, [items, search, statusFilter]);
 
   const selectedOrder = useMemo(
     () => filteredItems.find((item) => item.id === selectedId) ?? filteredItems[0] ?? null,
