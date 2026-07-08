@@ -187,7 +187,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
       refreshOrders().catch((err) => {
         setError(err instanceof Error ? err.message : "Unable to refresh orders");
       });
-    }, 60_000);
+    }, 3_000);
 
     return () => window.clearInterval(interval);
   }, [editMode, refreshOrders]);
