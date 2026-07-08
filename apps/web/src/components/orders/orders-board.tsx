@@ -214,7 +214,8 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
 
       const matchesDate =
         !selectedDate ||
-        (item.preferredSchedule ? toInputDate(item.preferredSchedule).slice(0, 10) === selectedDate : false);
+        !item.preferredSchedule ||
+        toInputDate(item.preferredSchedule).slice(0, 10) === selectedDate;
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
 
       return matchesSearch && matchesDate && matchesStatus;
