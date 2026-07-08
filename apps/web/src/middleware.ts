@@ -11,6 +11,8 @@ const privateRoutes = [
   "/orders"
 ];
 
+const publicRoutes = ["/customer"];
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get("empanada-token")?.value;
@@ -24,6 +26,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  if (publicRoutes.includes(pathname)) {
+    return NextResponse.next();
+  }
+
   if (privateRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`)) && !hasValidToken) {
     const url = new URL("/login", request.url);
     url.searchParams.set("next", pathname);
@@ -34,7 +40,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*"]
+  matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*"]
 };
 
 function isJwtExpired(token: string) {

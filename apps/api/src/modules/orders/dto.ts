@@ -6,7 +6,8 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  Min
+  Min,
+  MinLength
 } from "class-validator";
 
 export const DELIVERY_METHODS = ["pickup", "maxim", "own_delivery"] as const;
@@ -195,6 +196,49 @@ export class ManualOrderEntryDto {
   @IsOptional()
   @IsString()
   status?: OrderStatus;
+
+  @IsOptional()
+  @IsArray()
+  items?: OrderLineItemDto[];
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class PublicOrderEntryDto {
+  @IsString()
+  @MinLength(2)
+  customerName!: string;
+
+  @IsString()
+  @MinLength(7)
+  phoneNumber!: string;
+
+  @IsString()
+  @MinLength(2)
+  address!: string;
+
+  @IsString()
+  @MinLength(2)
+  landmark!: string;
+
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @IsNumber()
+  unitPrice!: number;
+
+  @IsIn(DELIVERY_METHODS)
+  deliveryMethod!: DeliveryMethod;
+
+  @IsIn(PAYMENT_METHODS)
+  paymentMethod!: PaymentMethod;
+
+  @IsOptional()
+  @IsDateString()
+  preferredSchedule?: string;
 
   @IsOptional()
   @IsArray()

@@ -4,7 +4,7 @@ import { RealtimeGateway } from "../../common/realtime.gateway";
 import { BatchesService } from "../batches/batches.service";
 import { GoogleDriveOrderExportService } from "./google-drive-order-export.service";
 import { GoogleSheetsOrderSyncService } from "./google-sheets-order-sync.service";
-import { CreateOrderDto, ManualOrderEntryDto, OrderStatus, UpdateOrderDto } from "./dto";
+import { CreateOrderDto, ManualOrderEntryDto, OrderStatus, PublicOrderEntryDto, UpdateOrderDto } from "./dto";
 
 @Injectable()
 export class OrdersService {
@@ -124,6 +124,22 @@ export class OrdersService {
     this.realtime.emit("orders.updated", order);
     await this.googleSheetsOrderSync.appendOrder(order);
     return order;
+  }
+
+  async createPublic(dto: PublicOrderEntryDto) {
+    return this.createManual({
+      customerName: dto.customerName,
+      phoneNumber: dto.phoneNumber,
+      quantity: dto.quantity,
+      unitPrice: dto.unitPrice,
+      deliveryMethod: dto.deliveryMethod,
+      paymentMethod: dto.paymentMethod,
+      address: dto.address,
+      location: dto.landmark,
+      preferredSchedule: dto.preferredSchedule,
+      items: dto.items,
+      notes: dto.notes
+    });
   }
 
   async createManual(dto: ManualOrderEntryDto) {

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
-import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
+import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, PublicOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
 import { OrdersService } from "./orders.service";
 
 @Controller("orders")
@@ -27,6 +27,11 @@ export class OrdersController {
   @Post("manual")
   createManual(@Body() dto: ManualOrderEntryDto) {
     return this.ordersService.createManual(dto);
+  }
+
+  @Post("public")
+  createPublic(@Body() dto: PublicOrderEntryDto) {
+    return this.ordersService.createPublic(dto);
   }
 
   @UseGuards(JwtAuthGuard)
