@@ -128,6 +128,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedDate, setSelectedDate] = useState(getTodayDateInputValue);
+  const [isDateChanging, setIsDateChanging] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [editMode, setEditMode] = useState(false);
   const [copiedDetails, setCopiedDetails] = useState(false);
@@ -615,7 +616,14 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
           <Input
             type="date"
             value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
+            onChange={(e) => {
+              const nextDate = e.target.value;
+              setSelectedDate(nextDate);
+              setIsDateChanging(true);
+              refreshOrders(nextDate).catch((err) => {
+                setError(err instanceof Error ? err.message : "Unable to refresh orders");
+              }).finally(() => setIsDateChanging(false));
+            }}
             className="w-full sm:h-11 sm:w-[168px]"
           />
           <Button
@@ -629,7 +637,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             {exportPending ? "Uploading..." : "Upload Excel"}
           </Button>
           <Badge className="justify-center border border-line/70 bg-panel text-foreground/70 sm:justify-start">
-            {countLabel}
+            {isDateChanging ? "Loading..." : countLabel}
           </Badge>
         </div>
       </div>
