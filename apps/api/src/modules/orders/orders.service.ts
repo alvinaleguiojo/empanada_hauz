@@ -33,21 +33,25 @@ export class OrdersService {
   }
 
   private buildDateFilter(date: string) {
-    const parsed = new Date(date);
-    if (Number.isNaN(parsed.getTime())) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return undefined;
     }
 
-    const start = new Date(parsed);
-    start.setHours(0, 0, 0, 0);
+    const start = new Date(`${date}T00:00:00+08:00`);
+    if (Number.isNaN(start.getTime())) {
+      return undefined;
+    }
 
-    const end = new Date(parsed);
-    end.setHours(23, 59, 59, 999);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
 
     return {
       OR: [
-        { preferredSchedule: { gte: start, lte: end } },
-        { createdAt: { gte: start, lte: end } }
+        { preferredSchedule: { gte: start, lt: end } },
+        {
+          preferredSchedule: null,
+          createdAt: { gte: start, lt: end }
+        }
       ]
     };
   }
