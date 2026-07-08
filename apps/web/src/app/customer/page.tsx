@@ -211,15 +211,17 @@ export default function CustomerKioskPage() {
                       const selected = selectedFlavors.find((item) => item.value === option.value);
                       return (
                         <div key={option.value} className={`rounded-2xl border p-4 transition ${selected ? "border-orange-400 bg-orange-500/20 shadow-lg shadow-orange-500/10" : "border-white/10 bg-white/5 hover:border-orange-300/40 hover:bg-white/10"}`}>
-                          <div className="flex items-start justify-between gap-3">
-                            <button type="button" onClick={() => toggleFlavor(option.value)} className="text-left">
-                              <div className="font-semibold">{option.label}</div>
-                              <div className="mt-1 text-sm text-slate-300">Php {option.price}</div>
-                            </button>
-                            {selected ? <CheckCircle2 size={18} className="text-orange-300" /> : null}
-                          </div>
+                          <button type="button" onClick={() => toggleFlavor(option.value)} className="w-full text-left">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="font-semibold">{option.label}</div>
+                                <div className="mt-1 text-sm text-slate-300">Php {option.price}</div>
+                              </div>
+                              {selected ? <CheckCircle2 size={18} className="text-orange-300" /> : null}
+                            </div>
+                          </button>
                           {selected ? (
-                            <label className="mt-3 block">
+                            <label className="mt-3 block" onClick={(event) => event.stopPropagation()}>
                               <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-400">Qty</span>
                               <input
                                 type="number"
