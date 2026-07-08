@@ -157,13 +157,22 @@ export class OrdersService {
       : await this.batchesService.assignBatch(dto.quantity);
     const deliveryFee = dto.deliveryFee ?? 0;
     const discountAmount = dto.discountAmount ?? 0;
-    const totalAmount = Math.max(0, dto.quantity * dto.unitPrice + deliveryFee - discountAmount);
+    const lineItems = dto.items && dto.items.length > 0 ? dto.items : [];
+    const orderQuantity = lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0) || dto.quantity;
+    const itemSubtotal = lineItems.reduce((sum, item) => {
+      const quantity = Number(item.quantity) || 0;
+      const price = Number(item.price) || 0;
+      const subtotal = item.subtotal ?? quantity * price;
+      return sum + (Number(subtotal) || 0);
+    }, 0);
+    const totalAmount = Math.max(0, (lineItems.length > 0 ? itemSubtotal : dto.quantity * dto.unitPrice) + deliveryFee - discountAmount);
+    const unitPrice = lineItems.length > 0 && orderQuantity > 0 ? itemSubtotal / orderQuantity : dto.unitPrice;
     const order = await this.prisma.order.create({
       data: {
         orderNumber: `EMP-${Date.now()}`,
         customerId: customer.id,
-        quantity: dto.quantity,
-        unitPrice: dto.unitPrice,
+        quantity: orderQuantity,
+        unitPrice,
         totalAmount,
         deliveryFee,
         discountAmount,
