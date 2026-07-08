@@ -238,9 +238,22 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   }, [selectedId, selectedOrder]);
 
   useEffect(() => {
-    if (selectedOrder) {
-      setSelectedStatus(selectedOrder.status);
-      setForm({
+    if (!selectedOrder) {
+      return;
+    }
+
+    const selectedOrderId = selectedOrder.id;
+    setSelectedStatus((current) => (current === selectedOrder.status ? current : selectedOrder.status));
+    setForm((currentForm) => {
+      if (editMode) {
+        return currentForm;
+      }
+
+      if (currentForm.customerName && currentForm.phoneNumber && currentForm.address && currentForm.location) {
+        return currentForm;
+      }
+
+      return {
         customerName: selectedOrder.customer?.name ?? "",
         phoneNumber: selectedOrder.customer?.phoneNumber ?? "",
         deliveryFee: String(selectedOrder.deliveryFee ?? 0),
@@ -257,16 +270,27 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         maximRiderPlate: selectedOrder.delivery?.riderPlate ?? "",
         maximBookingNotes: selectedOrder.delivery?.bookingNotes ?? "",
         notes: stripItemsBlock(selectedOrder.notes ?? "")
-      });
-      setLineItems(createEditableLineItems(selectedOrder));
-      setEditMode(false);
+      };
+    });
+    setLineItems((currentItems) => {
+      if (editMode) {
+        return currentItems;
+      }
+
+      if (currentItems.some((item) => item.productName) && selectedOrderId === selectedId) {
+        return currentItems;
+      }
+
+      return createEditableLineItems(selectedOrder);
+    });
+    if (!editMode) {
       setError(null);
       setCopiedDetails(false);
       setCopiedTracking(false);
       setCopiedNotes(false);
       setNoteDraft("");
     }
-  }, [selectedOrder]);
+  }, [editMode, selectedId, selectedOrder]);
 
   const totals = useMemo(
     () => ({
