@@ -116,12 +116,17 @@ export default function CustomerKioskPage() {
     });
   };
 
-  const isStepValid = step === 0 ? summary.items.length > 0 : true;
+  const isStepValid = step === 0 ? summary.items.length > 0 && summary.totalQuantity >= 10 : true;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (summary.items.length === 0) {
       setError("Please select at least one flavor.");
+      return;
+    }
+
+    if (summary.totalQuantity < 10) {
+      setError("Minimum order is 10 pieces. Please increase the quantity.");
       return;
     }
 
@@ -294,7 +299,7 @@ export default function CustomerKioskPage() {
               <div className="rounded-3xl border border-orange-400/25 bg-orange-500/10 p-4 sm:p-5">
                 <div className="flex items-center justify-between text-sm text-slate-200">
                   <span>Selected items</span>
-                  <span className="font-semibold text-white">{summary.totalQuantity} pcs</span>
+                  <span className={`font-semibold ${summary.totalQuantity >= 10 ? "text-white" : "text-amber-300"}`}>{summary.totalQuantity} pcs</span>
                 </div>
                 <div className="mt-3 space-y-2">
                   {summary.items.length > 0 ? summary.items.map((item) => (
@@ -308,6 +313,9 @@ export default function CustomerKioskPage() {
                   <span>Total</span>
                   <span className="text-xl font-semibold text-orange-300">Php {summary.subtotal}</span>
                 </div>
+                <p className={`mt-3 text-sm ${summary.totalQuantity >= 10 ? "text-emerald-300" : "text-amber-300"}`}>
+                  {summary.totalQuantity >= 10 ? "Minimum order reached." : `Add ${10 - summary.totalQuantity} more piece${10 - summary.totalQuantity === 1 ? "" : "s"} to meet the minimum.`}
+                </p>
               </div>
 
               <div className="flex flex-wrap gap-3">
