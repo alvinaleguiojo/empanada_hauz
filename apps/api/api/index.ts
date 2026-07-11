@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { ExpressAdapter } from "@nestjs/platform-express";
 import express from "express";
 import { AppModule } from "../src/app.module";
+import { resolveCorsOrigin } from "../src/common/cors";
 
 const server = express();
 let initialized = false;
@@ -14,7 +15,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
     cors: {
-      origin: process.env.CORS_ORIGIN?.split(",") ?? true,
+      origin: resolveCorsOrigin,
       credentials: true
     }
   });
