@@ -12,6 +12,11 @@ export class OrdersController {
     return this.ordersService.list({ date });
   }
 
+  @Get("public/queue")
+  publicQueue(@Query("date") date?: string) {
+    return this.ordersService.publicQueue({ date });
+  }
+
   @Get("track/:id")
   track(@Param("id") id: string) {
     return this.ordersService.track(id);

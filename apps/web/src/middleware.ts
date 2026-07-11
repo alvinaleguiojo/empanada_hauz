@@ -11,7 +11,7 @@ const privateRoutes = [
   "/orders"
 ];
 
-const publicRoutes = ["/customer"];
+const publicRoutes = ["/customer", "/queue"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -40,7 +40,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*"]
+  matcher: ["/", "/login", "/customer", "/queue", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*"]
 };
 
 function isJwtExpired(token: string) {

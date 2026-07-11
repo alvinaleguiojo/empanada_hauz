@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, MapPin, Minus, Phone, Plus, Sparkles, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Copy, ExternalLink, MapPin, Minus, Phone, Plus, Sparkles, ShoppingCart } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const flavorOptions = [
@@ -44,6 +44,22 @@ type FormState = {
   notes: string;
 };
 
+type PublicOrderResponse = {
+  order: {
+    id: string;
+    orderNumber?: string;
+  };
+  trackingPath?: string;
+  queueNumber?: number | null;
+};
+
+type SuccessState = {
+  orderNumber?: string;
+  trackingPath: string;
+  trackingUrl: string;
+  queueNumber?: number | null;
+};
+
 const initialState: FormState = {
   deliveryDate: "",
   deliveryTime: "",
@@ -67,7 +83,7 @@ export default function CustomerKioskPage() {
   const [selectedFlavors, setSelectedFlavors] = useState<SelectedFlavor[]>([]);
   const [form, setForm] = useState<FormState>(initialState);
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState<SuccessState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const summary = useMemo(() => {
@@ -153,12 +169,12 @@ export default function CustomerKioskPage() {
     }
 
     setError(null);
-    setSuccess(false);
+    setSuccess(null);
     setSubmitting(true);
 
     try {
       const preferredSchedule = form.deliveryDate && form.deliveryTime ? `${form.deliveryDate}T${form.deliveryTime}` : undefined;
-      await apiFetch("/orders/public", {
+      const result = await apiFetch<PublicOrderResponse>("/orders/public", {
         method: "POST",
         body: JSON.stringify({
           customerName: form.customerName,
@@ -174,7 +190,14 @@ export default function CustomerKioskPage() {
           notes: form.notes.trim() || undefined
         })
       });
-      setSuccess(true);
+      const trackingPath = result.trackingPath ?? `/track/${result.order.id}`;
+      const origin = typeof window === "undefined" ? "" : window.location.origin;
+      setSuccess({
+        orderNumber: result.order.orderNumber,
+        trackingPath,
+        trackingUrl: `${origin}${trackingPath}`,
+        queueNumber: result.queueNumber
+      });
       setSelectedFlavors([]);
       setForm(initialState);
       setStep(0);
@@ -377,7 +400,46 @@ export default function CustomerKioskPage() {
               </div>
 
               {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-              {success ? <p className="flex items-center gap-2 text-sm text-emerald-300"><CheckCircle2 size={16} /> Your order was received. We’ll contact you shortly.</p> : null}
+              {success ? (
+                <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-sm text-emerald-50 shadow-lg shadow-emerald-950/20">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-300" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-white">Your order was received.</p>
+                      <p className="mt-1 text-emerald-100/80">Use this link to track your order status anytime.</p>
+                      {success.queueNumber ? (
+                        <p className="mt-3 inline-flex rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                          Queue #{success.queueNumber}
+                        </p>
+                      ) : null}
+                      {success.orderNumber ? <p className="mt-2 text-xs text-emerald-100/65">Order {success.orderNumber}</p> : null}
+                      <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                        <input
+                          readOnly
+                          value={success.trackingUrl}
+                          className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-xs text-slate-100 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-3 py-2.5 font-semibold text-white transition hover:bg-white/15"
+                        >
+                          <Copy size={15} /> Copy
+                        </button>
+                        <a
+                          href={success.trackingPath}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-3 py-2.5 font-semibold text-slate-950 transition hover:bg-emerald-300"
+                        >
+                          Track <ExternalLink size={15} />
+                        </a>
+                      </div>
+                      <a href="/queue" className="mt-3 inline-flex text-xs font-semibold text-emerald-100 underline-offset-4 hover:underline">
+                        View public queue
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </form>
         </section>

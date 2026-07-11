@@ -32,6 +32,52 @@ export class OrdersService {
     });
   }
 
+  async publicQueue({ date }: { date?: string } = {}) {
+    const queueDate = date ?? this.toManilaDateInput(new Date());
+    const dateFilter = this.buildDateFilter(queueDate);
+
+    if (!dateFilter) {
+      throw new BadRequestException("Invalid queue date");
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        AND: [
+          dateFilter,
+          { status: { notIn: ["completed", "cancelled"] } }
+        ]
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        quantity: true,
+        deliveryMethod: true,
+        preferredSchedule: true,
+        createdAt: true,
+        updatedAt: true
+      },
+      orderBy: { createdAt: "asc" },
+      take: 100
+    });
+
+    return {
+      date: queueDate,
+      orders: orders.map((order, index) => ({
+        queueNumber: index + 1,
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        quantity: order.quantity,
+        deliveryMethod: order.deliveryMethod,
+        preferredSchedule: order.preferredSchedule,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        trackingPath: `/track/${order.id}`
+      }))
+    };
+  }
+
   private buildDateFilter(date: string) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return undefined;
@@ -57,6 +103,24 @@ export class OrdersService {
         }
       ]
     };
+  }
+
+  private async getQueueNumber(order: { id: string; status: string; preferredSchedule?: Date | null; createdAt: Date }) {
+    if (order.status === "completed" || order.status === "cancelled") {
+      return null;
+    }
+
+    const queue = await this.publicQueue({ date: this.toManilaDateInput(order.preferredSchedule ?? order.createdAt) });
+    return queue.orders.find((item) => item.id === order.id)?.queueNumber ?? null;
+  }
+
+  private toManilaDateInput(date: Date) {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(date);
   }
 
   async track(id: string) {
@@ -157,7 +221,7 @@ export class OrdersService {
   }
 
   async createPublic(dto: PublicOrderEntryDto) {
-    return this.createManual({
+    const order = await this.createManual({
       customerName: dto.customerName,
       phoneNumber: dto.phoneNumber,
       quantity: dto.quantity,
@@ -170,6 +234,12 @@ export class OrdersService {
       items: dto.items,
       notes: dto.notes
     });
+
+    return {
+      order,
+      trackingPath: `/track/${order.id}`,
+      queueNumber: await this.getQueueNumber(order)
+    };
   }
 
   async createManual(dto: ManualOrderEntryDto) {
