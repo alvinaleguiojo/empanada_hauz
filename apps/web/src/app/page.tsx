@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import CustomerKioskPage from "./customer/page";
 
 export default function HomePage() {
-  redirect("/dashboard");
+  return <CustomerKioskPage />;
 }

@@ -50,14 +50,12 @@ type PublicOrderResponse = {
     orderNumber?: string;
   };
   trackingPath?: string;
-  queueNumber?: number | null;
 };
 
 type SuccessState = {
   orderNumber?: string;
   trackingPath: string;
   trackingUrl: string;
-  queueNumber?: number | null;
 };
 
 const initialState: FormState = {
@@ -195,8 +193,7 @@ export default function CustomerKioskPage() {
       setSuccess({
         orderNumber: result.order.orderNumber,
         trackingPath,
-        trackingUrl: `${origin}${trackingPath}`,
-        queueNumber: result.queueNumber
+        trackingUrl: `${origin}${trackingPath}`
       });
       setSelectedFlavors([]);
       setForm(initialState);
@@ -407,11 +404,6 @@ export default function CustomerKioskPage() {
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-white">Your order was received.</p>
                       <p className="mt-1 text-emerald-100/80">Use this link to track your order status anytime.</p>
-                      {success.queueNumber ? (
-                        <p className="mt-3 inline-flex rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-100">
-                          Queue #{success.queueNumber}
-                        </p>
-                      ) : null}
                       {success.orderNumber ? <p className="mt-2 text-xs text-emerald-100/65">Order {success.orderNumber}</p> : null}
                       <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                         <input
@@ -433,9 +425,6 @@ export default function CustomerKioskPage() {
                           Track <ExternalLink size={15} />
                         </a>
                       </div>
-                      <a href="/queue" className="mt-3 inline-flex text-xs font-semibold text-emerald-100 underline-offset-4 hover:underline">
-                        View public queue
-                      </a>
                     </div>
                   </div>
                 </div>

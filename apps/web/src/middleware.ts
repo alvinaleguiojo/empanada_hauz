@@ -11,7 +11,7 @@ const privateRoutes = [
   "/orders"
 ];
 
-const publicRoutes = ["/customer", "/queue"];
+const publicRoutes = ["/", "/customer"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -20,10 +20,6 @@ export function middleware(request: NextRequest) {
 
   if (pathname === "/login" && hasValidToken) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
-  if (pathname === "/" && !hasValidToken) {
-    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   if (publicRoutes.includes(pathname)) {
@@ -40,7 +36,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/customer", "/queue", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*"]
+  matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*"]
 };
 
 function isJwtExpired(token: string) {
