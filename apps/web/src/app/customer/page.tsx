@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, MapPin, Phone, Sparkles, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, MapPin, Minus, Phone, Plus, Sparkles, ShoppingCart } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const flavorOptions = [
@@ -29,7 +29,7 @@ const paymentMethods = [
 
 type SelectedFlavor = {
   value: string;
-  quantity: number;
+  quantity: string;
 };
 
 type FormState = {
@@ -76,7 +76,11 @@ export default function CustomerKioskPage() {
       if (!flavor) {
         return null;
       }
-      const quantity = Math.max(1, Number(item.quantity || 1));
+      const quantity = Math.max(0, Number(item.quantity || 0));
+      if (quantity < 1) {
+        return null;
+      }
+
       return {
         name: flavor.value,
         quantity,
@@ -101,18 +105,36 @@ export default function CustomerKioskPage() {
       if (existing) {
         return current.filter((item) => item.value !== value);
       }
-      return [...current, { value, quantity: 1 }];
+      return [...current, { value, quantity: "1" }];
     });
   };
 
   const updateFlavorQuantity = (value: string, quantity: string) => {
-    const normalized = Number(quantity);
+    const normalized = quantity.replace(/[^\d]/g, "");
     setSelectedFlavors((current) => {
       const existing = current.find((item) => item.value === value);
       if (!existing) {
         return current;
       }
-      return current.map((item) => (item.value === value ? { ...item, quantity: Number.isFinite(normalized) && normalized > 0 ? normalized : 1 } : item));
+      return current.map((item) => (item.value === value ? { ...item, quantity: normalized } : item));
+    });
+  };
+
+  const stepFlavorQuantity = (value: string, delta: number) => {
+    setSelectedFlavors((current) => {
+      const existing = current.find((item) => item.value === value);
+      if (!existing) {
+        return current;
+      }
+
+      return current.map((item) => {
+        if (item.value !== value) {
+          return item;
+        }
+
+        const nextQuantity = Math.max(1, Number(item.quantity || 0) + delta);
+        return { ...item, quantity: String(nextQuantity) };
+      });
     });
   };
 
@@ -228,13 +250,34 @@ export default function CustomerKioskPage() {
                           {selected ? (
                             <label className="mt-3 block" onClick={(event) => event.stopPropagation()}>
                               <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-400">Qty</span>
-                              <input
-                                type="number"
-                                min="1"
-                                value={selected.quantity}
-                                onChange={(event) => updateFlavorQuantity(option.value, event.target.value)}
-                                className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2.5 outline-none"
-                              />
+                              <div className="grid h-14 grid-cols-[52px_minmax(0,1fr)_52px] overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80">
+                                <button
+                                  type="button"
+                                  aria-label={`Decrease ${option.label}`}
+                                  onClick={() => stepFlavorQuantity(option.value, -1)}
+                                  className="flex h-full items-center justify-center border-r border-white/10 text-orange-100 transition active:bg-white/10"
+                                >
+                                  <Minus size={18} />
+                                </button>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  aria-label={`${option.label} quantity`}
+                                  value={selected.quantity}
+                                  onChange={(event) => updateFlavorQuantity(option.value, event.target.value)}
+                                  onFocus={(event) => event.currentTarget.select()}
+                                  className="h-full min-w-0 bg-transparent px-3 text-center text-lg font-semibold text-white outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  aria-label={`Increase ${option.label}`}
+                                  onClick={() => stepFlavorQuantity(option.value, 1)}
+                                  className="flex h-full items-center justify-center border-l border-white/10 text-orange-100 transition active:bg-white/10"
+                                >
+                                  <Plus size={18} />
+                                </button>
+                              </div>
                             </label>
                           ) : null}
                         </div>
