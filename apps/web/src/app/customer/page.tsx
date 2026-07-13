@@ -1,16 +1,35 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, Copy, ExternalLink, MapPin, Minus, Phone, Plus, Sparkles, ShoppingCart } from "lucide-react";
+import { Baloo_2, Caveat, IBM_Plex_Mono } from "next/font/google";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChefHat,
+  Copy,
+  ExternalLink,
+  Flame,
+  Minus,
+  Phone,
+  Plus,
+  Ticket,
+  Truck,
+  Wallet
+} from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
+const display = Baloo_2({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-display" });
+const script = Caveat({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-script" });
+const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["500", "600"], variable: "--font-mono" });
+
 const flavorOptions = [
-  { label: "Pork Regular", value: "Pork Regular", price: 20 },
+  { label: "Pork Regular", value: "Pork Regular", price: 20, popular: true },
   { label: "Pork with Egg", value: "Pork with Egg", price: 25 },
   { label: "Chicken", value: "Chicken", price: 20 },
   { label: "Chicken with Egg", value: "Chicken with Egg", price: 25 },
   { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
-  { label: "Beef", value: "Beef", price: 35 },
+  { label: "Beef", value: "Beef", price: 35, popular: true },
   { label: "Beef with Egg", value: "Beef with Egg", price: 40 },
   { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 },
   { label: "Choco Flavor", value: "Choco Flavor", price: 30 },
@@ -205,97 +224,156 @@ export default function CustomerKioskPage() {
     }
   };
 
+  const remaining = Math.max(0, 10 - summary.totalQuantity);
+
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,166,77,0.22),_transparent_35%),linear-gradient(135deg,_#060816,_#0f172a_60%,_#111827)] px-4 py-6 text-white sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <section className="overflow-hidden rounded-[32px] border border-white/10 bg-white/10 shadow-2xl shadow-black/25 backdrop-blur-xl">
-          <div className="border-b border-white/10 bg-gradient-to-r from-orange-500/25 via-amber-400/10 to-transparent px-6 py-6 sm:px-8">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+    <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-4 py-6 pb-28 text-[#F2E8D5] sm:px-6 lg:px-8 lg:pb-6`}>
+      <div className="mx-auto flex max-w-6xl flex-col gap-5">
+        <section className="overflow-hidden rounded-[26px] border-[3px] border-[#3a2c1c] bg-[#241c13] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.7)]">
+          <div className="jeepney-stripe h-2.5 w-full" />
+          <div className="relative overflow-hidden px-6 py-7 sm:px-9">
+            <div className="chalk-texture pointer-events-none absolute inset-0" />
+            <div className="relative flex flex-wrap items-center justify-between gap-5">
               <div>
-                <p className="mb-2 flex items-center gap-2 text-sm uppercase tracking-[0.35em] text-orange-200">
-                  <Sparkles size={16} /> Empanada Hauz Kiosk
+                <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-[#E3A64B]">
+                  <ChefHat size={14} /> Empanada Hauz
                 </p>
-                <h1 className="text-3xl font-semibold sm:text-4xl">Fast, guided ordering</h1>
-                <p className="mt-2 max-w-2xl text-sm text-slate-200 sm:text-base">Choose multiple flavors, set your preferences, and finish checkout in just a few taps.</p>
+                <h1 className="font-[family-name:var(--font-display)] text-4xl leading-[1.05] tracking-tight text-[#F6EFDD] sm:text-5xl">
+                  Fresh from the pan,
+                  <br />
+                  <span className="text-[#E3A64B]">straight to your door.</span>
+                </h1>
+                <p className="mt-3 max-w-xl font-[family-name:var(--font-script)] text-xl text-[#F2E8D5]/80 sm:text-2xl">
+                  ~ pick your flavors, we do the rest ~
+                </p>
               </div>
-              <div className="rounded-2xl border border-white/15 bg-slate-950/40 px-4 py-3 text-sm text-slate-100">
-                <div className="flex items-center gap-2 font-medium">
-                  <ShoppingCart size={16} /> Step-by-step checkout
+              <div className="rotate-[-2deg] rounded-xl border-2 border-dashed border-[#F2E8D5]/30 bg-[#1a140d] px-4 py-3 text-sm shadow-inner">
+                <div className="flex items-center gap-2 font-semibold text-[#F6EFDD]">
+                  <Ticket size={16} className="text-[#E3A64B]" /> Order slip #{step + 1}/3
                 </div>
-                <div className="mt-1 text-xs text-slate-300">Modern • Friendly • Quick</div>
+                <div className="mt-1 text-xs uppercase tracking-[0.2em] text-[#F2E8D5]/55">10 pcs minimum</div>
               </div>
             </div>
           </div>
 
-          <div className="px-6 py-5 sm:px-8">
-            <div className="flex flex-wrap gap-2">
+          <div className="border-t border-[#3a2c1c] bg-[#1c150e] px-6 py-4 sm:px-9">
+            <div className="flex flex-wrap gap-2.5">
               {steps.map((item, index) => {
                 const active = index === step;
                 const complete = index < step;
+                const reachable = complete;
                 return (
-                  <div key={item.title} className={`rounded-full border px-3 py-2 text-sm ${active ? "border-orange-400 bg-orange-500/20 text-orange-100" : complete ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-100" : "border-white/10 bg-white/5 text-slate-300"}`}>
-                    <span className="mr-2 font-semibold">{index + 1}</span>
-                    {item.title}
-                  </div>
+                  <button
+                    key={item.title}
+                    type="button"
+                    onClick={() => reachable && setStep(index)}
+                    disabled={!reachable}
+                    className={`flex items-center gap-2 rounded-lg border-2 px-3.5 py-2 text-sm transition ${
+                      active
+                        ? "border-[#E3A64B] bg-[#E3A64B]/15 text-[#F6EFDD]"
+                        : complete
+                        ? "border-[#7A9B4E]/50 bg-[#7A9B4E]/10 text-[#c9dba6] active:bg-[#7A9B4E]/20"
+                        : "border-[#3a2c1c] bg-transparent text-[#F2E8D5]/45"
+                    } ${reachable ? "cursor-pointer" : "cursor-default"}`}
+                  >
+                    <span
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+                        active ? "bg-[#E3A64B] text-[#1a140d]" : complete ? "bg-[#7A9B4E] text-[#1a140d]" : "bg-[#3a2c1c] text-[#F2E8D5]/60"
+                      }`}
+                    >
+                      {complete ? <CheckCircle2 size={13} /> : index + 1}
+                    </span>
+                    <span className="font-medium">{item.title}</span>
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[1.1fr_0.9fr]">
+          <form id="kiosk-order-form" onSubmit={handleSubmit} className="grid gap-6 p-6 sm:p-9 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-5">
               {step === 0 ? (
-                <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4 sm:p-5">
-                  <div className="mb-4 flex items-center justify-between">
+                <div className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4 sm:p-5">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-xl font-semibold">Select your flavors</h2>
-                      <p className="mt-1 text-sm text-slate-300">Tap as many as you like and set the quantity for each.</p>
+                      <h2 className="font-[family-name:var(--font-display)] text-2xl text-[#F6EFDD]">Today&apos;s flavors</h2>
+                      <p className="mt-1 text-sm text-[#F2E8D5]/60">Tap as many as you like, set quantity per flavor.</p>
                     </div>
-                    <div className="rounded-full bg-orange-500/15 px-3 py-1 text-xs font-medium text-orange-200">Pick one or more</div>
+                    <div className="rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-3 py-1 text-xs font-semibold text-[#E3A64B]">
+                      Pick one or more
+                    </div>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {flavorOptions.map((option) => {
                       const selected = selectedFlavors.find((item) => item.value === option.value);
                       return (
-                        <div key={option.value} className={`rounded-2xl border p-4 transition ${selected ? "border-orange-400 bg-orange-500/20 shadow-lg shadow-orange-500/10" : "border-white/10 bg-white/5 hover:border-orange-300/40 hover:bg-white/10"}`}>
+                        <div
+                          key={option.value}
+                          className={`relative rounded-xl border-2 p-4 transition ${
+                            selected
+                              ? "border-[#E3A64B] bg-[#E3A64B]/12 shadow-[0_10px_25px_-12px_rgba(227,166,75,0.55)]"
+                              : "border-[#3a2c1c] bg-[#241c13] hover:border-[#E3A64B]/40"
+                          }`}
+                        >
+                          {option.popular ? (
+                            <span className="absolute -top-2.5 right-3 inline-flex items-center gap-1 rounded-full bg-[#C0472B] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#F6EFDD] shadow">
+                              <Flame size={10} /> Best seller
+                            </span>
+                          ) : null}
                           <button type="button" onClick={() => toggleFlavor(option.value)} className="w-full text-left">
                             <div className="flex items-start justify-between gap-3">
                               <div>
-                                <div className="font-semibold">{option.label}</div>
-                                <div className="mt-1 text-sm text-slate-300">Php {option.price}</div>
+                                <div className="font-[family-name:var(--font-display)] text-base text-[#F6EFDD]">{option.label}</div>
+                                <div className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#E3A64B]">Php {option.price}</div>
                               </div>
-                              {selected ? <CheckCircle2 size={18} className="text-orange-300" /> : null}
+                              {selected ? (
+                                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#E3A64B] text-[#1a140d]">
+                                  <CheckCircle2 size={15} />
+                                </span>
+                              ) : (
+                                <span className="h-6 w-6 shrink-0 rounded-full border-2 border-dashed border-[#F2E8D5]/25" />
+                              )}
                             </div>
                           </button>
                           {selected ? (
                             <label className="mt-3 block" onClick={(event) => event.stopPropagation()}>
-                              <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-400">Qty</span>
-                              <div className="grid h-14 grid-cols-[52px_minmax(0,1fr)_52px] overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80">
+                              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.25em] text-[#F2E8D5]/45">Qty</span>
+                              <div className="flex items-stretch gap-2">
+                                <div className="grid h-12 flex-1 grid-cols-[44px_minmax(0,1fr)_44px] overflow-hidden rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d]">
+                                  <button
+                                    type="button"
+                                    aria-label={`Decrease ${option.label}`}
+                                    onClick={() => stepFlavorQuantity(option.value, -1)}
+                                    className="flex h-full items-center justify-center border-r-2 border-[#3a2c1c] text-[#E3A64B] transition active:bg-[#E3A64B]/15"
+                                  >
+                                    <Minus size={16} />
+                                  </button>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    aria-label={`${option.label} quantity`}
+                                    value={selected.quantity}
+                                    onChange={(event) => updateFlavorQuantity(option.value, event.target.value)}
+                                    onFocus={(event) => event.currentTarget.select()}
+                                    className="h-full min-w-0 bg-transparent px-3 text-center font-[family-name:var(--font-mono)] text-base font-semibold text-[#F6EFDD] outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={`Increase ${option.label}`}
+                                    onClick={() => stepFlavorQuantity(option.value, 1)}
+                                    className="flex h-full items-center justify-center border-l-2 border-[#3a2c1c] text-[#E3A64B] transition active:bg-[#E3A64B]/15"
+                                  >
+                                    <Plus size={16} />
+                                  </button>
+                                </div>
                                 <button
                                   type="button"
-                                  aria-label={`Decrease ${option.label}`}
-                                  onClick={() => stepFlavorQuantity(option.value, -1)}
-                                  className="flex h-full items-center justify-center border-r border-white/10 text-orange-100 transition active:bg-white/10"
+                                  aria-label={`Add 5 ${option.label}`}
+                                  onClick={() => stepFlavorQuantity(option.value, 5)}
+                                  className="h-12 shrink-0 rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 font-[family-name:var(--font-mono)] text-xs font-bold text-[#E3A64B] transition active:bg-[#E3A64B]/15"
                                 >
-                                  <Minus size={18} />
-                                </button>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  pattern="[0-9]*"
-                                  aria-label={`${option.label} quantity`}
-                                  value={selected.quantity}
-                                  onChange={(event) => updateFlavorQuantity(option.value, event.target.value)}
-                                  onFocus={(event) => event.currentTarget.select()}
-                                  className="h-full min-w-0 bg-transparent px-3 text-center text-lg font-semibold text-white outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  aria-label={`Increase ${option.label}`}
-                                  onClick={() => stepFlavorQuantity(option.value, 1)}
-                                  className="flex h-full items-center justify-center border-l border-white/10 text-orange-100 transition active:bg-white/10"
-                                >
-                                  <Plus size={18} />
+                                  +5
                                 </button>
                               </div>
                             </label>
@@ -309,20 +387,28 @@ export default function CustomerKioskPage() {
 
               {step === 1 ? (
                 <div className="space-y-4">
-                  <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4 sm:p-5">
-                    <div className="mb-4 flex items-center gap-2 text-lg font-semibold">
-                      <MapPin size={18} className="text-orange-300" /> Delivery preferences
+                  <div className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4 sm:p-5">
+                    <div className="mb-4 flex items-center gap-2 font-[family-name:var(--font-display)] text-lg text-[#F6EFDD]">
+                      <Truck size={18} className="text-[#E3A64B]" /> Delivery preferences
                     </div>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <label className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
-                        <span className="mb-2 block text-sm font-medium text-slate-200">Delivery method</span>
-                        <select value={form.deliveryMethod} onChange={(event) => handleChange("deliveryMethod", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 outline-none">
+                      <label className="rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] p-4">
+                        <span className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[#F2E8D5]/75"><Truck size={14} /> Delivery method</span>
+                        <select
+                          value={form.deliveryMethod}
+                          onChange={(event) => handleChange("deliveryMethod", event.target.value)}
+                          className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-3 text-[#F6EFDD] outline-none"
+                        >
                           {deliveryMethods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                       </label>
-                      <label className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
-                        <span className="mb-2 block text-sm font-medium text-slate-200">Payment method</span>
-                        <select value={form.paymentMethod} onChange={(event) => handleChange("paymentMethod", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 outline-none">
+                      <label className="rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] p-4">
+                        <span className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[#F2E8D5]/75"><Wallet size={14} /> Payment method</span>
+                        <select
+                          value={form.paymentMethod}
+                          onChange={(event) => handleChange("paymentMethod", event.target.value)}
+                          className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-3 text-[#F6EFDD] outline-none"
+                        >
                           {paymentMethods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                       </label>
@@ -330,97 +416,164 @@ export default function CustomerKioskPage() {
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <label className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
-                      <span className="mb-2 block text-sm font-medium text-slate-200">Delivery date</span>
-                      <input type="date" value={form.deliveryDate} onChange={(event) => handleChange("deliveryDate", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 outline-none" />
+                    <label className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4">
+                      <span className="mb-2 block text-sm font-medium text-[#F2E8D5]/75">Delivery date</span>
+                      <input
+                        type="date"
+                        value={form.deliveryDate}
+                        onChange={(event) => handleChange("deliveryDate", event.target.value)}
+                        className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none"
+                      />
                     </label>
-                    <label className="rounded-3xl border border-white/10 bg-slate-950/35 p-4">
-                      <span className="mb-2 block text-sm font-medium text-slate-200">Delivery time</span>
-                      <input type="time" value={form.deliveryTime} onChange={(event) => handleChange("deliveryTime", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 outline-none" />
+                    <label className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4">
+                      <span className="mb-2 block text-sm font-medium text-[#F2E8D5]/75">Delivery time</span>
+                      <input
+                        type="time"
+                        value={form.deliveryTime}
+                        onChange={(event) => handleChange("deliveryTime", event.target.value)}
+                        className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none"
+                      />
                     </label>
                   </div>
                 </div>
               ) : null}
 
               {step === 2 ? (
-                <div className="rounded-3xl border border-white/10 bg-slate-950/35 p-4 sm:p-5">
-                  <div className="mb-4 flex items-center gap-2 text-lg font-semibold">
-                    <Phone size={18} className="text-orange-300" /> Customer details
+                <div className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4 sm:p-5">
+                  <div className="mb-4 flex items-center gap-2 font-[family-name:var(--font-display)] text-lg text-[#F6EFDD]">
+                    <Phone size={18} className="text-[#E3A64B]" /> Customer details
                   </div>
                   <div className="space-y-3">
-                    <input placeholder="Customer name" value={form.customerName} onChange={(event) => handleChange("customerName", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 outline-none" required />
-                    <input placeholder="Contact number" value={form.phoneNumber} onChange={(event) => handleChange("phoneNumber", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 outline-none" required />
-                    <input placeholder="Address" value={form.address} onChange={(event) => handleChange("address", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 outline-none" required />
-                    <input placeholder="Landmark" value={form.landmark} onChange={(event) => handleChange("landmark", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 outline-none" required />
-                    <textarea placeholder="Optional note" value={form.notes} onChange={(event) => handleChange("notes", event.target.value)} className="min-h-[96px] w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 outline-none" />
+                    <input
+                      placeholder="Customer name"
+                      value={form.customerName}
+                      onChange={(event) => handleChange("customerName", event.target.value)}
+                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"
+                      required
+                    />
+                    <input
+                      placeholder="Contact number"
+                      value={form.phoneNumber}
+                      onChange={(event) => handleChange("phoneNumber", event.target.value)}
+                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"
+                      required
+                    />
+                    <input
+                      placeholder="Address"
+                      value={form.address}
+                      onChange={(event) => handleChange("address", event.target.value)}
+                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"
+                      required
+                    />
+                    <input
+                      placeholder="Landmark"
+                      value={form.landmark}
+                      onChange={(event) => handleChange("landmark", event.target.value)}
+                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"
+                      required
+                    />
+                    <textarea
+                      placeholder="Optional note"
+                      value={form.notes}
+                      onChange={(event) => handleChange("notes", event.target.value)}
+                      className="min-h-[96px] w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"
+                    />
                   </div>
                 </div>
               ) : null}
             </div>
 
             <div className="space-y-5">
-              <div className="rounded-3xl border border-orange-400/25 bg-orange-500/10 p-4 sm:p-5">
-                <div className="flex items-center justify-between text-sm text-slate-200">
-                  <span>Selected items</span>
-                  <span className={`font-semibold ${summary.totalQuantity >= 10 ? "text-white" : "text-amber-300"}`}>{summary.totalQuantity} pcs</span>
+              <div className="receipt-ticket relative bg-[#f2e8d5] px-5 pb-6 pt-7 text-[#241c13] shadow-[0_18px_40px_-16px_rgba(0,0,0,0.6)]">
+                <div className="mb-3 flex items-center justify-between border-b-2 border-dashed border-[#241c13]/25 pb-3">
+                  <div className="flex items-center gap-2 font-[family-name:var(--font-display)] text-sm font-bold uppercase tracking-[0.15em]">
+                    <Ticket size={16} /> Your order
+                  </div>
+                  <span className={`font-[family-name:var(--font-mono)] text-sm font-semibold ${summary.totalQuantity >= 10 ? "text-[#4f6a34]" : "text-[#C0472B]"}`}>
+                    {summary.totalQuantity} pcs
+                  </span>
                 </div>
-                <div className="mt-3 space-y-2">
-                  {summary.items.length > 0 ? summary.items.map((item) => (
-                    <div key={item.name} className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm">
-                      <span>{item.name}</span>
-                      <span className="text-slate-300">{item.quantity} × Php {item.price}</span>
-                    </div>
-                  )) : <p className="rounded-2xl border border-dashed border-white/10 px-3 py-3 text-sm text-slate-300">No flavors selected yet.</p>}
+                <div className="space-y-1.5 font-[family-name:var(--font-mono)] text-sm">
+                  {summary.items.length > 0 ? (
+                    summary.items.map((item) => (
+                      <div key={item.name} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{item.quantity}x {item.name}</span>
+                        <span className="shrink-0 tabular-nums">{item.subtotal}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="py-2 text-[#241c13]/50">No flavors selected yet.</p>
+                  )}
                 </div>
-                <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-4 text-sm text-slate-200">
-                  <span>Total</span>
-                  <span className="text-xl font-semibold text-orange-300">Php {summary.subtotal}</span>
+                <div className="mt-4 flex items-center justify-between border-t-2 border-dashed border-[#241c13]/25 pt-3">
+                  <span className="font-[family-name:var(--font-display)] text-base font-bold">TOTAL</span>
+                  <span className="font-[family-name:var(--font-mono)] text-xl font-bold text-[#C0472B]">Php {summary.subtotal}</span>
                 </div>
-                <p className={`mt-3 text-sm ${summary.totalQuantity >= 10 ? "text-emerald-300" : "text-amber-300"}`}>
-                  {summary.totalQuantity >= 10 ? "Minimum order reached." : `Add ${10 - summary.totalQuantity} more piece${10 - summary.totalQuantity === 1 ? "" : "s"} to meet the minimum.`}
+                <p className={`mt-3 text-center font-[family-name:var(--font-script)] text-lg ${summary.totalQuantity >= 10 ? "text-[#4f6a34]" : "text-[#C0472B]"}`}>
+                  {summary.totalQuantity >= 10 ? "minimum reached, salamat!" : `add ${remaining} more piece${remaining === 1 ? "" : "s"} po`}
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10" disabled={step === 0}>
+              <div className="hidden gap-3 lg:flex">
+                <button
+                  type="button"
+                  onClick={() => setStep((current) => Math.max(0, current - 1))}
+                  className="flex items-center gap-2 rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-sm font-medium text-[#F2E8D5] transition hover:border-[#E3A64B]/40 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={step === 0}
+                >
                   <ArrowLeft size={16} /> Back
                 </button>
                 {step < steps.length - 1 ? (
-                  <button type="button" onClick={() => setStep((current) => current + 1)} disabled={!isStepValid} className="ml-auto flex items-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60">
+                  <button
+                    type="button"
+                    onClick={() => setStep((current) => current + 1)}
+                    disabled={!isStepValid}
+                    className="ml-auto flex items-center gap-2 rounded-xl bg-[#C0472B] px-5 py-3 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] shadow-[0_10px_25px_-10px_rgba(192,71,43,0.7)] transition hover:bg-[#a83c24] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
                     Continue <ArrowRight size={16} />
                   </button>
                 ) : (
-                  <button type="submit" disabled={submitting} className="ml-auto rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="ml-auto flex items-center gap-2 rounded-xl bg-[#C0472B] px-5 py-3 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] shadow-[0_10px_25px_-10px_rgba(192,71,43,0.7)] transition hover:bg-[#a83c24] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
                     {submitting ? "Placing order..." : "Place order"}
                   </button>
                 )}
               </div>
 
-              {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+              {error ? <p className="rounded-lg border-2 border-[#C0472B]/40 bg-[#C0472B]/10 px-3 py-2 text-sm text-[#f0a894]">{error}</p> : null}
               {success ? (
-                <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-sm text-emerald-50 shadow-lg shadow-emerald-950/20">
+                <div className="relative rounded-2xl border-2 border-[#7A9B4E]/50 bg-[#7A9B4E]/12 p-4 text-sm shadow-lg">
                   <div className="flex items-start gap-3">
-                    <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-300" />
+                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#7A9B4E] text-[#1a140d]">
+                      <CheckCircle2 size={18} />
+                    </span>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-white">Your order was received.</p>
-                      <p className="mt-1 text-emerald-100/80">Use this link to track your order status anytime.</p>
-                      {success.orderNumber ? <p className="mt-2 text-xs text-emerald-100/65">Order {success.orderNumber}</p> : null}
+                      <p className="font-[family-name:var(--font-display)] text-base text-[#F6EFDD]">Order received!</p>
+                      <p className="mt-1 text-[#F2E8D5]/70">Use this link to track your order status anytime.</p>
+                      {success.orderNumber ? (
+                        <p className="mt-2 inline-block rounded border border-dashed border-[#F2E8D5]/30 px-2 py-0.5 font-[family-name:var(--font-mono)] text-xs text-[#F2E8D5]/70">
+                          Order {success.orderNumber}
+                        </p>
+                      ) : null}
                       <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                         <input
                           readOnly
                           value={success.trackingUrl}
-                          className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-xs text-slate-100 outline-none"
+                          className="min-w-0 rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-2.5 font-[family-name:var(--font-mono)] text-xs text-[#F2E8D5] outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)}
-                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-3 py-2.5 font-semibold text-white transition hover:bg-white/15"
+                          className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-3 py-2.5 font-semibold text-[#F2E8D5] transition hover:border-[#E3A64B]/40"
                         >
                           <Copy size={15} /> Copy
                         </button>
                         <a
                           href={success.trackingPath}
-                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-3 py-2.5 font-semibold text-slate-950 transition hover:bg-emerald-300"
+                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#7A9B4E] px-3 py-2.5 font-semibold text-[#1a140d] transition hover:bg-[#6c8a43]"
                         >
                           Track <ExternalLink size={15} />
                         </a>
@@ -432,7 +585,101 @@ export default function CustomerKioskPage() {
             </div>
           </form>
         </section>
+
+        <p className="pb-2 text-center font-[family-name:var(--font-script)] text-lg text-[#F2E8D5]/45">
+          made fresh daily by Empanada Hauz
+        </p>
       </div>
+
+      {/* Mobile sticky action bar — keeps total + primary action always reachable while scrolling */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-[#3a2c1c] bg-[#1c150e]/97 px-3 pb-[env(safe-area-inset-bottom)] pt-2.5 shadow-[0_-12px_30px_-10px_rgba(0,0,0,0.6)] backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-6xl items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setStep((current) => Math.max(0, current - 1))}
+            aria-label="Back"
+            disabled={step === 0}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] text-[#F2E8D5] transition active:bg-[#E3A64B]/10 disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <ArrowLeft size={18} />
+          </button>
+
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="font-[family-name:var(--font-mono)] text-[11px] text-[#F2E8D5]/55">
+              {summary.totalQuantity} pcs
+            </div>
+            <div className="truncate font-[family-name:var(--font-display)] text-base font-bold text-[#F6EFDD]">
+              Php {summary.subtotal}
+            </div>
+          </div>
+
+          {step < steps.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => setStep((current) => current + 1)}
+              disabled={!isStepValid}
+              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] shadow-[0_10px_25px_-10px_rgba(192,71,43,0.7)] transition active:bg-[#a83c24] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Continue <ArrowRight size={16} />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              form="kiosk-order-form"
+              disabled={submitting}
+              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] shadow-[0_10px_25px_-10px_rgba(192,71,43,0.7)] transition active:bg-[#a83c24] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting ? "Placing..." : "Place order"}
+            </button>
+          )}
+        </div>
+        {step === 0 && summary.totalQuantity < 10 ? (
+          <p className="mx-auto mt-1.5 max-w-6xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">
+            add {remaining} more piece{remaining === 1 ? "" : "s"} to reach the 10 pc minimum
+          </p>
+        ) : null}
+      </div>
+
+      <style jsx global>{`
+        .kiosk-board {
+          background:
+            radial-gradient(circle at 12% 0%, rgba(227, 166, 75, 0.10), transparent 32rem),
+            linear-gradient(160deg, #17110b 0%, #1c150e 55%, #17110b 100%);
+        }
+        .chalk-texture {
+          background-image:
+            radial-gradient(rgba(242, 232, 213, 0.05) 1px, transparent 1.4px),
+            radial-gradient(rgba(242, 232, 213, 0.035) 1px, transparent 1.4px);
+          background-size: 3px 3px, 7px 7px;
+          background-position: 0 0, 2px 3px;
+          mix-blend-mode: overlay;
+        }
+        .jeepney-stripe {
+          background: repeating-linear-gradient(
+            45deg,
+            #c0472b 0px,
+            #c0472b 14px,
+            #f0b429 14px,
+            #f0b429 28px,
+            #2f8f7a 28px,
+            #2f8f7a 42px,
+            #f2e8d5 42px,
+            #f2e8d5 56px
+          );
+        }
+        .receipt-ticket {
+          border-radius: 4px;
+          clip-path: polygon(
+            0% 3%, 4% 0%, 8% 3%, 12% 0%, 16% 3%, 20% 0%, 24% 3%, 28% 0%, 32% 3%, 36% 0%,
+            40% 3%, 44% 0%, 48% 3%, 52% 0%, 56% 3%, 60% 0%, 64% 3%, 68% 0%, 72% 3%, 76% 0%,
+            80% 3%, 84% 0%, 88% 3%, 92% 0%, 96% 3%, 100% 0%,
+            100% 97%, 96% 100%, 92% 97%, 88% 100%, 84% 97%, 80% 100%, 76% 97%, 72% 100%,
+            68% 97%, 64% 100%, 60% 97%, 56% 100%, 52% 97%, 48% 100%, 44% 97%, 40% 100%,
+            36% 97%, 32% 100%, 28% 97%, 24% 100%, 20% 97%, 16% 100%, 12% 97%, 8% 100%,
+            4% 97%, 0% 100%
+          );
+        }
+      `}</style>
     </main>
   );
 }

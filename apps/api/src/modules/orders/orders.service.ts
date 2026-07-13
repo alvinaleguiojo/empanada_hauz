@@ -4,7 +4,10 @@ import { RealtimeGateway } from "../../common/realtime.gateway";
 import { BatchesService } from "../batches/batches.service";
 import { GoogleDriveOrderExportService } from "./google-drive-order-export.service";
 import { GoogleSheetsOrderSyncService } from "./google-sheets-order-sync.service";
-import { CreateOrderDto, ManualOrderEntryDto, OrderStatus, PublicOrderEntryDto, UpdateOrderDto } from "./dto";
+import { CreateOrderDto, ManualOrderEntryDto, OrderLineItemDto, OrderStatus, PublicOrderEntryDto, UpdateOrderDto } from "./dto";
+import { priceForFlavor } from "./menu-prices";
+
+const MINIMUM_PUBLIC_ORDER_QUANTITY = 10;
 
 @Injectable()
 export class OrdersService {
@@ -157,17 +160,29 @@ export class OrdersService {
   }
 
   async createPublic(dto: PublicOrderEntryDto) {
+    // Public submissions are untrusted input: never accept client-supplied
+    // prices. Every line item must reference a known menu flavor, and the
+    // price/subtotal are always recomputed here from the server-side menu.
+    const trustedItems = this.resolveTrustedLineItems(dto.items);
+
+    const totalQuantity = trustedItems.reduce((sum, item) => sum + item.quantity, 0);
+    if (totalQuantity < MINIMUM_PUBLIC_ORDER_QUANTITY) {
+      throw new BadRequestException(`Minimum order is ${MINIMUM_PUBLIC_ORDER_QUANTITY} pieces.`);
+    }
+    const totalAmount = trustedItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const unitPrice = totalQuantity > 0 ? totalAmount / totalQuantity : 0;
+
     const order = await this.createManual({
       customerName: dto.customerName,
       phoneNumber: dto.phoneNumber,
-      quantity: dto.quantity,
-      unitPrice: dto.unitPrice,
+      quantity: totalQuantity,
+      unitPrice,
       deliveryMethod: dto.deliveryMethod,
       paymentMethod: dto.paymentMethod,
       address: dto.address,
       location: dto.landmark,
       preferredSchedule: dto.preferredSchedule,
-      items: dto.items,
+      items: trustedItems,
       notes: dto.notes
     });
 
@@ -175,6 +190,38 @@ export class OrdersService {
       order,
       trackingPath: `/track/${order.id}`
     };
+  }
+
+  /**
+   * Validates each line item against the authoritative menu price list and
+   * returns items with server-computed price/subtotal. Rejects unknown
+   * flavors and non-positive quantities. This is the enforcement point that
+   * prevents a caller from bypassing the UI and submitting arbitrary prices
+   * directly to POST /orders/public.
+   */
+  private resolveTrustedLineItems(items: OrderLineItemDto[] | undefined) {
+    if (!items || items.length === 0) {
+      throw new BadRequestException("At least one order item is required.");
+    }
+
+    return items.map((item) => {
+      const quantity = Math.trunc(Number(item.quantity));
+      if (!Number.isFinite(quantity) || quantity < 1) {
+        throw new BadRequestException(`Invalid quantity for "${item.name}".`);
+      }
+
+      const trustedPrice = priceForFlavor(item.name);
+      if (trustedPrice === undefined) {
+        throw new BadRequestException(`Unknown flavor: "${item.name}".`);
+      }
+
+      return {
+        name: item.name,
+        quantity,
+        price: trustedPrice,
+        subtotal: quantity * trustedPrice
+      };
+    });
   }
 
   async createManual(dto: ManualOrderEntryDto) {

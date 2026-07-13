@@ -7,6 +7,7 @@ import { OrdersService } from "./orders.service";
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get()
   list(@Query("date") date?: string) {
     return this.ordersService.list({ date });
