@@ -104,6 +104,29 @@ const statusTone: Record<string, string> = {
   cancelled: "bg-rose-500/15 text-rose-200"
 };
 
+const statusDot: Record<string, string> = {
+  inquiry: "bg-white/40",
+  awaiting_confirmation: "bg-amber-400",
+  confirmed: "bg-sky-400",
+  queued: "bg-violet-400",
+  preparing: "bg-fuchsia-400",
+  frying: "bg-orange-400",
+  packed: "bg-cyan-400",
+  ready_for_pickup: "bg-teal-400",
+  ready_for_booking: "bg-lime-400",
+  booked: "bg-emerald-400",
+  completed: "bg-green-400",
+  cancelled: "bg-rose-400"
+};
+
+// Delivery method gets a fixed, predictable color — unlike statusTone (which
+// changes per workflow stage), this badge should always look the same for
+// "pickup" vs "maxim" so it reads at a glance regardless of column.
+const deliveryBadgeTone: Record<string, string> = {
+  pickup: "bg-white/[0.08] text-foreground/70",
+  maxim: "bg-sky-500/18 text-sky-200"
+};
+
 const scheduleFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Manila",
   year: "numeric",
@@ -684,16 +707,21 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             const columnOrders = filteredItems.filter((item) => item.status === status);
             const columnQuantity = columnOrders.reduce((sum, order) => sum + Number(order.quantity ?? 0), 0);
             return (
-              <Card key={status} className="min-w-[224px] border-line/70 bg-panel/90 p-3 shadow-none sm:min-w-[248px]">
-                <div className="mb-3 flex items-center justify-between border-b border-line/70 pb-3">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.22em] text-foreground/30">Stage</p>
-                    <h3 className="mt-1 text-[15px] font-semibold capitalize leading-tight">{status.replaceAll("_", " ")}</h3>
-                    <p className="mt-1 text-xs text-foreground/45">{columnQuantity} pcs total</p>
+              <Card key={status} className="min-w-[224px] overflow-hidden border-line/70 bg-panel/90 p-0 shadow-none sm:min-w-[248px]">
+                <div className={cn("h-[3px] w-full", statusDot[status])} />
+                <div className="p-3">
+                  <div className="mb-3 flex items-center justify-between border-b border-line/70 pb-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDot[status])} />
+                        <p className="text-[10px] uppercase tracking-[0.22em] text-foreground/35">Stage</p>
+                      </div>
+                      <h3 className="mt-1 truncate text-[15px] font-semibold capitalize leading-tight">{status.replaceAll("_", " ")}</h3>
+                      <p className="mt-1 text-xs text-foreground/45">{columnQuantity} pcs total</p>
+                    </div>
+                    <Badge className={cn("shrink-0 border-0 tabular-nums", statusTone[status])}>{columnOrders.length}</Badge>
                   </div>
-                  <Badge className={cn("border-0", statusTone[status])}>{columnOrders.length}</Badge>
-                </div>
-                <div className="space-y-2.5">
+                  <div className="space-y-2.5">
                   {columnOrders.map((order) => {
                     const orderLineItems = getOrderLineItems(order);
                     const notePreview = getOrderNotePreview(order);
@@ -706,10 +734,10 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           setDetailOpen(true);
                         }}
                         className={cn(
-                          "w-full rounded-lg border px-3.5 py-3 text-left transition",
+                          "w-full rounded-lg border px-3.5 py-3 text-left transition duration-150 ease-out hover:-translate-y-0.5",
                           selectedOrder?.id === order.id
                             ? "border-accent/60 bg-accent/[0.08] shadow-[0_0_0_1px_rgb(var(--accent)/0.18)]"
-                            : "border-line/70 bg-black/[0.08] hover:border-accent/35 hover:bg-white/[0.04]"
+                            : "border-line/70 bg-black/[0.08] hover:border-accent/35 hover:bg-white/[0.04] hover:shadow-[0_10px_28px_rgba(0,0,0,0.28)]"
                         )}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -717,7 +745,9 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                             <p className="truncate text-[17px] font-semibold leading-tight">{order.customer?.name}</p>
                             <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-foreground/30">{order.orderNumber}</p>
                           </div>
-                          <Badge className={cn("border-0 text-[11px]", statusTone[order.status])}>{order.deliveryMethod}</Badge>
+                          <Badge className={cn("shrink-0 border-0 text-[11px] capitalize", deliveryBadgeTone[order.deliveryMethod] ?? deliveryBadgeTone.pickup)}>
+                            {order.deliveryMethod}
+                          </Badge>
                         </div>
                         <OrderItemsList items={orderLineItems} fallbackQuantity={order.quantity} />
                         {notePreview ? (
@@ -728,7 +758,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                         ) : null}
                         <div className="mt-3 grid grid-cols-2 gap-2">
                           <CompactStat label="Qty" value={`${order.quantity}`} suffix="pcs" />
-                          <CompactStat label="To Pay" value={`Php ${String(order.totalAmount)}`} />
+                          <CompactStat label="To Pay" value={`Php ${String(order.totalAmount)}`} accent />
                         </div>
                         <div className="mt-3 space-y-1.5 text-sm text-foreground/62">
                           <InfoLine icon={MapPin} text={order.location ?? "No area"} />
@@ -738,6 +768,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                     );
                   })}
                   {columnOrders.length === 0 ? <div className="h-2" /> : null}
+                  </div>
                 </div>
               </Card>
             );
@@ -756,13 +787,14 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             type="button"
             aria-label="Close order details"
             onClick={() => setDetailOpen(false)}
-            className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+            className="absolute inset-0 bg-black/55 backdrop-blur-[3px]"
           />
           <div className="absolute inset-y-0 right-0 w-full max-w-[480px] p-2 sm:p-4">
             <Card className="flex h-full flex-col overflow-hidden border-line/90 bg-panel p-0 shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
               {selectedOrder ? (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="border-b border-line/75 p-4 sm:p-6">
+                  <div className={cn("h-[3px] w-full shrink-0", statusDot[selectedOrder.status])} />
+                  <div className="shrink-0 border-b border-line/75 bg-panel p-4 sm:p-6">
                     <div className="mb-4 flex items-center justify-between">
                       <button
                         type="button"
@@ -777,15 +809,15 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                       <div className="min-w-0">
                         <p className="text-[11px] uppercase tracking-[0.24em] text-foreground/30">Selected Order</p>
                         <h3 className="mt-2 truncate text-2xl font-semibold leading-tight sm:text-[32px] sm:leading-none">{selectedOrder.customer?.name}</h3>
-                        <p className="mt-2 text-sm text-foreground/40">{selectedOrder.orderNumber}</p>
+                        <p className="mt-2 font-mono text-sm text-foreground/40">{selectedOrder.orderNumber}</p>
                       </div>
-                      <Badge className={cn("border-0", statusTone[selectedOrder.status])}>{selectedOrder.status.replaceAll("_", " ")}</Badge>
+                      <Badge className={cn("shrink-0 border-0", statusTone[selectedOrder.status])}>{selectedOrder.status.replaceAll("_", " ")}</Badge>
                     </div>
                   </div>
 
                   <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
                     <div className="space-y-4">
-                      <div className="space-y-2 rounded-lg border border-line/75 bg-black/[0.08] p-4">
+                      <div className="space-y-2.5 rounded-lg border border-accent/25 bg-accent/[0.05] p-4">
                         <label className="text-sm font-medium text-foreground/72">Update status</label>
                         <Select value={selectedStatus} onChange={setSelectedStatus} options={statusSelectOptions} />
                         <Button className="w-full" onClick={updateStatus} disabled={pending || deletePending || selectedStatus === selectedOrder.status}>
@@ -1149,18 +1181,25 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 function CompactStat({
   label,
   value,
-  suffix
+  suffix,
+  accent
 }: {
   label: string;
   value: string;
   suffix?: string;
+  accent?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-line/70 bg-white/[0.03] px-3 py-2">
-      <p className="text-[10px] uppercase tracking-[0.16em] text-foreground/28">{label}</p>
-      <p className="mt-1 text-sm font-medium">
+    <div
+      className={cn(
+        "rounded-lg border px-3 py-2",
+        accent ? "border-accent/25 bg-accent/[0.07]" : "border-line/70 bg-white/[0.03]"
+      )}
+    >
+      <p className={cn("text-[10px] uppercase tracking-[0.16em]", accent ? "text-accent/70" : "text-foreground/28")}>{label}</p>
+      <p className={cn("mt-1 text-sm font-semibold tabular-nums", accent && "text-accent")}>
         {value}
-        {suffix ? <span className="ml-1 text-xs text-foreground/45">{suffix}</span> : null}
+        {suffix ? <span className={cn("ml-1 text-xs font-normal", accent ? "text-accent/60" : "text-foreground/45")}>{suffix}</span> : null}
       </p>
     </div>
   );
