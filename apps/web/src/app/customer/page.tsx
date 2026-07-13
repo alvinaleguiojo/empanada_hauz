@@ -226,6 +226,70 @@ export default function CustomerKioskPage() {
 
   const remaining = Math.max(0, 10 - summary.totalQuantity);
 
+  const handleStartNewOrder = () => {
+    setSuccess(null);
+    setError(null);
+  };
+
+  if (success) {
+    return (
+      <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board flex min-h-screen items-center justify-center px-4 py-10 text-[#F2E8D5] sm:px-6`}>
+        <div className="w-full max-w-md">
+          <div className="overflow-hidden rounded-[26px] border-[3px] border-[#3a2c1c] bg-[#241c13] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.7)]">
+            <div className="jeepney-stripe h-2.5 w-full" />
+            <div className="p-6 sm:p-8">
+              <div className="flex flex-col items-center text-center">
+                <span className="grid h-16 w-16 place-items-center rounded-full bg-[#7A9B4E] text-[#1a140d]">
+                  <CheckCircle2 size={32} />
+                </span>
+                <h1 className="mt-4 font-[family-name:var(--font-display)] text-3xl text-[#F6EFDD]">Order received!</h1>
+                <p className="mt-2 font-[family-name:var(--font-script)] text-xl text-[#F2E8D5]/75">salamat po, we're on it</p>
+
+                {success.orderNumber ? (
+                  <p className="mt-4 inline-block rounded border border-dashed border-[#F2E8D5]/30 px-3 py-1 font-[family-name:var(--font-mono)] text-sm text-[#F2E8D5]/70">
+                    Order {success.orderNumber}
+                  </p>
+                ) : null}
+
+                <p className="mt-5 text-sm text-[#F2E8D5]/60">Use this link to track your order status anytime.</p>
+                <div className="mt-3 grid w-full gap-2">
+                  <input
+                    readOnly
+                    value={success.trackingUrl}
+                    className="w-full min-w-0 rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-2.5 text-center font-[family-name:var(--font-mono)] text-xs text-[#F2E8D5] outline-none"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-[#3a2c1c] bg-[#1c150e] px-3 py-2.5 font-semibold text-[#F2E8D5] transition active:bg-[#E3A64B]/15"
+                    >
+                      <Copy size={15} /> Copy
+                    </button>
+                    <a
+                      href={success.trackingPath}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#7A9B4E] px-3 py-2.5 font-semibold text-[#1a140d] transition hover:bg-[#6c8a43]"
+                    >
+                      Track <ExternalLink size={15} />
+                    </a>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleStartNewOrder}
+                  className="mt-6 w-full rounded-xl bg-[#C0472B] px-5 py-3.5 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] shadow-[0_10px_25px_-10px_rgba(192,71,43,0.7)] transition active:bg-[#a83c24]"
+                >
+                  Place another order
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-4 py-6 pb-28 text-[#F2E8D5] sm:px-6 lg:px-8 lg:pb-6`}>
       <div className="mx-auto flex max-w-6xl flex-col gap-5">
@@ -544,44 +608,6 @@ export default function CustomerKioskPage() {
               </div>
 
               {error ? <p className="rounded-lg border-2 border-[#C0472B]/40 bg-[#C0472B]/10 px-3 py-2 text-sm text-[#f0a894]">{error}</p> : null}
-              {success ? (
-                <div className="relative rounded-2xl border-2 border-[#7A9B4E]/50 bg-[#7A9B4E]/12 p-4 text-sm shadow-lg">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#7A9B4E] text-[#1a140d]">
-                      <CheckCircle2 size={18} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-[family-name:var(--font-display)] text-base text-[#F6EFDD]">Order received!</p>
-                      <p className="mt-1 text-[#F2E8D5]/70">Use this link to track your order status anytime.</p>
-                      {success.orderNumber ? (
-                        <p className="mt-2 inline-block rounded border border-dashed border-[#F2E8D5]/30 px-2 py-0.5 font-[family-name:var(--font-mono)] text-xs text-[#F2E8D5]/70">
-                          Order {success.orderNumber}
-                        </p>
-                      ) : null}
-                      <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-                        <input
-                          readOnly
-                          value={success.trackingUrl}
-                          className="min-w-0 rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-2.5 font-[family-name:var(--font-mono)] text-xs text-[#F2E8D5] outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-3 py-2.5 font-semibold text-[#F2E8D5] transition hover:border-[#E3A64B]/40"
-                        >
-                          <Copy size={15} /> Copy
-                        </button>
-                        <a
-                          href={success.trackingPath}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#7A9B4E] px-3 py-2.5 font-semibold text-[#1a140d] transition hover:bg-[#6c8a43]"
-                        >
-                          Track <ExternalLink size={15} />
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </form>
         </section>
