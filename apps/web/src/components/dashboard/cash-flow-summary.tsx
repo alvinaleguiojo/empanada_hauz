@@ -36,7 +36,9 @@ export function CashFlowSummary({
   const visibleDays = data.days.filter((day) => day.actualSales > 0 || day.expenses > 0).reverse();
 
   return (
-    <Card className="p-5">
+    <Card className="overflow-hidden p-0">
+      <div className="h-[3px] w-full bg-accent" />
+      <div className="p-5">
       <div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Cash Summary</p>
@@ -63,11 +65,11 @@ export function CashFlowSummary({
           </div>
           <div className="divide-y divide-line/75">
             {visibleDays.map((day) => (
-              <div key={day.date} className="grid grid-cols-[1fr_110px_110px_120px] gap-3 px-4 py-3 text-sm">
+              <div key={day.date} className="grid grid-cols-[1fr_110px_110px_120px] gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/[0.03]">
                 <span className="min-w-0 truncate font-medium">{day.label}</span>
-                <span className="text-right text-foreground/72">{formatPeso(day.actualSales)}</span>
-                <span className="text-right text-foreground/72">{formatPeso(day.expenses)}</span>
-                <span className={cn("text-right font-semibold", day.moneyOnHand >= 0 ? "text-success" : "text-danger")}>{formatPeso(day.moneyOnHand)}</span>
+                <span className="text-right text-foreground/72 tabular-nums">{formatPeso(day.actualSales)}</span>
+                <span className="text-right text-foreground/72 tabular-nums">{formatPeso(day.expenses)}</span>
+                <span className={cn("text-right font-semibold tabular-nums", day.moneyOnHand >= 0 ? "text-success" : "text-danger")}>{formatPeso(day.moneyOnHand)}</span>
               </div>
             ))}
 
@@ -78,6 +80,7 @@ export function CashFlowSummary({
             ) : null}
             </div>
         </div>
+      </div>
       </div>
     </Card>
   );

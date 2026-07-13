@@ -31,44 +31,56 @@ export function AnalyticsPanels({ data, rangeLabel = "Today" }: { data: Analytic
   return (
     <div className="grid min-w-0 gap-4">
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <Card className="min-w-0 p-4 sm:p-5 xl:min-h-[430px]">
-          <PanelHeader title="Revenue Trend" subtitle={`Completed sales, ${rangeText}`} />
-          <BarTrend items={data.revenueTrend ?? []} tone="accent" valueFormatter={(value) => `Php ${formatCompact(value)}`} />
+        <Card className="min-w-0 overflow-hidden p-0 xl:min-h-[430px]">
+          <div className="h-[3px] w-full bg-accent" />
+          <div className="p-4 sm:p-5">
+            <PanelHeader title="Revenue Trend" subtitle={`Completed sales, ${rangeText}`} />
+            <BarTrend items={data.revenueTrend ?? []} tone="accent" valueFormatter={(value) => `Php ${formatCompact(value)}`} />
+          </div>
         </Card>
-        <Card className="min-w-0 p-4 sm:p-5 xl:min-h-[430px]">
-          <PanelHeader title="Pieces Sold Trend" subtitle={`Completed sales, ${rangeText}`} />
-          <BarTrend items={data.piecesTrend ?? []} tone="success" valueFormatter={(value) => `${formatCompact(value)} pcs`} />
+        <Card className="min-w-0 overflow-hidden p-0 xl:min-h-[430px]">
+          <div className="h-[3px] w-full bg-success" />
+          <div className="p-4 sm:p-5">
+            <PanelHeader title="Pieces Sold Trend" subtitle={`Completed sales, ${rangeText}`} />
+            <BarTrend items={data.piecesTrend ?? []} tone="success" valueFormatter={(value) => `${formatCompact(value)} pcs`} />
+          </div>
         </Card>
       </div>
 
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <Card className="min-w-0 p-4 sm:p-5">
-          <PanelHeader title="Most Ordered Items" subtitle={`${rangeLabel}, completed orders`} />
-          <RankedList
-            emptyLabel="No completed item orders yet."
-            items={(data.topItems ?? []).map((item) => ({
-              label: item.name,
-              value: item.quantity,
-              valueLabel: `${item.quantity} pcs`
-            }))}
-            tone="accent"
-          />
+        <Card className="min-w-0 overflow-hidden p-0">
+          <div className="h-[3px] w-full bg-accent" />
+          <div className="p-4 sm:p-5">
+            <PanelHeader title="Most Ordered Items" subtitle={`${rangeLabel}, completed orders`} />
+            <RankedList
+              emptyLabel="No completed item orders yet."
+              items={(data.topItems ?? []).map((item) => ({
+                label: item.name,
+                value: item.quantity,
+                valueLabel: `${item.quantity} pcs`
+              }))}
+              tone="accent"
+            />
+          </div>
         </Card>
 
-        <Card className="min-w-0 p-4 sm:p-5">
-          <PanelHeader title="Top Locations" subtitle={`${rangeLabel}, scheduled or created orders`} />
-          <RankedList
-            emptyLabel="No locations for today yet."
-            items={(data.topLocations ?? []).map((item) => {
-              const count = item._count?._all ?? 0;
-              return {
-                label: item.location ?? "Unknown",
-                value: count,
-                valueLabel: `${count} order${count === 1 ? "" : "s"}`
-              };
-            })}
-            tone="success"
-          />
+        <Card className="min-w-0 overflow-hidden p-0">
+          <div className="h-[3px] w-full bg-success" />
+          <div className="p-4 sm:p-5">
+            <PanelHeader title="Top Locations" subtitle={`${rangeLabel}, scheduled or created orders`} />
+            <RankedList
+              emptyLabel="No locations for today yet."
+              items={(data.topLocations ?? []).map((item) => {
+                const count = item._count?._all ?? 0;
+                return {
+                  label: item.location ?? "Unknown",
+                  value: count,
+                  valueLabel: `${count} order${count === 1 ? "" : "s"}`
+                };
+              })}
+              tone="success"
+            />
+          </div>
         </Card>
       </div>
     </div>

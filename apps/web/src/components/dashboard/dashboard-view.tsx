@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { CalendarDays, Loader2 } from "lucide-react";
+import { CalendarDays, CircleCheck, Coins, Loader2, Package, Wallet } from "lucide-react";
 import { AnalyticsPanels } from "@/components/analytics/analytics-panels";
 import { CashFlowSummary, rangeOptions, type CashFlowData, type CashRange } from "@/components/dashboard/cash-flow-summary";
 import { LiveEvents } from "@/components/dashboard/live-events";
@@ -205,10 +205,10 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
       {error ? <p className="rounded-lg border border-danger/35 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Revenue Sold" value={formatPeso(data.revenueToday)} hint={`Completed orders for ${rangeText}`} tone="accent" />
-        <StatCard label="Money on Hand" value={formatPeso(data.moneyOnHandToday)} hint={`${formatPeso(data.revenueToday)} sales - ${formatPeso(data.expensesToday)} expenses`} tone="success" />
-        <StatCard label="Pieces Sold" value={String(data.pcsSoldToday ?? 0)} hint={`${data.activeOrdersToday ?? 0} active orders pending`} tone="success" />
-        <StatCard label="Completion Rate" value={`${data.productionEfficiency ?? 0}%`} hint={`${data.cancelledOrders ?? 0} cancelled for ${rangeText}`} tone="danger" />
+        <StatCard label="Revenue Sold" value={formatPeso(data.revenueToday)} hint={`Completed orders for ${rangeText}`} tone="accent" icon={Coins} />
+        <StatCard label="Money on Hand" value={formatPeso(data.moneyOnHandToday)} hint={`${formatPeso(data.revenueToday)} sales - ${formatPeso(data.expensesToday)} expenses`} tone="success" icon={Wallet} />
+        <StatCard label="Pieces Sold" value={String(data.pcsSoldToday ?? 0)} hint={`${data.activeOrdersToday ?? 0} active orders pending`} tone="success" icon={Package} />
+        <StatCard label="Completion Rate" value={`${data.productionEfficiency ?? 0}%`} hint={`${data.cancelledOrders ?? 0} cancelled for ${rangeText}`} tone="danger" icon={CircleCheck} />
       </div>
 
       <CashFlowSummary data={data.cashFlow} />
