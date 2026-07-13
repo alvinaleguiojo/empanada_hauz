@@ -24,10 +24,10 @@ const script = Caveat({ subsets: ["latin"], weight: ["600", "700"], variable: "-
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["500", "600"], variable: "--font-mono" });
 
 const flavorOptions = [
-  { label: "Pork Regular", value: "Pork Regular", price: 20, popular: true },
-  { label: "Pork with Egg", value: "Pork with Egg", price: 25 },
+  { label: "Pork Regular", value: "Pork Regular", price: 20 },
+  { label: "Pork with Egg", value: "Pork with Egg", price: 25, popular: true },
   { label: "Chicken", value: "Chicken", price: 20 },
-  { label: "Chicken with Egg", value: "Chicken with Egg", price: 25 },
+  { label: "Chicken with Egg", value: "Chicken with Egg", price: 25, popular: true },
   { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
   { label: "Beef", value: "Beef", price: 35, popular: true },
   { label: "Beef with Egg", value: "Beef with Egg", price: 40 },
