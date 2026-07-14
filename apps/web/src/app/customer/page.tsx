@@ -89,6 +89,14 @@ const initialState: FormState = {
   notes: ""
 };
 
+function formatHourLabel(time24: string) {
+  const [hourStr] = time24.split(":");
+  const hour = Number(hourStr);
+  const period = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:00 ${period}`;
+}
+
 const steps = [
   { title: "Choose flavors", subtitle: "Pick one or more flavors" },
   { title: "Delivery details", subtitle: "Set your delivery window" },
@@ -128,6 +136,26 @@ export default function CustomerKioskPage() {
 
     return { items, totalQuantity, subtotal };
   }, [selectedFlavors]);
+
+  const todayDateString = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, []);
+
+  // If the delivery date is today, the earliest selectable time is the start
+  // of the next full hour — e.g. at 10:15 the earliest option is 11:00, not
+  // any time within the current hour.
+  const minDeliveryTime = useMemo(() => {
+    if (form.deliveryDate !== todayDateString) {
+      return undefined;
+    }
+    const now = new Date();
+    const nextHour = (now.getHours() + 1) % 24;
+    return `${String(nextHour).padStart(2, "0")}:00`;
+  }, [form.deliveryDate, todayDateString]);
 
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -189,6 +217,14 @@ export default function CustomerKioskPage() {
     if (!agreedToPolicy) {
       setError("Please agree to the Privacy Policy before placing your order.");
       return;
+    }
+
+    if (form.deliveryDate && form.deliveryTime) {
+      const scheduled = new Date(`${form.deliveryDate}T${form.deliveryTime}`);
+      if (scheduled.getTime() < Date.now()) {
+        setError("Your selected delivery date/time has already passed. Please choose a later time.");
+        return;
+      }
     }
 
     setError(null);
@@ -492,7 +528,20 @@ export default function CustomerKioskPage() {
                       <input
                         type="date"
                         value={form.deliveryDate}
-                        onChange={(event) => handleChange("deliveryDate", event.target.value)}
+                        min={todayDateString}
+                        onChange={(event) => {
+                          const nextDate = event.target.value;
+                          handleChange("deliveryDate", nextDate);
+                          // Clear a previously chosen time if it's no longer valid for the new date
+                          if (nextDate === todayDateString && form.deliveryTime) {
+                            const now = new Date();
+                            const nextHour = (now.getHours() + 1) % 24;
+                            const minTime = `${String(nextHour).padStart(2, "0")}:00`;
+                            if (form.deliveryTime < minTime) {
+                              handleChange("deliveryTime", "");
+                            }
+                          }
+                        }}
                         className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none"
                       />
                     </label>
@@ -501,9 +550,13 @@ export default function CustomerKioskPage() {
                       <input
                         type="time"
                         value={form.deliveryTime}
+                        min={minDeliveryTime}
                         onChange={(event) => handleChange("deliveryTime", event.target.value)}
                         className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none"
                       />
+                      {minDeliveryTime ? (
+                        <span className="mt-1.5 block text-xs text-[#F2E8D5]/40">Earliest today: {formatHourLabel(minDeliveryTime)}</span>
+                      ) : null}
                     </label>
                   </div>
                 </div>
