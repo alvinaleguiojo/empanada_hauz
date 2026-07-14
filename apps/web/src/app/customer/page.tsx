@@ -102,6 +102,7 @@ export default function CustomerKioskPage() {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<SuccessState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [agreedToPolicy, setAgreedToPolicy] = useState(false);
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -185,6 +186,11 @@ export default function CustomerKioskPage() {
       return;
     }
 
+    if (!agreedToPolicy) {
+      setError("Please agree to the Privacy Policy before placing your order.");
+      return;
+    }
+
     setError(null);
     setSuccess(null);
     setSubmitting(true);
@@ -216,6 +222,7 @@ export default function CustomerKioskPage() {
       });
       setSelectedFlavors([]);
       setForm(initialState);
+      setAgreedToPolicy(false);
       setStep(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to place order");
@@ -543,6 +550,22 @@ export default function CustomerKioskPage() {
                       className="min-h-[96px] w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"
                     />
                   </div>
+
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] p-3.5">
+                    <input
+                      type="checkbox"
+                      checked={agreedToPolicy}
+                      onChange={(event) => setAgreedToPolicy(event.target.checked)}
+                      className="mt-0.5 h-5 w-5 shrink-0 accent-[#C0472B]"
+                    />
+                    <span className="text-sm text-[#F2E8D5]/75">
+                      I agree that Empanada Hauz may collect and use my name, contact number, and address to process and deliver this order, as described in the{" "}
+                      <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-medium text-[#E3A64B] underline underline-offset-2">
+                        Privacy Policy
+                      </a>
+                      .
+                    </span>
+                  </label>
                 </div>
               ) : null}
             </div>
@@ -599,7 +622,7 @@ export default function CustomerKioskPage() {
                 ) : (
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || !agreedToPolicy}
                     className="ml-auto flex items-center gap-2 rounded-xl bg-[#C0472B] px-5 py-3 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] shadow-[0_10px_25px_-10px_rgba(192,71,43,0.7)] transition hover:bg-[#a83c24] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {submitting ? "Placing order..." : "Place order"}
@@ -652,7 +675,7 @@ export default function CustomerKioskPage() {
             <button
               type="submit"
               form="kiosk-order-form"
-              disabled={submitting}
+              disabled={submitting || !agreedToPolicy}
               className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] shadow-[0_10px_25px_-10px_rgba(192,71,43,0.7)] transition active:bg-[#a83c24] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? "Placing..." : "Place order"}
@@ -662,6 +685,11 @@ export default function CustomerKioskPage() {
         {step === 0 && summary.totalQuantity < 10 ? (
           <p className="mx-auto mt-1.5 max-w-6xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">
             add {remaining} more piece{remaining === 1 ? "" : "s"} to reach the 10 pc minimum
+          </p>
+        ) : null}
+        {step === 2 && !agreedToPolicy ? (
+          <p className="mx-auto mt-1.5 max-w-6xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">
+            please agree to the Privacy Policy to continue
           </p>
         ) : null}
       </div>

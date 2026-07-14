@@ -95,15 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           sidebarCollapsed ? "lg:grid-cols-[82px_1fr]" : "lg:grid-cols-[260px_1fr]"
         )}
       >
-        <aside className="overflow-hidden rounded-lg border border-white/[0.09] bg-[#241c13]/88 shadow-[0_24px_80px_rgba(0,0,0,0.32)] backdrop-blur-2xl lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
-          <div
-            className="h-[3px] w-full"
-            style={{
-              background:
-                "repeating-linear-gradient(45deg, #c0472b 0px, #c0472b 10px, #f0b429 10px, #f0b429 20px, #2f8f7a 20px, #2f8f7a 30px, #f2e8d5 30px, #f2e8d5 40px)"
-            }}
-          />
-          <div className="p-3 lg:p-4">
+        <aside className="rounded-lg border border-white/[0.09] bg-[#101827]/88 p-3 shadow-[0_24px_80px_rgba(0,0,0,0.32)] backdrop-blur-2xl lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:p-4">
           <div className={cn("mb-3 flex items-center justify-between gap-3 border-b border-white/[0.08] pb-3 lg:mb-7 lg:pb-5", sidebarCollapsed && "lg:flex-col lg:items-center lg:gap-2")}>
             <div className={cn("min-w-0", sidebarCollapsed && "lg:sr-only")}>
               <div className="flex items-center gap-3">
@@ -153,7 +145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition lg:gap-3 lg:px-3.5",
                     sidebarCollapsed && "lg:justify-center lg:px-0",
                     active
-                      ? "bg-[linear-gradient(135deg,rgb(var(--accent)),#e3a64b)] text-white shadow-[0_16px_35px_rgb(var(--accent)/0.26)]"
+                      ? "bg-[linear-gradient(135deg,rgb(var(--accent)),#ff8a4d)] text-white shadow-[0_16px_35px_rgb(var(--accent)/0.26)]"
                       : "text-foreground/64 hover:bg-white/[0.07] hover:text-foreground"
                   )}
                 >
@@ -163,9 +155,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
-          </div>
         </aside>
-        <main className="relative min-w-0 rounded-lg border border-white/[0.04] bg-[#1c150e]/45 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-sm sm:p-4">
+        <main className="relative min-w-0 rounded-lg border border-white/[0.04] bg-[#0e1524]/38 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-sm sm:p-4">
           <div className="mb-4 flex justify-end">
             <div className="relative">
               <button
@@ -182,7 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ) : null}
               </button>
               {notificationsOpen ? (
-                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-1.5rem)] max-w-[360px] rounded-lg border border-white/[0.1] bg-[#241c13]/96 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-1.5rem)] max-w-[360px] rounded-lg border border-white/[0.1] bg-[#141d31]/96 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl">
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-semibold">Notifications</h3>
                     <div className="flex items-center gap-2">
