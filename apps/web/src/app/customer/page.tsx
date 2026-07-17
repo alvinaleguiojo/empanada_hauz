@@ -277,6 +277,41 @@ export default function CustomerKioskPage() {
   if (success) {
     return (
       <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board flex min-h-screen items-center justify-center px-4 py-10 text-[#F2E8D5] sm:px-6`}>
+
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Restaurant",
+            "name": "Empanada Hauz",
+            "description": "Fresh handmade empanadas with Filipino flavors. Fast delivery and pickup.",
+            "url": "https://empanadahauz.com",
+            "image": "https://empanadahauz.com/og-image.jpg",
+            "servesCuisine": ["Filipino", "Street Food"],
+            "priceRange": "$$",
+            "hasMenu": {
+              "@type": "Menu",
+              "hasMenuSection": [
+                {
+                  "@type": "MenuSection",
+                  "name": "Today's Flavors",
+                  "hasMenuItem": flavorOptions.map((f) => ({
+                    "@type": "MenuItem",
+                    "name": f.label,
+                    "offers": {
+                      "@type": "Offer",
+                      "price": f.price.toString(),
+                      "priceCurrency": "PHP"
+                    }
+                  }))
+                }
+              ]
+            }
+          })
+        }}
+      />
+
         <div className="w-full max-w-md">
           <div className="overflow-hidden rounded-[26px] border-[3px] border-[#3a2c1c] bg-[#241c13] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.7)]">
             <div className="jeepney-stripe h-2.5 w-full" />
@@ -335,6 +370,25 @@ export default function CustomerKioskPage() {
 
   return (
     <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-4 py-6 pb-28 text-[#F2E8D5] sm:px-6 lg:px-8 lg:pb-6`}>
+     <section className="mb-10 text-center">
+        <div className="mx-auto max-w-3xl">
+          <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-[#E3A64B]">
+            <ChefHat size={14} /> EMPANADA HAUZ
+          </p>
+          
+          <h1 className="text-5xl md:text-6xl font-bold tracking-tight leading-none text-white">
+            Fresh from the pan,<br />
+            <span className="text-[#E3A64B]">straight to your door.</span>
+          </h1>
+          
+          <p className="mt-6 text-xl text-[#F2E8D5]/90">
+            Authentic Filipino-style empanadas made fresh daily. 
+            Choose from classic favorites like Pork, Chicken, Beef, 
+            and sweet options like Ube Cheese.
+          </p>
+        </div>
+      </section>
+      
       <div className="mx-auto flex max-w-6xl flex-col gap-5">
         <section className="overflow-hidden rounded-[26px] border-[3px] border-[#3a2c1c] bg-[#241c13] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.7)]">
           <div className="jeepney-stripe h-2.5 w-full" />

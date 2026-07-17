@@ -17,16 +17,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 export const metadata = {
   title: "Empanada Hauz | Fresh Empanadas Delivery & Pickup",
-  description: "Order fresh, authentic empanadas online. Pork, Chicken, Beef, Ube Cheese & more. Fast delivery or pickup. Minimum 10 pieces.",
-  keywords: ["empanada", "empanadas", "empanada delivery", "fresh empanadas", "ube empanada", "pork empanada", "beef empanada", "Filipino food"],
+  description: "Order fresh, authentic Filipino-style empanadas online. Pork, Chicken, Beef, Ube Cheese & more. Fast delivery or pickup. Minimum 10 pieces.",
+  keywords: ["empanada", "empanadas", "empanada delivery", "fresh empanadas", "ube empanada", "pork empanada", "beef empanada", "Filipino food", "manila empanada"],
+  authors: [{ name: "Empanada Hauz" }],
   openGraph: {
     title: "Empanada Hauz - Fresh from the Pan",
     description: "Handcrafted empanadas delivered hot to your door.",
-    images: [{ url: "/og-image.jpg", width: 1200, height: 630, alt: "Empanada Hauz" }],
+    images: [{ 
+      url: "/og-image.jpg", 
+      width: 1200, 
+      height: 630, 
+      alt: "Empanada Hauz Fresh Empanadas" 
+    }],
     locale: "en_PH",
     type: "website",
+    siteName: "Empanada Hauz",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Empanada Hauz | Fresh Empanadas",
+    description: "Order delicious empanadas online - fast delivery available.",
   },
   icons: {
     icon: "/empanada hauz logo.jpg",
+    shortcut: "/empanada hauz logo.jpg",
+    apple: "/empanada hauz logo.jpg",
   },
 };
