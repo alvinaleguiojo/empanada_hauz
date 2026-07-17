@@ -16,11 +16,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 export const metadata = {
-  title: "Empanada Hauz",
-  description: "Fresh and delicious empanadas",
+  title: "Empanada Hauz | Fresh Empanadas Delivery & Pickup",
+  description: "Order fresh, authentic empanadas online. Pork, Chicken, Beef, Ube Cheese & more. Fast delivery or pickup. Minimum 10 pieces.",
+  keywords: ["empanada", "empanadas", "empanada delivery", "fresh empanadas", "ube empanada", "pork empanada", "beef empanada", "Filipino food"],
+  openGraph: {
+    title: "Empanada Hauz - Fresh from the Pan",
+    description: "Handcrafted empanadas delivered hot to your door.",
+    images: [{ url: "/og-image.jpg", width: 1200, height: 630, alt: "Empanada Hauz" }],
+    locale: "en_PH",
+    type: "website",
+  },
   icons: {
     icon: "/empanada hauz logo.jpg",
-    shortcut: "/empanada hauz logo.jpg",
-    apple: "/empanada hauz logo.jpg",
   },
 };
