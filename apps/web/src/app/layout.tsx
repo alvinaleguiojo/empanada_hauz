@@ -16,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 export const metadata = {
+  metadataBase: new URL('https://empanadahauz.com'),
   title: "Empanada Hauz | Fresh Empanadas Delivery & Pickup",
   description: "Order fresh, authentic Filipino-style empanadas online. Pork, Chicken, Beef, Ube Cheese & more. Fast delivery or pickup. Minimum 10 pieces.",
   keywords: ["empanada", "empanadas", "empanada delivery", "fresh empanadas", "ube empanada", "pork empanada", "beef empanada", "Filipino food", "manila empanada"],

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArrowRight, Check, ChevronRight, Clock3, Copy, ExternalLink, Link2, MapPin, Minus, Plus, Search, Trash2, UploadCloud } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { MENU_ITEMS } from "@/lib/menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -59,16 +60,11 @@ const statusFilterOptions = [
   ...statusSelectOptions
 ];
 
-const productOptions = [
-  { label: "Pork Regular", value: "Pork Regular", price: 20 },
-  { label: "Pork with Egg", value: "Pork with Egg", price: 25 },
-  { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
-  { label: "Chicken", value: "Chicken", price: 20 },
-  { label: "Beef", value: "Beef", price: 35 },
-  { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 },
-  { label: "Choco Flavor", value: "Choco Flavor", price: 30 },
-  { label: "Mango Flavor", value: "Mango Flavor", price: 25 }
-];
+const productOptions = MENU_ITEMS.map((item) => ({
+  label: item.label,
+  value: item.value,
+  price: item.price
+}));
 
 type OrderNoteView = {
   id: string;

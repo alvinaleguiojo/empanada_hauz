@@ -18,23 +18,13 @@ import {
   Wallet
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { MENU_ITEMS } from "@/lib/menu";
 
 const display = Baloo_2({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-display" });
 const script = Caveat({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-script" });
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["500", "600"], variable: "--font-mono" });
 
-const flavorOptions = [
-  { label: "Pork Regular", value: "Pork Regular", price: 20 },
-  { label: "Pork with Egg", value: "Pork with Egg", price: 25, popular: true },
-  { label: "Chicken", value: "Chicken", price: 20 },
-  { label: "Chicken with Egg", value: "Chicken with Egg", price: 25, popular: true },
-  { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
-  { label: "Beef", value: "Beef", price: 35, popular: true },
-  { label: "Beef with Egg", value: "Beef with Egg", price: 40 },
-  { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 },
-  { label: "Choco Flavor", value: "Choco Flavor", price: 30 },
-  { label: "Mango Flavor", value: "Mango Flavor", price: 25 }
-];
+const flavorOptions = MENU_ITEMS;
 
 const deliveryMethods = [
   { label: "Pickup", value: "pickup" },

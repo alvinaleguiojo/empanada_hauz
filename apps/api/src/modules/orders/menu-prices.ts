@@ -8,6 +8,7 @@
 export const MENU_PRICES: Record<string, number> = {
   "Pork Regular": 20,
   "Pork with Egg": 25,
+  "Pork Asado": 30,
   "Chicken": 20,
   "Chicken with Egg": 25,
   "Ham & Cheese": 25,
