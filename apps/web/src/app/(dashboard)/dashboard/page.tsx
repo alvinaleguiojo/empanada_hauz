@@ -11,6 +11,7 @@ export default async function DashboardPage() {
     revenueToday: 0,
     pcsSoldToday: 0,
     averageOrderSize: 0,
+    repeatCustomerCount: 0,
     repeatCustomerRate: 0,
     cancelledOrders: 0,
     productionEfficiency: 0,

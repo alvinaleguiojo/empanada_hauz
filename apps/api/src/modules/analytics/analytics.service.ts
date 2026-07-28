@@ -31,7 +31,16 @@ export class AnalyticsService {
       }),
       this.prisma.order.findMany({
         where: { status: { not: "cancelled" } },
-        select: { customerId: true }
+        select: {
+          customerId: true,
+          customer: {
+            select: {
+              id: true,
+              messengerPsid: true,
+              phoneNumber: true
+            }
+          }
+        }
       }),
       this.prisma.order.groupBy({
         by: ["location"],
@@ -50,10 +59,11 @@ export class AnalyticsService {
     const completedRangeOrders = rangeOrders.filter((order) => order.status === "completed");
     const completed = completedRangeOrders.length;
     const cancelled = rangeOrders.filter((order) => order.status === "cancelled").length;
-    const uniqueRangeCustomers = new Set(rangeOrders.map((order) => order.customerId));
-    const lifetimeOrderCounts = countBy(allActiveOrders, (order) => order.customerId);
-    const repeatRangeCustomers = [...uniqueRangeCustomers].filter((customerId) => (lifetimeOrderCounts.get(customerId) ?? 0) > 1);
-    const repeatCustomerRate = uniqueRangeCustomers.size === 0 ? 0 : repeatRangeCustomers.length / uniqueRangeCustomers.size;
+    const uniqueRangeCustomers = new Set(rangeOrders.map((order) => getCustomerIdentity(order.customer)));
+    const lifetimeOrderCounts = countBy(allActiveOrders, (order) => getCustomerIdentity(order.customer));
+    const repeatRangeCustomers = [...uniqueRangeCustomers].filter((customerKey) => (lifetimeOrderCounts.get(customerKey) ?? 0) > 1);
+    const repeatCustomerCount = repeatRangeCustomers.length;
+    const repeatCustomerRate = uniqueRangeCustomers.size === 0 ? 0 : repeatCustomerCount / uniqueRangeCustomers.size;
     const revenueTrend = buildDailyTrend(trendStart, trendDays, trendOrders, "revenue");
     const piecesTrend = buildDailyTrend(trendStart, trendDays, trendOrders, "pieces");
     const revenueToday = sum(completedRangeOrders, (order) => Number(order.totalAmount));
@@ -71,6 +81,7 @@ export class AnalyticsService {
       activeOrdersToday: pendingRangeOrders.length,
       averageOrderSize:
         completedRangeOrders.length === 0 ? 0 : Number((sum(completedRangeOrders, (order) => order.quantity) / completedRangeOrders.length).toFixed(1)),
+      repeatCustomerCount,
       repeatCustomerRate: Number((repeatCustomerRate * 100).toFixed(2)),
       cancelledOrders: cancelled,
       productionEfficiency: sellableRangeOrders.length === 0 ? 0 : Number(((completed / sellableRangeOrders.length) * 100).toFixed(2)),
@@ -242,6 +253,20 @@ function countBy<T>(items: T[], getKey: (item: T) => string) {
     counts.set(key, (counts.get(key) ?? 0) + 1);
     return counts;
   }, new Map<string, number>());
+}
+
+function getCustomerIdentity(customer: { id: string; messengerPsid?: string | null; phoneNumber?: string | null }) {
+  const messengerPsid = customer.messengerPsid?.trim();
+  if (messengerPsid) {
+    return `messenger:${messengerPsid}`;
+  }
+
+  const phoneNumber = customer.phoneNumber?.replace(/\D/g, "");
+  if (phoneNumber) {
+    return `phone:${phoneNumber}`;
+  }
+
+  return `customer:${customer.id}`;
 }
 
 function buildDailyTrend(
