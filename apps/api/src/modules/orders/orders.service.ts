@@ -225,14 +225,25 @@ export class OrdersService {
   }
 
   async createManual(dto: ManualOrderEntryDto) {
-    const customer = await this.prisma.customer.create({
-      data: {
-        name: dto.customerName,
-        phoneNumber: dto.phoneNumber,
-        defaultAddress: dto.address,
-        preferredDeliveryMethod: dto.deliveryMethod
-      }
-    });
+    const reusableCustomer = await this.findReusableCustomer(dto);
+    const customer = reusableCustomer
+      ? await this.prisma.customer.update({
+          where: { id: reusableCustomer.id },
+          data: {
+            name: dto.customerName,
+            ...(dto.phoneNumber ? { phoneNumber: dto.phoneNumber } : {}),
+            ...(dto.address ? { defaultAddress: dto.address } : {}),
+            preferredDeliveryMethod: dto.deliveryMethod
+          }
+        })
+      : await this.prisma.customer.create({
+          data: {
+            name: dto.customerName,
+            phoneNumber: dto.phoneNumber,
+            defaultAddress: dto.address,
+            preferredDeliveryMethod: dto.deliveryMethod
+          }
+        });
 
     const batch = dto.status && ["ready_for_booking", "booked", "completed", "cancelled"].includes(dto.status)
       ? null
@@ -284,6 +295,46 @@ export class OrdersService {
       this.realtime.emit("deliveries.updated", { orderId: order.id, status: order.status });
     }
     return order;
+  }
+
+  private async findReusableCustomer(dto: Pick<ManualOrderEntryDto, "customerName" | "phoneNumber" | "address">) {
+    const phoneNumber = normalizePhoneNumber(dto.phoneNumber);
+    const name = normalizeCustomerName(dto.customerName);
+    const address = normalizeCustomerAddress(dto.address);
+
+    if (!phoneNumber && !name) {
+      return null;
+    }
+
+    const candidates = await this.prisma.customer.findMany({
+      where: {
+        OR: [
+          ...(dto.phoneNumber ? [{ phoneNumber: dto.phoneNumber }] : []),
+          { name: dto.customerName }
+        ]
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 25
+    });
+
+    const phoneMatch = phoneNumber ? candidates.find((customer) => normalizePhoneNumber(customer.phoneNumber) === phoneNumber) : null;
+    if (phoneMatch) {
+      return phoneMatch;
+    }
+
+    if (!name || !name.includes(" ")) {
+      return null;
+    }
+
+    const nameMatches = candidates.filter((customer) => normalizeCustomerName(customer.name) === name);
+    if (address) {
+      const addressMatch = nameMatches.find((customer) => normalizeCustomerAddress(customer.defaultAddress) === address);
+      if (addressMatch) {
+        return addressMatch;
+      }
+    }
+
+    return nameMatches.length === 1 ? nameMatches[0] : null;
   }
 
   async updateStatus(id: string, status: OrderStatus) {
@@ -505,4 +556,25 @@ export class OrdersService {
     return "16:00";
   }
 
+}
+
+function normalizePhoneNumber(value?: string | null) {
+  return value?.replace(/\D/g, "") ?? "";
+}
+
+function normalizeCustomerName(value?: string | null) {
+  return value
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ") ?? "";
+}
+
+function normalizeCustomerAddress(value?: string | null) {
+  return value
+    ?.toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ") ?? "";
 }

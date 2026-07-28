@@ -37,6 +37,7 @@ export class AnalyticsService {
             select: {
               id: true,
               name: true,
+              defaultAddress: true,
               messengerPsid: true,
               phoneNumber: true
             }
@@ -50,7 +51,7 @@ export class AnalyticsService {
     const completedRangeOrders = rangeOrders.filter((order) => order.status === "completed");
     const completed = completedRangeOrders.length;
     const cancelled = rangeOrders.filter((order) => order.status === "cancelled").length;
-    const rangeCustomers = mapCustomersByIdentity(rangeOrders.map((order) => order.customer));
+    const rangeCustomers = mapCustomersByIdentity(sellableRangeOrders.map((order) => order.customer));
     const uniqueRangeCustomers = new Set(rangeCustomers.keys());
     const lifetimeOrderCounts = countBy(allActiveOrders, (order) => getCustomerIdentity(order.customer));
     const repeatRangeCustomers = [...uniqueRangeCustomers].filter((customerKey) => (lifetimeOrderCounts.get(customerKey) ?? 0) > 1);
@@ -258,17 +259,25 @@ function countBy<T>(items: T[], getKey: (item: T) => string) {
   }, new Map<string, number>());
 }
 
-function mapCustomersByIdentity(customers: Array<{ id: string; name: string; messengerPsid?: string | null; phoneNumber?: string | null }>) {
+function mapCustomersByIdentity(customers: Array<CustomerIdentityInput>) {
   return customers.reduce((customerMap, customer) => {
     const key = getCustomerIdentity(customer);
     if (!customerMap.has(key)) {
       customerMap.set(key, customer);
     }
     return customerMap;
-  }, new Map<string, { id: string; name: string; messengerPsid?: string | null; phoneNumber?: string | null }>());
+  }, new Map<string, CustomerIdentityInput>());
 }
 
-function getCustomerIdentity(customer: { id: string; messengerPsid?: string | null; phoneNumber?: string | null }) {
+type CustomerIdentityInput = {
+  id: string;
+  name: string;
+  defaultAddress?: string | null;
+  messengerPsid?: string | null;
+  phoneNumber?: string | null;
+};
+
+function getCustomerIdentity(customer: CustomerIdentityInput) {
   const messengerPsid = customer.messengerPsid?.trim();
   if (messengerPsid) {
     return `messenger:${messengerPsid}`;
@@ -279,7 +288,30 @@ function getCustomerIdentity(customer: { id: string; messengerPsid?: string | nu
     return `phone:${phoneNumber}`;
   }
 
+  const name = normalizeCustomerName(customer.name);
+  if (name && name.includes(" ")) {
+    const address = normalizeCustomerAddress(customer.defaultAddress);
+    return address ? `name-address:${name}:${address}` : `name:${name}`;
+  }
+
   return `customer:${customer.id}`;
+}
+
+function normalizeCustomerName(value?: string | null) {
+  return value
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ") ?? "";
+}
+
+function normalizeCustomerAddress(value?: string | null) {
+  return value
+    ?.toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ") ?? "";
 }
 
 function buildDailyTrend(
