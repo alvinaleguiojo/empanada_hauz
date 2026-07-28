@@ -7,6 +7,7 @@ import { CashFlowSummary, rangeOptions, type CashFlowData, type CashRange } from
 import { LiveEvents } from "@/components/dashboard/live-events";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,11 @@ export type DashboardData = {
   averageOrderSize: number;
   repeatCustomerCount: number;
   repeatCustomerRate: number;
+  repeatCustomers?: Array<{
+    id: string;
+    name: string;
+    orderCount: number;
+  }>;
   cancelledOrders: number;
   productionEfficiency: number;
   ordersToday: number;
@@ -213,6 +219,7 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
         <StatCard label="Completion Rate" value={`${data.productionEfficiency ?? 0}%`} hint={`${data.cancelledOrders ?? 0} cancelled for ${rangeText}`} tone="danger" icon={CircleCheck} />
       </div>
 
+      <RepeatCustomersPanel customers={data.repeatCustomers ?? []} rangeLabel={rangeLabel} />
       <CashFlowSummary data={data.cashFlow} />
       <AnalyticsPanels data={data} rangeLabel={rangeLabel} />
       <LiveEvents />
@@ -226,4 +233,48 @@ function formatPeso(value: number) {
 
 function formatPercent(value: number) {
   return `${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+}
+
+function RepeatCustomersPanel({
+  customers,
+  rangeLabel
+}: {
+  customers: Array<{
+    id: string;
+    name: string;
+    orderCount: number;
+  }>;
+  rangeLabel: string;
+}) {
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="h-[3px] w-full bg-foreground/20" />
+      <div className="p-5">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Repeat Customers</h2>
+            <p className="text-xs text-foreground/45">{rangeLabel}, customers with more than one non-cancelled order</p>
+          </div>
+          <p className="text-sm font-semibold tabular-nums text-foreground/62">{customers.length} total</p>
+        </div>
+
+        {customers.length > 0 ? (
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {customers.map((customer) => (
+              <div key={customer.id} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-line/75 bg-black/[0.06] px-3 py-2.5">
+                <p className="truncate text-sm font-semibold text-foreground/88">{customer.name}</p>
+                <span className="shrink-0 rounded-md bg-foreground/10 px-2 py-1 text-xs font-semibold tabular-nums text-foreground/62">
+                  {customer.orderCount} orders
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-dashed border-line/75 bg-black/[0.04] px-4 py-6 text-center text-sm text-foreground/45">
+            No repeat customers for this range yet.
+          </div>
+        )}
+      </div>
+    </Card>
+  );
 }

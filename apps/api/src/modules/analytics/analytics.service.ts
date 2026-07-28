@@ -36,6 +36,7 @@ export class AnalyticsService {
           customer: {
             select: {
               id: true,
+              name: true,
               messengerPsid: true,
               phoneNumber: true
             }
@@ -59,11 +60,22 @@ export class AnalyticsService {
     const completedRangeOrders = rangeOrders.filter((order) => order.status === "completed");
     const completed = completedRangeOrders.length;
     const cancelled = rangeOrders.filter((order) => order.status === "cancelled").length;
-    const uniqueRangeCustomers = new Set(rangeOrders.map((order) => getCustomerIdentity(order.customer)));
+    const rangeCustomers = mapCustomersByIdentity(rangeOrders.map((order) => order.customer));
+    const uniqueRangeCustomers = new Set(rangeCustomers.keys());
     const lifetimeOrderCounts = countBy(allActiveOrders, (order) => getCustomerIdentity(order.customer));
     const repeatRangeCustomers = [...uniqueRangeCustomers].filter((customerKey) => (lifetimeOrderCounts.get(customerKey) ?? 0) > 1);
     const repeatCustomerCount = repeatRangeCustomers.length;
     const repeatCustomerRate = uniqueRangeCustomers.size === 0 ? 0 : repeatCustomerCount / uniqueRangeCustomers.size;
+    const repeatCustomers = repeatRangeCustomers
+      .map((customerKey) => {
+        const customer = rangeCustomers.get(customerKey);
+        return {
+          id: customerKey,
+          name: customer?.name || "Unnamed Customer",
+          orderCount: lifetimeOrderCounts.get(customerKey) ?? 0
+        };
+      })
+      .sort((a, b) => b.orderCount - a.orderCount || a.name.localeCompare(b.name));
     const revenueTrend = buildDailyTrend(trendStart, trendDays, trendOrders, "revenue");
     const piecesTrend = buildDailyTrend(trendStart, trendDays, trendOrders, "pieces");
     const revenueToday = sum(completedRangeOrders, (order) => Number(order.totalAmount));
@@ -83,6 +95,7 @@ export class AnalyticsService {
         completedRangeOrders.length === 0 ? 0 : Number((sum(completedRangeOrders, (order) => order.quantity) / completedRangeOrders.length).toFixed(1)),
       repeatCustomerCount,
       repeatCustomerRate: Number((repeatCustomerRate * 100).toFixed(2)),
+      repeatCustomers,
       cancelledOrders: cancelled,
       productionEfficiency: sellableRangeOrders.length === 0 ? 0 : Number(((completed / sellableRangeOrders.length) * 100).toFixed(2)),
       topLocations,
@@ -253,6 +266,16 @@ function countBy<T>(items: T[], getKey: (item: T) => string) {
     counts.set(key, (counts.get(key) ?? 0) + 1);
     return counts;
   }, new Map<string, number>());
+}
+
+function mapCustomersByIdentity(customers: Array<{ id: string; name: string; messengerPsid?: string | null; phoneNumber?: string | null }>) {
+  return customers.reduce((customerMap, customer) => {
+    const key = getCustomerIdentity(customer);
+    if (!customerMap.has(key)) {
+      customerMap.set(key, customer);
+    }
+    return customerMap;
+  }, new Map<string, { id: string; name: string; messengerPsid?: string | null; phoneNumber?: string | null }>());
 }
 
 function getCustomerIdentity(customer: { id: string; messengerPsid?: string | null; phoneNumber?: string | null }) {

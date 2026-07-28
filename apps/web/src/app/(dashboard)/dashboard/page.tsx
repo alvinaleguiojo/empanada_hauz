@@ -13,6 +13,7 @@ export default async function DashboardPage() {
     averageOrderSize: 0,
     repeatCustomerCount: 0,
     repeatCustomerRate: 0,
+    repeatCustomers: [],
     cancelledOrders: 0,
     productionEfficiency: 0,
     ordersToday: 0,
