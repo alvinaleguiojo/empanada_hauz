@@ -20,7 +20,7 @@ export class AnalyticsService {
     const trendDays = range.key === "today" ? 7 : countDays(trendStart, range.end);
     const cashFlowPromise = this.getCashFlowForRange(range);
 
-    const [cashFlow, rangeOrders, trendOrders, allActiveOrders, topLocations] = await Promise.all([
+    const [cashFlow, rangeOrders, trendOrders, allActiveOrders] = await Promise.all([
       cashFlowPromise,
       this.prisma.order.findMany({
         where: orderBusinessDateWhere(range.start, range.end),
@@ -42,16 +42,6 @@ export class AnalyticsService {
             }
           }
         }
-      }),
-      this.prisma.order.groupBy({
-        by: ["location"],
-        _count: { _all: true },
-        where: {
-          ...orderBusinessDateWhere(range.start, range.end),
-          location: { not: null }
-        },
-        orderBy: { _count: { location: "desc" } },
-        take: 5
       })
     ]);
 
@@ -98,7 +88,7 @@ export class AnalyticsService {
       repeatCustomers,
       cancelledOrders: cancelled,
       productionEfficiency: sellableRangeOrders.length === 0 ? 0 : Number(((completed / sellableRangeOrders.length) * 100).toFixed(2)),
-      topLocations,
+      topLocations: buildTopLocations(rangeOrders),
       topItems: buildTopItems(completedRangeOrders),
       revenueTrend,
       piecesTrend,
@@ -396,6 +386,65 @@ function addItemCount(counts: Map<string, number>, name: string, quantity: numbe
   }
 
   counts.set(name, (counts.get(name) ?? 0) + normalizedQuantity);
+}
+
+function buildTopLocations(orders: Array<{ address?: string | null; location?: string | null }>) {
+  const locations = new Map<string, { label: string; count: number }>();
+
+  for (const order of orders) {
+    const label = getOrderLocationLabel(order);
+    if (!label) {
+      continue;
+    }
+
+    const key = normalizeLocationKey(label);
+    const current = locations.get(key);
+    if (current) {
+      current.count += 1;
+      continue;
+    }
+
+    locations.set(key, { label, count: 1 });
+  }
+
+  return [...locations.values()]
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, 5)
+    .map((location) => ({
+      location: location.label,
+      _count: {
+        _all: location.count
+      }
+    }));
+}
+
+function getOrderLocationLabel(order: { address?: string | null; location?: string | null }) {
+  const address = cleanLocationText(order.address);
+  if (address) {
+    return address;
+  }
+
+  return cleanLocationText(order.location);
+}
+
+function cleanLocationText(value?: string | null) {
+  const text = value?.trim().replace(/\s+/g, " ");
+  if (!text) {
+    return "";
+  }
+
+  return text.replace(/\s+([,.;:])/g, "$1");
+}
+
+function normalizeLocationKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b(st|street)\b/g, "street")
+    .replace(/\b(rd|road)\b/g, "road")
+    .replace(/\b(brgy|barangay)\b/g, "barangay")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function toDateInputValue(date: Date) {
