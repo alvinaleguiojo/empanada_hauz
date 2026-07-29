@@ -2,10 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { DeliveryMethod, ManualOrderEntryDto, OrderStatus, PaymentMethod, UpdateOrderDto } from "../orders/dto";
+import { priceForFlavor } from "../orders/menu-prices";
 import { OrdersService } from "../orders/orders.service";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
+const DEFAULT_UNIT_PRICE = priceForFlavor("Pork Regular") ?? 20;
 
 @Injectable()
 export class McpOrdersService {
@@ -72,11 +74,19 @@ export class McpOrdersService {
     items?: ManualOrderEntryDto["items"];
     notes?: string;
   }) {
+    const items = this.resolveMcpLineItems(params.items);
+    const quantity = items.length > 0
+      ? items.reduce((sum, item) => sum + item.quantity, 0)
+      : params.quantity;
+    const unitPrice = items.length > 0
+      ? items.reduce((sum, item) => sum + item.subtotal, 0) / quantity
+      : params.unitPrice ?? DEFAULT_UNIT_PRICE;
+
     const order = await this.ordersService.createManual({
       customerName: params.customerName,
       phoneNumber: params.phoneNumber,
-      quantity: params.quantity,
-      unitPrice: params.unitPrice ?? 18,
+      quantity,
+      unitPrice,
       deliveryFee: params.deliveryFee ?? 0,
       deliveryMethod: params.deliveryMethod ?? "pickup",
       paymentMethod: params.paymentMethod ?? "cod",
@@ -84,7 +94,7 @@ export class McpOrdersService {
       address: params.address,
       preferredSchedule: params.preferredSchedule,
       status: params.status,
-      items: params.items,
+      items: items.length > 0 ? items : undefined,
       notes: params.notes
     });
 
@@ -235,9 +245,34 @@ export class McpOrdersService {
       location: params.location,
       address: params.address,
       preferredSchedule: params.preferredSchedule,
-      items: params.items,
+      items: params.items ? this.resolveMcpLineItems(params.items) : undefined,
       notes: params.notes
     };
+  }
+
+  private resolveMcpLineItems(items: ManualOrderEntryDto["items"] | undefined) {
+    if (!items || items.length === 0) {
+      return [];
+    }
+
+    return items.map((item) => {
+      const quantity = Math.trunc(Number(item.quantity));
+      if (!Number.isFinite(quantity) || quantity < 1) {
+        throw new BadRequestException(`Invalid quantity for "${item.name}".`);
+      }
+
+      const price = priceForFlavor(item.name) ?? Number(item.price);
+      if (!Number.isFinite(price) || price < 0) {
+        throw new BadRequestException(`Provide a valid price for unknown item "${item.name}".`);
+      }
+
+      return {
+        name: item.name,
+        quantity,
+        price,
+        subtotal: quantity * price
+      };
+    });
   }
 
   private serializeOrder(order: Prisma.OrderGetPayload<{ include: ReturnType<McpOrdersService["orderInclude"]> }>) {

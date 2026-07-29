@@ -118,7 +118,7 @@ export class McpController {
       {
         title: "Create order",
         description:
-          "Create a new Empanada Hauz manual order. Defaults to unitPrice 18, deliveryMethod pickup, paymentMethod cod, and deliveryFee 0 when omitted.",
+          "Create a new Empanada Hauz manual order. Known menu item prices and subtotals are computed by the server. Defaults to Pork Regular unit price, deliveryMethod pickup, paymentMethod cod, and deliveryFee 0 when omitted.",
         inputSchema: {
           customerName: z.string().min(1),
           phoneNumber: z.string().optional(),
