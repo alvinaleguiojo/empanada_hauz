@@ -27,6 +27,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: "Ham & Cheese", value: "Ham & Cheese", price: 25 },
   { label: "Beef", value: "Beef", price: 35, popular: true },
   { label: "Beef with Egg", value: "Beef with Egg", price: 40 },
+  { label: "Bacon", value: "Bacon", price: 35 },
   { label: "Ube with Cheese", value: "Ube with Cheese", price: 25 },
   { label: "Choco Flavor", value: "Choco Flavor", price: 30 },
   { label: "Mango Flavor", value: "Mango Flavor", price: 25 }

@@ -14,6 +14,7 @@ export const MENU_PRICES: Record<string, number> = {
   "Ham & Cheese": 25,
   "Beef": 35,
   "Beef with Egg": 40,
+  "Bacon": 35,
   "Ube with Cheese": 25,
   "Choco Flavor": 30,
   "Mango Flavor": 25
