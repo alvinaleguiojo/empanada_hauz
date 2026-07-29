@@ -162,6 +162,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const lastSelectedOrderIdRef = useRef<string | null>(null);
   const latestRefreshIdRef = useRef(0);
   const selectedDateRef = useRef(selectedDate);
+  const searchRef = useRef(search);
   const [form, setForm] = useState({
     customerName: "",
     phoneNumber: "",
@@ -182,13 +183,20 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   });
   const [lineItems, setLineItems] = useState<EditableOrderLineItem[]>(() => createEditableLineItems());
 
-  const refreshOrders = useCallback(async (dateValue = selectedDate) => {
+  const refreshOrders = useCallback(async (dateValue = selectedDateRef.current, searchValue = searchRef.current) => {
     const refreshId = latestRefreshIdRef.current + 1;
     latestRefreshIdRef.current = refreshId;
-    const query = dateValue ? `?date=${encodeURIComponent(dateValue)}` : "";
+    const normalizedSearch = searchValue.trim();
+    const queryParams = new URLSearchParams();
+    if (normalizedSearch) {
+      queryParams.set("search", normalizedSearch);
+    } else if (dateValue) {
+      queryParams.set("date", dateValue);
+    }
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : "";
     const refreshed = await apiFetch<any[]>(`/orders${query}`);
 
-    if (refreshId !== latestRefreshIdRef.current || dateValue !== selectedDateRef.current) {
+    if (refreshId !== latestRefreshIdRef.current || dateValue !== selectedDateRef.current || searchValue !== searchRef.current) {
       return;
     }
 
@@ -206,34 +214,47 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
 
       return nextItems[0]?.id ?? null;
     });
-  }, [selectedDate]);
+  }, []);
 
   useEffect(() => {
     selectedDateRef.current = selectedDate;
   }, [selectedDate]);
 
   useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
+
+  useEffect(() => {
+    if (search.trim()) {
+      return;
+    }
+
     setItems(orders);
     setSelectedId((current) => current ?? orders[0]?.id ?? null);
-  }, [orders]);
+  }, [orders, search]);
 
   useEffect(() => {
     let cancelled = false;
+    const searchValue = search;
+
     setIsDateChanging(true);
-    refreshOrders(selectedDate).catch((err) => {
-      if (!cancelled) {
-        setError(err instanceof Error ? err.message : "Unable to refresh orders");
-      }
-    }).finally(() => {
-      if (!cancelled) {
-        setIsDateChanging(false);
-      }
-    });
+    const timeout = window.setTimeout(() => {
+      refreshOrders(selectedDate, searchValue).catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Unable to refresh orders");
+        }
+      }).finally(() => {
+        if (!cancelled) {
+          setIsDateChanging(false);
+        }
+      });
+    }, searchValue.trim() ? 250 : 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
     };
-  }, [refreshOrders, selectedDate]);
+  }, [refreshOrders, search, selectedDate]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -241,13 +262,13 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         return;
       }
 
-      refreshOrders(selectedDate).catch((err) => {
+      refreshOrders(selectedDateRef.current, searchRef.current).catch((err) => {
         setError(err instanceof Error ? err.message : "Unable to refresh orders");
       });
     }, 3_000);
 
     return () => window.clearInterval(interval);
-  }, [editMode, refreshOrders, selectedDate]);
+  }, [editMode, refreshOrders]);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -264,6 +285,9 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
           item.location,
           item.address,
           item.notes,
+          item.delivery?.areaGroup,
+          item.delivery?.riderName,
+          item.delivery?.riderPlate,
           ...(item.orderNotes ?? []).map((note: any) => note.body)
         ]
           .filter(Boolean)

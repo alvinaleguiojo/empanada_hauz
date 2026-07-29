@@ -9,8 +9,8 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Get()
-  list(@Query("date") date?: string) {
-    return this.ordersService.list({ date });
+  list(@Query("date") date?: string, @Query("search") search?: string) {
+    return this.ordersService.list({ date, search });
   }
 
   @Get("track/:id")

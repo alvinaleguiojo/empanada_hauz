@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { BatchesService } from "../batches/batches.service";
@@ -19,8 +20,12 @@ export class OrdersService {
     private readonly googleDriveOrderExport: GoogleDriveOrderExportService
   ) {}
 
-  async list({ date }: { date?: string } = {}) {
-    const where = date ? this.buildDateFilter(date) : undefined;
+  async list({ date, search }: { date?: string; search?: string } = {}) {
+    const filters = [
+      date ? this.buildDateFilter(date) : undefined,
+      search ? this.buildSearchFilter(search) : undefined
+    ].filter((filter): filter is Prisma.OrderWhereInput => Boolean(filter));
+    const where = filters.length > 1 ? { AND: filters } : filters[0];
 
     return this.prisma.order.findMany({
       where,
@@ -58,6 +63,28 @@ export class OrdersService {
             { preferredSchedule: { isSet: false } }
           ]
         }
+      ]
+    };
+  }
+
+  private buildSearchFilter(search: string): Prisma.OrderWhereInput | undefined {
+    const query = search.trim();
+    if (!query) {
+      return undefined;
+    }
+
+    return {
+      OR: [
+        { orderNumber: { contains: query, mode: "insensitive" } },
+        { location: { contains: query, mode: "insensitive" } },
+        { address: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { customer: { name: { contains: query, mode: "insensitive" } } },
+        { customer: { phoneNumber: { contains: query, mode: "insensitive" } } },
+        { delivery: { areaGroup: { contains: query, mode: "insensitive" } } },
+        { delivery: { riderName: { contains: query, mode: "insensitive" } } },
+        { delivery: { riderPlate: { contains: query, mode: "insensitive" } } },
+        { orderNotes: { some: { body: { contains: query, mode: "insensitive" } } } }
       ]
     };
   }
