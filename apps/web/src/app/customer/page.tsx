@@ -453,6 +453,11 @@ export default function CustomerKioskPage() {
                               <Flame size={10} /> Best seller
                             </span>
                           ) : null}
+                          {option.isNew ? (
+                            <span className="absolute -top-2.5 right-3 inline-flex rounded-full bg-[#7A9B4E] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1a140d] shadow">
+                              New
+                            </span>
+                          ) : null}
                           <button type="button" onClick={() => toggleFlavor(option.value)} className="w-full text-left">
                             <div className="flex items-start justify-between gap-3">
                               <div>
