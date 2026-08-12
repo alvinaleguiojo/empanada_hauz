@@ -37,7 +37,19 @@ export class OrdersService {
         customer: true,
         batch: true,
         delivery: true,
-        orderNotes: { orderBy: { createdAt: "desc" } }
+        orderNotes: { orderBy: { createdAt: "desc" } },
+        deliveryJobs: {
+          where: { status: { notIn: ["cancelled"] } },
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          include: {
+            rider: {
+              include: {
+                user: { select: { id: true, name: true, email: true } }
+              }
+            }
+          }
+        }
       },
       orderBy: { createdAt: "desc" },
       take: 200

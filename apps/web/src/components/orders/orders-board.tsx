@@ -41,9 +41,14 @@ const statusOptions = [
   "cancelled"
 ] as const;
 
-const deliveryOptions = ["pickup", "maxim"] as const;
+const deliveryOptions = ["pickup", "maxim", "own_delivery"] as const;
+const deliveryMethodLabels: Record<string, string> = {
+  pickup: "Pickup",
+  maxim: "Maxim",
+  own_delivery: "Own Rider"
+};
 const deliverySelectOptions = deliveryOptions.map((option) => ({
-  label: option.charAt(0).toUpperCase() + option.slice(1),
+  label: deliveryMethodLabels[option] ?? option,
   value: option
 }));
 const paymentOptions = ["cod", "gcash"] as const;
@@ -120,7 +125,8 @@ const statusDot: Record<string, string> = {
 // "pickup" vs "maxim" so it reads at a glance regardless of column.
 const deliveryBadgeTone: Record<string, string> = {
   pickup: "bg-white/[0.08] text-foreground/70",
-  maxim: "bg-sky-500/18 text-sky-200"
+  maxim: "bg-sky-500/18 text-sky-200",
+  own_delivery: "bg-violet-500/18 text-violet-200"
 };
 
 const scheduleFormatter = new Intl.DateTimeFormat("en-US", {
@@ -818,8 +824,8 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                             <p className="truncate text-[17px] font-semibold leading-tight">{order.customer?.name}</p>
                             <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-foreground/30">{order.orderNumber}</p>
                           </div>
-                          <Badge className={cn("shrink-0 border-0 text-[11px] capitalize", deliveryBadgeTone[order.deliveryMethod] ?? deliveryBadgeTone.pickup)}>
-                            {order.deliveryMethod}
+                          <Badge className={cn("shrink-0 border-0 text-[11px]", deliveryBadgeTone[order.deliveryMethod] ?? deliveryBadgeTone.pickup)}>
+                            {deliveryMethodLabels[order.deliveryMethod] ?? order.deliveryMethod}
                           </Badge>
                         </div>
                         <OrderItemsList items={orderLineItems} fallbackQuantity={order.quantity} />
@@ -1090,7 +1096,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           <div className="grid grid-cols-2 gap-3">
                             <MiniStat label="Quantity" value={`${selectedOrder.quantity} pcs`} />
                             <MiniStat label="Total to Pay" value={`Php ${String(selectedOrder.totalAmount)}`} />
-                            <MiniStat label="Method" value={selectedOrder.deliveryMethod} />
+                            <MiniStat label="Method" value={deliveryMethodLabels[selectedOrder.deliveryMethod] ?? selectedOrder.deliveryMethod} />
                             <MiniStat label="Payment" value={formatPaymentMethod(selectedOrder.paymentMethod)} />
                             <MiniStat label="Schedule" value={formatSchedule(selectedOrder.preferredSchedule)} />
                           </div>
@@ -1138,6 +1144,9 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                                 ) : null}
                               </div>
                             </>
+                          ) : null}
+                          {selectedOrder.deliveryMethod === "own_delivery" ? (
+                            <RiderAssignment order={selectedOrder} onChange={refreshOrders} />
                           ) : null}
                           <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1258,6 +1267,148 @@ function MiniStat({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-line/75 bg-black/[0.08] p-3">
       <p className="text-xs uppercase tracking-[0.18em] text-foreground/30">{label}</p>
       <p className="mt-2 text-sm font-medium">{value}</p>
+    </div>
+  );
+}
+
+type RiderOption = {
+  id: string;
+  status: string;
+  user: { name: string };
+};
+
+const riderJobStatusTone: Record<string, string> = {
+  requested: "bg-white/[0.08] text-foreground/70",
+  searching_rider: "bg-amber-500/15 text-amber-200",
+  assigned: "bg-sky-500/15 text-sky-200",
+  accepted: "bg-sky-500/15 text-sky-200",
+  pickup_started: "bg-violet-500/15 text-violet-200",
+  picked_up: "bg-fuchsia-500/15 text-fuchsia-200",
+  delivering: "bg-orange-500/15 text-orange-200",
+  delivered: "bg-emerald-500/15 text-emerald-200",
+  cancelled: "bg-rose-500/15 text-rose-200"
+};
+
+// Own-fleet rider assignment, shown only for orders with deliveryMethod
+// "own_delivery". A delivery job is created against the order (once), then
+// a rider from the fleet can be assigned or reassigned to that job.
+function RiderAssignment({ order, onChange }: { order: any; onChange: () => Promise<void> | void }) {
+  const [riders, setRiders] = useState<RiderOption[] | null>(null);
+  const [selectedRiderId, setSelectedRiderId] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const activeJob = order?.deliveryJobs?.[0] ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<RiderOption[]>("/delivery-network/riders")
+      .then((result) => {
+        if (!cancelled) {
+          setRiders(result);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRiders([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedRiderId(activeJob?.rider?.id ?? "");
+  }, [activeJob?.rider?.id]);
+
+  const availableRiders = useMemo(
+    () => (riders ?? []).filter((rider) => rider.status === "online" || rider.status === "busy" || rider.id === activeJob?.rider?.id),
+    [riders, activeJob?.rider?.id]
+  );
+
+  function createJob() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await apiFetch("/delivery-network/jobs/from-order", {
+          method: "POST",
+          body: JSON.stringify({ orderId: order.id, pickupAddress: "Empanada Hauz" })
+        });
+        await onChange();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not create the delivery job");
+      }
+    });
+  }
+
+  function assignRider() {
+    if (!activeJob || !selectedRiderId) {
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        await apiFetch(`/delivery-network/jobs/${activeJob.id}/assign`, {
+          method: "PATCH",
+          body: JSON.stringify({ riderId: selectedRiderId })
+        });
+        await onChange();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not assign the rider");
+      }
+    });
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Rider Assignment</p>
+        {activeJob ? (
+          <Badge className={cn("shrink-0 border-0 text-[11px] capitalize", riderJobStatusTone[activeJob.status] ?? riderJobStatusTone.requested)}>
+            {activeJob.status.replaceAll("_", " ")}
+          </Badge>
+        ) : null}
+      </div>
+
+      {!activeJob ? (
+        <Button className="w-full" onClick={createJob} disabled={pending}>
+          {pending ? "Creating..." : "Create Delivery Job"}
+        </Button>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MiniStat label="Assigned Rider" value={activeJob.rider?.user?.name ?? "Not assigned"} />
+            <MiniStat label="Est. Fare" value={`Php ${String(activeJob.estimatedFare ?? 0)}`} />
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex-1">
+              <Select
+                value={selectedRiderId}
+                onChange={setSelectedRiderId}
+                options={[
+                  { label: riders === null ? "Loading riders..." : "Select a rider", value: "" },
+                  ...availableRiders.map((rider) => ({
+                    label: `${rider.user.name}${rider.status === "busy" ? " (busy)" : ""}`,
+                    value: rider.id
+                  }))
+                ]}
+              />
+            </div>
+            <Button
+              className="sm:w-auto"
+              onClick={assignRider}
+              disabled={pending || !selectedRiderId || selectedRiderId === activeJob.rider?.id}
+            >
+              {pending ? "Assigning..." : activeJob.rider ? "Reassign" : "Assign"}
+            </Button>
+          </div>
+          {riders !== null && availableRiders.length === 0 ? (
+            <p className="text-xs text-foreground/45">No online riders right now. Add or bring a rider online in Delivery Network.</p>
+          ) : null}
+        </>
+      )}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
     </div>
   );
 }
