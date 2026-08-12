@@ -972,7 +972,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     ref={voiceCallPanelRef}
                     style={panelPosition ? { position: "fixed", left: panelPosition.x, top: panelPosition.y, right: "auto" } : undefined}
                     className={cn(
-                      "absolute right-0 top-12 z-[100] flex max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] flex-col overflow-y-auto rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]",
+                      "absolute right-0 top-12 z-[100] max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]",
                       voiceCallType === "video" && voiceCallBusy ? "max-w-[560px]" : "max-w-[420px]"
                     )}
                   >
@@ -1010,9 +1010,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {voiceCallType === "video" && voiceCallBusy ? (
                       <div
                         ref={voiceCallVideoStageRef}
+                        style={videoFullscreen ? undefined : { aspectRatio: "16 / 9" }}
                         className={cn(
-                          "group relative mt-3 overflow-hidden rounded-md border border-white/10 bg-black",
-                          videoFullscreen ? "aspect-auto h-screen w-screen" : "aspect-video max-h-[420px]"
+                          "group relative mt-3 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black",
+                          videoFullscreen ? "h-screen w-screen" : "max-h-[420px] w-full"
                         )}
                       >
                         <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
