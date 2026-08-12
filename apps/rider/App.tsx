@@ -9,13 +9,13 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View
 } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://empanadahauz.com/api";
 const TOKEN_KEY = "empanada-rider-token";
@@ -92,7 +92,7 @@ const nextStatusByCurrent: Partial<Record<JobStatus, JobStatus>> = {
   delivering: "delivered"
 };
 
-export default function App() {
+function RiderApp() {
   const [booting, setBooting] = useState(true);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -417,6 +417,14 @@ export default function App() {
         ))}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <RiderApp />
+    </SafeAreaProvider>
   );
 }
 
