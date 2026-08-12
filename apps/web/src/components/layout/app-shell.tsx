@@ -65,7 +65,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [voiceClientId, setVoiceClientId] = useState("");
   const [voiceCallType, setVoiceCallType] = useState<VoiceCallType>("audio");
   const [voiceMuted, setVoiceMuted] = useState(false);
+  const [videoMuted, setVideoMuted] = useState(false);
   const voiceCallStreamRef = useRef<MediaStream | null>(null);
+  const voiceCallRemoteStreamRef = useRef<MediaStream | null>(null);
   const voiceCallPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const voiceCallRemoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceCallLocalVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -73,6 +75,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const voiceCallStatusRef = useRef<VoiceCallStatus>("idle");
   const voiceCallTypeRef = useRef<VoiceCallType>("audio");
   const voiceMutedRef = useRef(false);
+  const videoMutedRef = useRef(false);
   const voiceCallIdRef = useRef<string | null>(null);
   const voiceRemoteClientIdRef = useRef<string | null>(null);
   const voiceConnectionFailTimerRef = useRef<number | null>(null);
@@ -132,12 +135,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [voiceMuted]);
 
   useEffect(() => {
-    if (voiceCallType !== "video" || !voiceCallStreamRef.current || !voiceCallLocalVideoRef.current) {
+    videoMutedRef.current = videoMuted;
+    setVoiceCallVideoEnabled(!videoMuted);
+  }, [videoMuted]);
+
+  useEffect(() => {
+    if (voiceCallType !== "video" || !voiceCallOpen) {
       return;
     }
 
-    voiceCallLocalVideoRef.current.srcObject = voiceCallStreamRef.current;
-    void voiceCallLocalVideoRef.current.play().catch(() => undefined);
+    if (voiceCallStreamRef.current && voiceCallLocalVideoRef.current) {
+      voiceCallLocalVideoRef.current.srcObject = voiceCallStreamRef.current;
+      void voiceCallLocalVideoRef.current.play().catch(() => undefined);
+    }
+
+    if (voiceCallRemoteStreamRef.current && voiceCallRemoteVideoRef.current) {
+      voiceCallRemoteVideoRef.current.srcObject = voiceCallRemoteStreamRef.current;
+      void voiceCallRemoteVideoRef.current.play().catch(() => undefined);
+    }
   }, [voiceCallOpen, voiceCallStatus, voiceCallType]);
 
   useEffect(() => {
@@ -443,6 +458,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       voiceCallTypeRef.current = callType;
       setVoiceCallType(callType);
       setVoiceMuted(false);
+      setVideoMuted(false);
       await ensureVoiceCallStream(callType);
       const callId = crypto.randomUUID();
       voiceCallIdRef.current = callId;
@@ -469,6 +485,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     try {
       setVoiceMuted(false);
+      setVideoMuted(false);
       await ensureVoiceCallStream(voiceCallTypeRef.current);
       setVoiceCallStatus("connecting");
       setVoiceCallError(null);
@@ -496,6 +513,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setVoiceCallType("audio");
     voiceCallTypeRef.current = "audio";
     setVoiceMuted(false);
+    setVideoMuted(false);
     setVoicePeerName("Operator");
     setVoiceCallError(null);
   }
@@ -514,6 +532,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setVoiceCallType("audio");
     voiceCallTypeRef.current = "audio";
     setVoiceMuted(false);
+    setVideoMuted(false);
     setVoicePeerName("Operator");
     setVoiceCallError(message ?? null);
   }
@@ -530,6 +549,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     stopVoiceCallStream(voiceCallStreamRef.current);
     voiceCallStreamRef.current = null;
+    voiceCallRemoteStreamRef.current = null;
     if (voiceCallRemoteAudioRef.current) {
       voiceCallRemoteAudioRef.current.srcObject = null;
     }
@@ -597,8 +617,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setVoiceMuted((current) => !current);
   }
 
+  function toggleVideoMute() {
+    if (!voiceCallBusy || voiceCallTypeRef.current !== "video") {
+      return;
+    }
+
+    setVideoMuted((current) => !current);
+  }
+
   function setVoiceCallAudioEnabled(enabled: boolean) {
     voiceCallStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
+  }
+
+  function setVoiceCallVideoEnabled(enabled: boolean) {
+    voiceCallStreamRef.current?.getVideoTracks().forEach((track) => {
       track.enabled = enabled;
     });
   }
@@ -654,6 +688,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     peerConnection.ontrack = (event) => {
       const [remoteStream] = event.streams;
+      if (remoteStream) {
+        voiceCallRemoteStreamRef.current = remoteStream;
+      }
       if (remoteStream && voiceCallRemoteAudioRef.current) {
         voiceCallRemoteAudioRef.current.srcObject = remoteStream;
         void voiceCallRemoteAudioRef.current.play().catch(() => undefined);
@@ -787,8 +824,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ) : null}
                 </button>
                 {voiceCallOpen ? (
-                  <div className="absolute right-0 top-12 z-[100] w-[calc(100vw-1.5rem)] max-w-[420px] rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]">
-                    <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="absolute right-0 top-12 z-[100] flex max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] max-w-[420px] flex-col overflow-y-auto rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]">
+                    <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 bg-[#111827] pb-2">
                       <div>
                         <h3 className="text-sm font-semibold text-white">Communications</h3>
                         <p className="text-[11px] text-white/45">{realtimeConnected ? "Realtime connected" : "Realtime disconnected"}</p>
@@ -817,32 +854,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {voiceCallError ?? formatVoiceCallStatus(voiceCallStatus, voicePeerName, voiceCallType)}
                     </div>
                     {voiceCallType === "video" && voiceCallBusy ? (
-                      <div className="mt-3 grid gap-2">
-                        <div className="relative aspect-video overflow-hidden rounded-md border border-white/10 bg-black">
-                          <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-                          <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">Remote</span>
-                        </div>
-                        <div className="relative aspect-video overflow-hidden rounded-md border border-white/10 bg-black">
-                          <video ref={voiceCallLocalVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-                          <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">You</span>
+                      <div className="relative mt-3 aspect-video max-h-[220px] overflow-hidden rounded-md border border-white/10 bg-black">
+                        <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                        <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">Remote</span>
+                        <div className="absolute bottom-2 right-2 h-20 w-28 overflow-hidden rounded-md border border-white/20 bg-black shadow-lg sm:h-24 sm:w-32">
+                          {videoMuted ? (
+                            <div className="flex h-full w-full items-center justify-center bg-black/80">
+                              <VideoOff size={16} className="text-white/40" />
+                            </div>
+                          ) : (
+                            <video ref={voiceCallLocalVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                          )}
+                          <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white/75">You</span>
                         </div>
                       </div>
                     ) : null}
                     {voiceCallBusy && voiceCallStatus !== "incoming" ? (
-                      <button
-                        type="button"
-                        suppressHydrationWarning
-                        onClick={toggleVoiceMute}
-                        className={cn(
-                          "mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
-                          voiceMuted
-                            ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
-                            : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
-                        )}
-                      >
-                        {voiceMuted ? <MicOff size={16} /> : <Mic size={16} />}
-                        {voiceMuted ? "Unmute" : "Mute"}
-                      </button>
+                      <div className={cn("mt-3 grid gap-2", voiceCallType === "video" ? "grid-cols-2" : "grid-cols-1")}>
+                        <button
+                          type="button"
+                          suppressHydrationWarning
+                          onClick={toggleVoiceMute}
+                          className={cn(
+                            "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
+                            voiceMuted
+                              ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
+                              : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
+                          )}
+                        >
+                          {voiceMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                          {voiceMuted ? "Unmute" : "Mute"}
+                        </button>
+                        {voiceCallType === "video" ? (
+                          <button
+                            type="button"
+                            suppressHydrationWarning
+                            onClick={toggleVideoMute}
+                            className={cn(
+                              "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
+                              videoMuted
+                                ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
+                                : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
+                            )}
+                          >
+                            {videoMuted ? <VideoOff size={16} /> : <Video size={16} />}
+                            {videoMuted ? "Start Video" : "Stop Video"}
+                          </button>
+                        ) : null}
+                      </div>
                     ) : null}
                     {voiceCallStatus === "incoming" ? (
                       <div className="mt-3 grid grid-cols-2 gap-2">
