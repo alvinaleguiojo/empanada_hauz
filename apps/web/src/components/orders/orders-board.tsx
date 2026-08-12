@@ -1145,9 +1145,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                               </div>
                             </>
                           ) : null}
-                          {selectedOrder.deliveryMethod === "own_delivery" ? (
-                            <RiderAssignment order={selectedOrder} onChange={refreshOrders} />
-                          ) : null}
+                          <RiderAssignment order={selectedOrder} onChange={refreshOrders} />
                           <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Notes</p>
