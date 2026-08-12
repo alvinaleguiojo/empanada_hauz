@@ -247,6 +247,10 @@ export class PublicOrderEntryDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  referralCode?: string;
 }
 
 export class AddOrderNoteDto {

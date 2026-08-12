@@ -124,9 +124,24 @@ model User {
   passwordHash String
   name         String
   role         UserRole
+  referralCode String?  @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   riderProfile Rider?
+}
+
+model ReferralPartner {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  email        String   @unique
+  passwordHash String
+  name         String
+  phoneNumber  String?
+  referralCode String   @unique
+  approvalStatus String @default("pending")
+  approvedAt   DateTime?
+  approvedById String?  @db.ObjectId
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Customer {
@@ -408,6 +423,30 @@ model Expense {
   createdAt   DateTime @default(now())
 
   @@index([expenseDate, category])
+}
+
+model Referral {
+  id                   String    @id @default(auto()) @map("_id") @db.ObjectId
+  referrerUserId       String?   @db.ObjectId
+  referralPartnerId    String?   @db.ObjectId
+  referralCode         String
+  customerId           String?   @db.ObjectId
+  orderId              String?   @db.ObjectId
+  customerName         String
+  phoneNumber          String?
+  orderNumber          String?
+  orderTotal           Float     @default(0)
+  status               String    @default("created")
+  commissionPercentage Float     @default(0)
+  commissionAmount     Float     @default(0)
+  commissionPaidAt     DateTime?
+  commissionPaidById   String?   @db.ObjectId
+  createdAt            DateTime  @default(now())
+
+  @@unique([orderId])
+  @@index([referrerUserId, createdAt])
+  @@index([referralPartnerId, createdAt])
+  @@index([referralCode, createdAt])
 }
 
 model AnalyticsSnapshot {

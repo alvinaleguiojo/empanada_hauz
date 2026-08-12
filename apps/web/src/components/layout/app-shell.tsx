@@ -5,16 +5,44 @@ import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, ReceiptText } from "lucide-react";
+import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, LogOut, MessageCircle, Mic, MicOff, ReceiptText, Send, Share2, Truck, Video, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { socket } from "@/lib/socket";
 import { useRealtimeStore } from "@/store/realtime-store";
+import { VOICE_ICE_SERVERS } from "@/lib/config";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/orders", label: "Orders", icon: ClipboardList },
-  { href: "/expenses", label: "Expenses", icon: ReceiptText }
+  { href: "/expenses", label: "Expenses", icon: ReceiptText },
+  { href: "/referrals", label: "Referrals", icon: Share2 },
+  { href: "/delivery-network", label: "Delivery", icon: Truck}
 ];
+
+const VOICE_CALL_CONFIGURATION: RTCConfiguration = {
+  iceServers: VOICE_ICE_SERVERS
+};
+
+type VoiceCallStatus = "idle" | "outgoing" | "incoming" | "connecting" | "active";
+type VoiceCallType = "audio" | "video";
+
+type VoiceCallSignal = {
+  callId?: string;
+  from?: string;
+  to?: string;
+  name?: string;
+  callType?: VoiceCallType;
+  description?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+};
+
+type OperatorChatMessage = {
+  id: string;
+  from?: string;
+  name: string;
+  text: string;
+  createdAt: string;
+};
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -22,35 +50,155 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const notifications = useRealtimeStore((state) => state.notifications);
   const markNotificationsRead = useRealtimeStore((state) => state.markNotificationsRead);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [speechEnabled, setSpeechEnabled] = useState(false);
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(false);
+  const [browserNotificationPermission, setBrowserNotificationPermission] = useState<NotificationPermission>("default");
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const latestNotificationId = notifications[0]?.id;
-  const previousNotificationIdRef = useRef<string | undefined>(undefined);
+  const [operatorChatDraft, setOperatorChatDraft] = useState("");
+  const [operatorChatMessages, setOperatorChatMessages] = useState<OperatorChatMessage[]>([]);
+  const [operatorChatUnread, setOperatorChatUnread] = useState(0);
+  const [voiceCallOpen, setVoiceCallOpen] = useState(false);
+  const [voiceCallStatus, setVoiceCallStatus] = useState<VoiceCallStatus>("idle");
+  const [voiceCallError, setVoiceCallError] = useState<string | null>(null);
+  const [voicePeerName, setVoicePeerName] = useState("Operator");
+  const [voiceClientId, setVoiceClientId] = useState("");
+  const [voiceCallType, setVoiceCallType] = useState<VoiceCallType>("audio");
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  const voiceCallStreamRef = useRef<MediaStream | null>(null);
+  const voiceCallPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const voiceCallRemoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceCallLocalVideoRef = useRef<HTMLVideoElement | null>(null);
+  const voiceCallRemoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const voiceCallStatusRef = useRef<VoiceCallStatus>("idle");
+  const voiceCallTypeRef = useRef<VoiceCallType>("audio");
+  const voiceMutedRef = useRef(false);
+  const voiceCallIdRef = useRef<string | null>(null);
+  const voiceRemoteClientIdRef = useRef<string | null>(null);
+  const voiceConnectionFailTimerRef = useRef<number | null>(null);
+  const pendingVoiceIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const recentNotificationKeysRef = useRef(new Map<string, number>());
+  const communicationsOpenRef = useRef(false);
+  const operatorChatMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const unreadCount = notifications.filter((item) => !item.read).length;
+  const voiceCallActive = voiceCallStatus === "active" || voiceCallStatus === "connecting" || voiceCallStatus === "outgoing";
+  const voiceCallBusy = voiceCallStatus !== "idle";
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("empanada-notification-sound");
-    if (stored === "off") {
-      setSoundEnabled(false);
+    setSpeechEnabled(window.localStorage.getItem("empanada-notification-speech") === "on");
+
+    const browserNotificationStored = window.localStorage.getItem("empanada-browser-notifications");
+    if ("Notification" in window) {
+      setBrowserNotificationPermission(Notification.permission);
+      setBrowserNotificationsEnabled(browserNotificationStored !== "off" && Notification.permission === "granted");
     }
 
     setSidebarCollapsed(window.localStorage.getItem("empanada-sidebar-collapsed") === "true");
+    const storedVoiceClientId = window.sessionStorage.getItem("empanada-voice-client-id");
+    const nextVoiceClientId = storedVoiceClientId ?? crypto.randomUUID();
+    window.sessionStorage.setItem("empanada-voice-client-id", nextVoiceClientId);
+    setVoiceClientId(nextVoiceClientId);
+
+    return () => {
+      cleanupVoiceCall();
+    };
   }, []);
+
+  useEffect(() => {
+    voiceCallStatusRef.current = voiceCallStatus;
+  }, [voiceCallStatus]);
+
+  useEffect(() => {
+    communicationsOpenRef.current = voiceCallOpen;
+    if (voiceCallOpen) {
+      setOperatorChatUnread(0);
+      window.setTimeout(() => operatorChatMessagesEndRef.current?.scrollIntoView({ block: "end" }), 0);
+    }
+  }, [voiceCallOpen]);
+
+  useEffect(() => {
+    if (voiceCallOpen) {
+      operatorChatMessagesEndRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [operatorChatMessages, voiceCallOpen]);
+
+  useEffect(() => {
+    voiceCallTypeRef.current = voiceCallType;
+  }, [voiceCallType]);
+
+  useEffect(() => {
+    voiceMutedRef.current = voiceMuted;
+    setVoiceCallAudioEnabled(!voiceMuted);
+  }, [voiceMuted]);
+
+  useEffect(() => {
+    if (voiceCallType !== "video" || !voiceCallStreamRef.current || !voiceCallLocalVideoRef.current) {
+      return;
+    }
+
+    voiceCallLocalVideoRef.current.srcObject = voiceCallStreamRef.current;
+    void voiceCallLocalVideoRef.current.play().catch(() => undefined);
+  }, [voiceCallOpen, voiceCallStatus, voiceCallType]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || event.repeat || !voiceCallBusy || isTypingTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+      toggleVoiceMute();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [voiceCallBusy]);
 
   useEffect(() => {
     socket.connect();
     const names = ["orders.updated", "kitchen.updated", "batches.updated", "deliveries.updated", "notifications.created"];
+    const handleConnect = () => setRealtimeConnected(true);
+    const handleDisconnect = () => setRealtimeConnected(false);
+    const handleOperatorChatMessage = (message: OperatorChatMessage) => {
+      if (!message?.id || !message.text) {
+        return;
+      }
+
+      setOperatorChatMessages((current) => [...current, message].slice(-100));
+      if (!communicationsOpenRef.current) {
+        setOperatorChatUnread((current) => current + 1);
+      }
+    };
     const handlers = names.map((name) => {
-      const fn = (payload: unknown) => push(name, payload);
+      const fn = (payload: unknown) => {
+        push(name, payload);
+
+        const shouldNotify = shouldAnnounceRealtimeEvent(name, payload, recentNotificationKeysRef.current);
+        if (speechEnabled && shouldNotify) {
+          speakNotification(name, payload);
+        }
+
+        if (browserNotificationsEnabled) {
+          showBrowserNotification(name, payload);
+        }
+      };
       socket.on(name, fn);
       return { name, fn };
     });
 
+    setRealtimeConnected(socket.connected);
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("operator.chat.message", handleOperatorChatMessage);
+
     return () => {
       handlers.forEach(({ name, fn }) => socket.off(name, fn));
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("operator.chat.message", handleOperatorChatMessage);
       socket.disconnect();
     };
-  }, [push]);
+  }, [browserNotificationsEnabled, push, speechEnabled]);
 
   useEffect(() => {
     if (notificationsOpen && unreadCount > 0) {
@@ -59,24 +207,180 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [markNotificationsRead, notificationsOpen, unreadCount]);
 
   useEffect(() => {
-    if (!latestNotificationId) {
+    if (!voiceClientId) {
       return;
     }
 
-    if (previousNotificationIdRef.current !== latestNotificationId) {
-      previousNotificationIdRef.current = latestNotificationId;
-      if (soundEnabled) {
-        playNotificationSound();
-      }
-    }
-  }, [latestNotificationId, soundEnabled]);
+    const announcePresence = () => {
+      socket.emit("voice.presence", {
+        clientId: voiceClientId,
+        name: "Empanada Hauz Operator"
+      });
+    };
 
-  function toggleSound() {
-    setSoundEnabled((current) => {
+    const handleIncomingCall = (payload: VoiceCallSignal) => {
+      if (!payload.callId || !payload.from || payload.from === voiceClientId) {
+        return;
+      }
+
+      if (voiceCallStatusRef.current !== "idle") {
+        socket.emit("voice.call.decline", {
+          callId: payload.callId,
+          from: voiceClientId,
+          to: payload.from
+        });
+        return;
+      }
+
+      voiceCallIdRef.current = payload.callId;
+      voiceRemoteClientIdRef.current = payload.from;
+      const nextCallType = payload.callType === "video" ? "video" : "audio";
+      voiceCallTypeRef.current = nextCallType;
+      setVoiceCallType(nextCallType);
+      setVoicePeerName(payload.name ?? "Operator");
+      setVoiceCallError(null);
+      setVoiceCallStatus("incoming");
+      setVoiceCallOpen(true);
+    };
+
+    const handleCallAccepted = async (payload: VoiceCallSignal) => {
+      if (!isCurrentVoiceCall(payload) || !payload.from || voiceCallStatusRef.current !== "outgoing") {
+        return;
+      }
+
+      voiceRemoteClientIdRef.current = payload.from;
+      setVoiceCallStatus("connecting");
+      setVoiceCallError(null);
+
+      try {
+        const peerConnection = await createVoicePeerConnection(payload.from);
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit("voice.call.offer", {
+          callId: voiceCallIdRef.current,
+          from: voiceClientId,
+          to: payload.from,
+          description: offer
+        });
+      } catch {
+        endVoiceCall(false, `Unable to start the ${voiceCallTypeRef.current} connection.`);
+      }
+    };
+
+    const handleCallDeclined = (payload: VoiceCallSignal) => {
+      if (isCurrentVoiceCall(payload)) {
+        endVoiceCall(false, "The call was declined or the other operator is busy.");
+      }
+    };
+
+    const handleCallEnded = (payload: VoiceCallSignal) => {
+      if (isCurrentVoiceCall(payload)) {
+        endVoiceCall(false, "Call ended.");
+      }
+    };
+
+    const handleOffer = async (payload: VoiceCallSignal) => {
+      if (!isCurrentVoiceCall(payload) || !payload.from || !payload.description) {
+        return;
+      }
+
+      try {
+        const peerConnection = await createVoicePeerConnection(payload.from);
+        await peerConnection.setRemoteDescription(payload.description);
+        await flushPendingVoiceIceCandidates(peerConnection);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit("voice.call.answer", {
+          callId: voiceCallIdRef.current,
+          from: voiceClientId,
+          to: payload.from,
+          description: answer
+        });
+        setVoiceCallStatus("connecting");
+      } catch {
+        endVoiceCall(true, `Unable to answer the ${voiceCallTypeRef.current} call.`);
+      }
+    };
+
+    const handleAnswer = async (payload: VoiceCallSignal) => {
+      if (!isCurrentVoiceCall(payload) || !payload.description || !voiceCallPeerConnectionRef.current) {
+        return;
+      }
+
+      try {
+        await voiceCallPeerConnectionRef.current.setRemoteDescription(payload.description);
+        await flushPendingVoiceIceCandidates(voiceCallPeerConnectionRef.current);
+        setVoiceCallStatus("connecting");
+      } catch {
+        endVoiceCall(true, `Unable to connect the ${voiceCallTypeRef.current} call.`);
+      }
+    };
+
+    const handleIce = async (payload: VoiceCallSignal) => {
+      if (!isCurrentVoiceCall(payload) || !payload.candidate) {
+        return;
+      }
+
+      await addOrQueueVoiceIceCandidate(payload.candidate);
+    };
+
+    announcePresence();
+    socket.on("connect", announcePresence);
+    socket.on("voice.call.incoming", handleIncomingCall);
+    socket.on("voice.call.accepted", handleCallAccepted);
+    socket.on("voice.call.declined", handleCallDeclined);
+    socket.on("voice.call.ended", handleCallEnded);
+    socket.on("voice.call.offer", handleOffer);
+    socket.on("voice.call.answer", handleAnswer);
+    socket.on("voice.call.ice", handleIce);
+
+    return () => {
+      socket.off("connect", announcePresence);
+      socket.off("voice.call.incoming", handleIncomingCall);
+      socket.off("voice.call.accepted", handleCallAccepted);
+      socket.off("voice.call.declined", handleCallDeclined);
+      socket.off("voice.call.ended", handleCallEnded);
+      socket.off("voice.call.offer", handleOffer);
+      socket.off("voice.call.answer", handleAnswer);
+      socket.off("voice.call.ice", handleIce);
+    };
+  }, [voiceClientId]);
+
+  function toggleSpeech() {
+    setSpeechEnabled((current) => {
       const next = !current;
-      window.localStorage.setItem("empanada-notification-sound", next ? "on" : "off");
+      window.localStorage.setItem("empanada-notification-speech", next ? "on" : "off");
+      if (next) {
+        speakText("Notification speech is enabled.");
+      } else {
+        window.speechSynthesis?.cancel();
+      }
       return next;
     });
+  }
+
+  async function toggleBrowserNotifications() {
+    if (!("Notification" in window)) {
+      return;
+    }
+
+    if (browserNotificationsEnabled) {
+      window.localStorage.setItem("empanada-browser-notifications", "off");
+      setBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    const permission = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+    setBrowserNotificationPermission(permission);
+    if (permission === "granted") {
+      window.localStorage.setItem("empanada-browser-notifications", "on");
+      setBrowserNotificationsEnabled(true);
+      showBrowserNotification("notifications.created", {
+        type: "notifications.enabled",
+        payload: { message: "Browser notifications are enabled." },
+        createdAt: new Date().toISOString()
+      });
+    }
   }
 
   function toggleSidebar() {
@@ -85,6 +389,307 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.localStorage.setItem("empanada-sidebar-collapsed", String(next));
       return next;
     });
+  }
+
+  function logout() {
+    window.localStorage.removeItem("empanada-token");
+    document.cookie = "empanada-token=; path=/; max-age=0";
+    window.location.href = "/login";
+  }
+
+  function sendOperatorChatMessage(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const text = operatorChatDraft.trim();
+    if (!text || !voiceClientId || !socket.connected) {
+      return;
+    }
+
+    const message: OperatorChatMessage = {
+      id: crypto.randomUUID(),
+      from: voiceClientId,
+      name: "Empanada Hauz Operator",
+      text,
+      createdAt: new Date().toISOString()
+    };
+
+    setOperatorChatMessages((current) => [...current, message].slice(-100));
+    setOperatorChatDraft("");
+    socket.emit("operator.chat.send", message);
+  }
+
+  function isCurrentVoiceCall(payload: VoiceCallSignal) {
+    return Boolean(payload.callId && payload.callId === voiceCallIdRef.current);
+  }
+
+  async function startVoiceCall(callType: VoiceCallType = "audio") {
+    setVoiceCallOpen(true);
+
+    if (voiceCallBusy) {
+      endVoiceCall(true);
+      return;
+    }
+
+    if (!voiceClientId) {
+      setVoiceCallError("Voice call is still connecting. Try again in a moment.");
+      return;
+    }
+
+    if (!socket.connected) {
+      setVoiceCallError("Voice signaling is disconnected. Refresh and try again.");
+      return;
+    }
+
+    try {
+      voiceCallTypeRef.current = callType;
+      setVoiceCallType(callType);
+      setVoiceMuted(false);
+      await ensureVoiceCallStream(callType);
+      const callId = crypto.randomUUID();
+      voiceCallIdRef.current = callId;
+      voiceRemoteClientIdRef.current = null;
+      setVoicePeerName("Operator");
+      setVoiceCallStatus("outgoing");
+      setVoiceCallError(null);
+      socket.emit("voice.call.start", {
+        callId,
+        from: voiceClientId,
+        name: "Empanada Hauz Operator",
+        callType,
+        createdAt: new Date().toISOString()
+      });
+    } catch {
+      setVoiceCallError(callType === "video" ? "Camera or microphone permission was blocked or unavailable." : "Microphone permission was blocked or unavailable.");
+    }
+  }
+
+  async function acceptVoiceCall() {
+    if (!voiceRemoteClientIdRef.current || !voiceCallIdRef.current) {
+      return;
+    }
+
+    try {
+      setVoiceMuted(false);
+      await ensureVoiceCallStream(voiceCallTypeRef.current);
+      setVoiceCallStatus("connecting");
+      setVoiceCallError(null);
+      socket.emit("voice.call.accept", {
+        callId: voiceCallIdRef.current,
+        from: voiceClientId,
+        to: voiceRemoteClientIdRef.current
+      });
+    } catch {
+      setVoiceCallError(voiceCallTypeRef.current === "video" ? "Camera or microphone permission was blocked or unavailable." : "Microphone permission was blocked or unavailable.");
+    }
+  }
+
+  function declineVoiceCall() {
+    if (voiceRemoteClientIdRef.current && voiceCallIdRef.current) {
+      socket.emit("voice.call.decline", {
+        callId: voiceCallIdRef.current,
+        from: voiceClientId,
+        to: voiceRemoteClientIdRef.current
+      });
+    }
+
+    cleanupVoiceCall();
+    setVoiceCallStatus("idle");
+    setVoiceCallType("audio");
+    voiceCallTypeRef.current = "audio";
+    setVoiceMuted(false);
+    setVoicePeerName("Operator");
+    setVoiceCallError(null);
+  }
+
+  function endVoiceCall(notifyPeer = true, message?: string) {
+    if (notifyPeer && voiceRemoteClientIdRef.current && voiceCallIdRef.current) {
+      socket.emit("voice.call.end", {
+        callId: voiceCallIdRef.current,
+        from: voiceClientId,
+        to: voiceRemoteClientIdRef.current
+      });
+    }
+
+    cleanupVoiceCall();
+    setVoiceCallStatus("idle");
+    setVoiceCallType("audio");
+    voiceCallTypeRef.current = "audio";
+    setVoiceMuted(false);
+    setVoicePeerName("Operator");
+    setVoiceCallError(message ?? null);
+  }
+
+  function cleanupVoiceCall() {
+    clearVoiceConnectionFailTimer();
+    const peerConnection = voiceCallPeerConnectionRef.current;
+    voiceCallPeerConnectionRef.current = null;
+    if (peerConnection) {
+      peerConnection.onicecandidate = null;
+      peerConnection.ontrack = null;
+      peerConnection.onconnectionstatechange = null;
+      peerConnection.close();
+    }
+    stopVoiceCallStream(voiceCallStreamRef.current);
+    voiceCallStreamRef.current = null;
+    if (voiceCallRemoteAudioRef.current) {
+      voiceCallRemoteAudioRef.current.srcObject = null;
+    }
+    if (voiceCallLocalVideoRef.current) {
+      voiceCallLocalVideoRef.current.srcObject = null;
+    }
+    if (voiceCallRemoteVideoRef.current) {
+      voiceCallRemoteVideoRef.current.srcObject = null;
+    }
+    pendingVoiceIceCandidatesRef.current = [];
+    voiceCallIdRef.current = null;
+    voiceRemoteClientIdRef.current = null;
+  }
+
+  function clearVoiceConnectionFailTimer() {
+    if (voiceConnectionFailTimerRef.current !== null) {
+      window.clearTimeout(voiceConnectionFailTimerRef.current);
+      voiceConnectionFailTimerRef.current = null;
+    }
+  }
+
+  async function ensureVoiceCallStream(callType: VoiceCallType = voiceCallTypeRef.current) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Media access is not supported in this browser.");
+    }
+
+    if (!voiceCallStreamRef.current) {
+      voiceCallStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: callType === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } : false
+      });
+      setVoiceCallAudioEnabled(!voiceMutedRef.current);
+    }
+
+    if (callType === "video" && voiceCallStreamRef.current.getVideoTracks().length === 0) {
+      stopVoiceCallStream(voiceCallStreamRef.current);
+      voiceCallStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+      });
+      setVoiceCallAudioEnabled(!voiceMutedRef.current);
+    }
+
+    if (voiceCallLocalVideoRef.current) {
+      voiceCallLocalVideoRef.current.srcObject = voiceCallStreamRef.current;
+      void voiceCallLocalVideoRef.current.play().catch(() => undefined);
+    }
+
+    return voiceCallStreamRef.current;
+  }
+
+  function toggleVoiceMute() {
+    if (!voiceCallBusy) {
+      return;
+    }
+
+    setVoiceMuted((current) => !current);
+  }
+
+  function setVoiceCallAudioEnabled(enabled: boolean) {
+    voiceCallStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
+  }
+
+  async function addOrQueueVoiceIceCandidate(candidate: RTCIceCandidateInit) {
+    const peerConnection = voiceCallPeerConnectionRef.current;
+    if (!peerConnection || !peerConnection.remoteDescription) {
+      pendingVoiceIceCandidatesRef.current.push(candidate);
+      return;
+    }
+
+    try {
+      await peerConnection.addIceCandidate(candidate);
+    } catch {
+      return;
+    }
+  }
+
+  async function flushPendingVoiceIceCandidates(peerConnection: RTCPeerConnection) {
+    const candidates = pendingVoiceIceCandidatesRef.current.splice(0);
+    for (const candidate of candidates) {
+      try {
+        await peerConnection.addIceCandidate(candidate);
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  async function createVoicePeerConnection(remoteClientId: string) {
+    if (voiceCallPeerConnectionRef.current) {
+      return voiceCallPeerConnectionRef.current;
+    }
+
+    const localStream = await ensureVoiceCallStream(voiceCallTypeRef.current);
+    const peerConnection = new RTCPeerConnection(VOICE_CALL_CONFIGURATION);
+    voiceCallPeerConnectionRef.current = peerConnection;
+
+    localStream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("voice.call.ice", {
+          callId: voiceCallIdRef.current,
+          from: voiceClientId,
+          to: remoteClientId,
+          candidate: event.candidate.toJSON()
+        });
+      }
+    };
+
+    peerConnection.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      if (remoteStream && voiceCallRemoteAudioRef.current) {
+        voiceCallRemoteAudioRef.current.srcObject = remoteStream;
+        void voiceCallRemoteAudioRef.current.play().catch(() => undefined);
+      }
+      if (remoteStream && voiceCallRemoteVideoRef.current) {
+        voiceCallRemoteVideoRef.current.srcObject = remoteStream;
+        void voiceCallRemoteVideoRef.current.play().catch(() => undefined);
+      }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      if (peerConnection.connectionState === "connected") {
+        clearVoiceConnectionFailTimer();
+        setVoiceCallStatus("active");
+        setVoiceCallError(null);
+      }
+
+      if (peerConnection.connectionState === "failed") {
+        endVoiceCall(false, `${capitalizeCallType(voiceCallTypeRef.current)} connection failed. Add a TURN server for this network.`);
+      }
+
+      if (peerConnection.connectionState === "disconnected") {
+        clearVoiceConnectionFailTimer();
+        voiceConnectionFailTimerRef.current = window.setTimeout(() => {
+          if (voiceCallPeerConnectionRef.current?.connectionState === "disconnected") {
+            endVoiceCall(false, `${capitalizeCallType(voiceCallTypeRef.current)} connection dropped. Add a TURN server for this network.`);
+          }
+        }, 10000);
+      }
+
+      if (peerConnection.connectionState === "closed") {
+        endVoiceCall(false, "Call ended.");
+      }
+    };
+
+    return peerConnection;
   }
 
   return (
@@ -158,7 +763,199 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
         <main className="relative min-w-0 rounded-lg border border-white/[0.04] bg-[#0e1524]/38 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-sm sm:p-4">
           <div className="mb-4 flex justify-end">
-            <div className="relative">
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <button
+                  type="button"
+                  suppressHydrationWarning
+                  onClick={() => setVoiceCallOpen((value) => !value)}
+                  aria-label="Open communications"
+                  title="Communications"
+                  className={cn(
+                    "relative inline-flex h-10 w-10 items-center justify-center rounded-lg border shadow-lg shadow-black/15 transition",
+                    voiceCallOpen || voiceCallBusy
+                      ? "border-sky-400/45 bg-sky-400/15 text-sky-100 hover:bg-sky-400/22"
+                      : "border-white/[0.09] bg-panel/80 hover:bg-white/[0.08]"
+                  )}
+                >
+                  <MessageCircle size={18} />
+                  {voiceCallBusy ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.9)]" /> : null}
+                  {operatorChatUnread > 0 ? (
+                    <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {operatorChatUnread > 9 ? "9+" : operatorChatUnread}
+                    </span>
+                  ) : null}
+                </button>
+                {voiceCallOpen ? (
+                  <div className="absolute right-0 top-12 z-[100] w-[calc(100vw-1.5rem)] max-w-[420px] rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-white">Communications</h3>
+                        <p className="text-[11px] text-white/45">{realtimeConnected ? "Realtime connected" : "Realtime disconnected"}</p>
+                      </div>
+                      <button
+                        type="button"
+                        suppressHydrationWarning
+                        onClick={() => setVoiceCallOpen(false)}
+                        className="rounded-md border border-white/15 bg-white/[0.06] px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.1] hover:text-white"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <div
+                      className={cn(
+                        "rounded-md border px-2.5 py-2 text-xs font-medium",
+                        voiceCallActive
+                          ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100/85"
+                          : voiceCallError
+                          ? "border-rose-400/25 bg-rose-400/10 text-rose-100/85"
+                          : voiceCallStatus === "incoming"
+                          ? "border-sky-400/25 bg-sky-400/10 text-sky-100/85"
+                          : "border-white/10 bg-black/15 text-white/60"
+                      )}
+                    >
+                      {voiceCallError ?? formatVoiceCallStatus(voiceCallStatus, voicePeerName, voiceCallType)}
+                    </div>
+                    {voiceCallType === "video" && voiceCallBusy ? (
+                      <div className="mt-3 grid gap-2">
+                        <div className="relative aspect-video overflow-hidden rounded-md border border-white/10 bg-black">
+                          <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                          <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">Remote</span>
+                        </div>
+                        <div className="relative aspect-video overflow-hidden rounded-md border border-white/10 bg-black">
+                          <video ref={voiceCallLocalVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                          <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">You</span>
+                        </div>
+                      </div>
+                    ) : null}
+                    {voiceCallBusy && voiceCallStatus !== "incoming" ? (
+                      <button
+                        type="button"
+                        suppressHydrationWarning
+                        onClick={toggleVoiceMute}
+                        className={cn(
+                          "mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
+                          voiceMuted
+                            ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
+                            : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
+                        )}
+                      >
+                        {voiceMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                        {voiceMuted ? "Unmute" : "Mute"}
+                      </button>
+                    ) : null}
+                    {voiceCallStatus === "incoming" ? (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          suppressHydrationWarning
+                          onClick={acceptVoiceCall}
+                          className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-400/45 bg-emerald-400/12 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/18"
+                        >
+                          {voiceCallType === "video" ? <Video size={16} /> : <Mic size={16} />}
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          suppressHydrationWarning
+                          onClick={declineVoiceCall}
+                          className="inline-flex items-center justify-center gap-2 rounded-md border border-rose-400/45 bg-rose-400/12 px-3 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/18"
+                        >
+                          <MicOff size={16} />
+                          Decline
+                        </button>
+                      </div>
+                    ) : (
+                      voiceCallBusy ? (
+                        <button
+                          type="button"
+                          suppressHydrationWarning
+                          onClick={() => endVoiceCall(true)}
+                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-rose-400/45 bg-rose-400/12 px-3 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/18"
+                        >
+                          {voiceCallType === "video" ? <VideoOff size={16} /> : <MicOff size={16} />}
+                          End call
+                        </button>
+                      ) : (
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            suppressHydrationWarning
+                            onClick={() => void startVoiceCall("audio")}
+                            className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-400/45 bg-emerald-400/12 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/18"
+                          >
+                            <Mic size={16} />
+                            Audio
+                          </button>
+                          <button
+                            type="button"
+                            suppressHydrationWarning
+                            onClick={() => void startVoiceCall("video")}
+                            className="inline-flex items-center justify-center gap-2 rounded-md border border-sky-400/45 bg-sky-400/12 px-3 py-2 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/18"
+                          >
+                            <Video size={16} />
+                            Video
+                          </button>
+                        </div>
+                      )
+                    )}
+                    <div className="mt-4 border-t border-white/10 pt-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-white/52">Chat</h4>
+                        <span className="text-[11px] text-white/35">{operatorChatMessages.length} messages</span>
+                      </div>
+                      <div className="max-h-[260px] min-h-[170px] space-y-2 overflow-y-auto rounded-md border border-white/10 bg-black/15 p-2.5">
+                        {operatorChatMessages.length === 0 ? (
+                          <p className="py-10 text-center text-sm text-white/45">No chat messages yet.</p>
+                        ) : null}
+                        {operatorChatMessages.map((message) => {
+                          const mine = message.from === voiceClientId;
+                          return (
+                            <div key={message.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+                              <div
+                                className={cn(
+                                  "max-w-[82%] rounded-lg border px-3 py-2 text-sm shadow-[0_10px_24px_rgba(0,0,0,0.18)]",
+                                  mine
+                                    ? "border-accent/35 bg-accent/18 text-white"
+                                    : "border-white/12 bg-white/[0.07] text-white/82"
+                                )}
+                              >
+                                <div className="mb-1 flex items-center justify-between gap-3">
+                                  <span className="truncate text-[11px] font-semibold text-white/50">{mine ? "You" : message.name}</span>
+                                  <span className="shrink-0 text-[10px] text-white/35">{formatChatTime(message.createdAt)}</span>
+                                </div>
+                                <p className="whitespace-pre-wrap break-words leading-5">{message.text}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div ref={operatorChatMessagesEndRef} />
+                      </div>
+                      <form onSubmit={sendOperatorChatMessage} className="mt-3 flex gap-2">
+                        <input
+                          value={operatorChatDraft}
+                          onChange={(event) => setOperatorChatDraft(event.target.value)}
+                          placeholder={realtimeConnected ? "Message operators" : "Realtime disconnected"}
+                          disabled={!realtimeConnected}
+                          maxLength={1000}
+                          className="h-10 min-w-0 flex-1 rounded-lg border border-white/[0.09] bg-[#101827]/80 px-3 text-sm text-white outline-none transition placeholder:text-white/32 focus:border-accent/70 disabled:cursor-not-allowed disabled:opacity-55"
+                        />
+                        <button
+                          type="submit"
+                          suppressHydrationWarning
+                          disabled={!operatorChatDraft.trim() || !realtimeConnected}
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-accent/45 bg-accent/15 text-accent transition hover:bg-accent/22 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="Send chat message"
+                          title="Send"
+                        >
+                          <Send size={16} />
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="relative">
               <button
                 type="button"
                 suppressHydrationWarning
@@ -173,44 +970,89 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ) : null}
               </button>
               {notificationsOpen ? (
-                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-1.5rem)] max-w-[360px] rounded-lg border border-white/[0.1] bg-[#141d31]/96 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+                <div className="absolute right-0 top-12 z-[100] w-[calc(100vw-1.5rem)] max-w-[390px] rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]">
                   <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Notifications</h3>
+                    <h3 className="text-sm font-semibold text-white">Notifications</h3>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         suppressHydrationWarning
-                        onClick={toggleSound}
-                        className="rounded-md border border-line/80 px-2.5 py-1 text-[11px] text-foreground/60 transition hover:text-foreground"
+                        onClick={toggleBrowserNotifications}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1 text-[11px] font-semibold transition",
+                          browserNotificationsEnabled
+                            ? "border-sky-400/45 bg-sky-400/12 text-sky-100 hover:bg-sky-400/18"
+                            : "border-white/15 bg-white/[0.06] text-white/70 hover:bg-white/[0.1] hover:text-white"
+                        )}
                       >
-                        {soundEnabled ? "Sound on" : "Sound off"}
+                        {browserNotificationsEnabled ? "Push on" : "Push off"}
                       </button>
                       <button
                         type="button"
                         suppressHydrationWarning
-                        onClick={playNotificationSound}
-                        className="rounded-md border border-line/80 px-2.5 py-1 text-[11px] text-foreground/60 transition hover:text-foreground"
+                        onClick={toggleSpeech}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1 text-[11px] font-semibold transition",
+                          speechEnabled
+                            ? "border-violet-300/45 bg-violet-300/12 text-violet-100 hover:bg-violet-300/18"
+                            : "border-white/15 bg-white/[0.06] text-white/70 hover:bg-white/[0.1] hover:text-white"
+                        )}
                       >
-                        Test
+                        {speechEnabled ? "TTS on" : "TTS off"}
                       </button>
-                      <span className="text-xs text-foreground/45">{notifications.length} total</span>
+                      <button
+                        type="button"
+                        suppressHydrationWarning
+                        onClick={() => {
+                          speakText("Test notification.");
+                        }}
+                        className="rounded-md border border-white/15 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/[0.1] hover:text-white"
+                      >
+                        Test TTS
+                      </button>
+                      <span className="text-xs text-white/55">{notifications.length} total</span>
                     </div>
                   </div>
+                  <div
+                    className={cn(
+                      "mb-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium",
+                      realtimeConnected
+                        ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100/80"
+                        : "border-rose-400/25 bg-rose-400/10 text-rose-100/80"
+                    )}
+                  >
+                    Realtime {realtimeConnected ? "connected" : "disconnected"}
+                  </div>
+                  <div className="mb-3 rounded-md border border-white/10 bg-black/15 px-2.5 py-1.5 text-[11px] text-white/55">
+                    Browser notifications {browserNotificationPermission === "denied" ? "blocked by browser" : browserNotificationsEnabled ? "enabled" : "disabled"} · Speech {speechEnabled ? "enabled" : "disabled"}
+                  </div>
                   <div className="max-h-[420px] space-y-3 overflow-y-auto">
-                    {notifications.length === 0 ? <p className="text-sm text-foreground/55">No notifications yet.</p> : null}
+                    {notifications.length === 0 ? <p className="text-sm text-white/60">No notifications yet.</p> : null}
                     {notifications.map((item) => (
-                      <div key={item.id} className="rounded-lg border border-line/80 bg-black/10 p-3">
-                        <p className="text-sm font-medium">{formatNotificationTitle(item.type)}</p>
-                        <p className="mt-1 text-xs text-foreground/55">{formatNotificationMessage(item.payload)}</p>
-                        <p className="mt-2 text-[11px] text-foreground/40">{new Date(item.createdAt).toLocaleString()}</p>
+                      <div key={item.id} className="rounded-lg border border-white/[0.14] bg-[#0b1220] p-3 shadow-[0_12px_34px_rgba(0,0,0,0.32)]">
+                        <p className="text-sm font-semibold text-white">{formatNotificationTitle(item.type)}</p>
+                        <p className="mt-1 text-xs leading-5 text-white/68">{formatNotificationMessage(item.payload)}</p>
+                        <p className="mt-2 text-[11px] text-white/45">{new Date(item.createdAt).toLocaleString()}</p>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : null}
+              </div>
+              <button
+                type="button"
+                suppressHydrationWarning
+                onClick={logout}
+                aria-label="Logout"
+                title="Logout"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.09] bg-panel/80 shadow-lg shadow-black/15 transition hover:bg-white/[0.08]"
+              >
+                <LogOut size={18} />
+              </button>
             </div>
           </div>
           {children}
+          <audio ref={voiceCallRemoteAudioRef} autoPlay playsInline />
         </main>
       </div>
     </div>
@@ -218,6 +1060,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function formatNotificationTitle(type: string) {
+  if (type === "order.created") {
+    return "New order created";
+  }
+
+  if (type === "orders.updated") {
+    return "Order updated";
+  }
+
+  if (type === "kitchen.updated") {
+    return "Kitchen update";
+  }
+
+  if (type === "deliveries.updated") {
+    return "Delivery update";
+  }
+
+  if (type === "batches.updated") {
+    return "Batch update";
+  }
+
+  if (type === "notifications.enabled") {
+    return "Browser notifications enabled";
+  }
+
   if (type === "order.schedule_reminder") {
     return "Upcoming order schedule";
   }
@@ -235,49 +1101,266 @@ function formatNotificationMessage(payload: unknown) {
     orderNumber?: string;
     minutesUntilSchedule?: number;
     scheduledFor?: string;
+    quantity?: number;
+    status?: string;
+    id?: string;
+    orderId?: string;
+    message?: string;
+    customer?: {
+      name?: string;
+    };
+    name?: string;
   };
+
+  if (value.message) {
+    return value.message;
+  }
+
+  if (value.customerName && value.orderNumber && typeof value.quantity === "number") {
+    return `${value.customerName} (${value.orderNumber}) ordered ${value.quantity} pc${value.quantity === 1 ? "" : "s"}.`;
+  }
 
   if (value.customerName && value.orderNumber && typeof value.minutesUntilSchedule === "number") {
     return `${value.customerName} (${value.orderNumber}) is scheduled in ${value.minutesUntilSchedule} minute${value.minutesUntilSchedule === 1 ? "" : "s"}.`;
   }
 
+  const customerName = value.customerName ?? value.customer?.name;
+  if (customerName && value.orderNumber && value.status) {
+    return `${customerName} (${value.orderNumber}) is now ${formatStatus(value.status)}.`;
+  }
+
+  if (value.orderNumber && value.status) {
+    return `${value.orderNumber} is now ${formatStatus(value.status)}.`;
+  }
+
+  if (value.orderId && value.status) {
+    return `Order ${value.orderId} is now ${formatStatus(value.status)}.`;
+  }
+
+  if (value.name) {
+    return value.status ? `${value.name} is now ${formatStatus(value.status)}.` : `${value.name} was updated.`;
+  }
+
   return JSON.stringify(payload);
 }
 
-function playNotificationSound() {
-  if (typeof window === "undefined") {
+function formatStatus(status: string) {
+  return status.replaceAll("_", " ");
+}
+
+function formatChatTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatVoiceCallStatus(status: VoiceCallStatus, peerName: string, callType: VoiceCallType) {
+  const label = callType === "video" ? "video" : "audio";
+
+  if (status === "incoming") {
+    return `${peerName} is starting a ${label} call.`;
+  }
+
+  if (status === "outgoing") {
+    return "Calling available operators...";
+  }
+
+  if (status === "connecting") {
+    return `Connecting ${label}...`;
+  }
+
+  if (status === "active") {
+    return `Live ${label} call with ${peerName}.`;
+  }
+
+  return "Start a live call with another open dashboard.";
+}
+
+function capitalizeCallType(callType: VoiceCallType) {
+  return callType === "video" ? "Video" : "Audio";
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+function showBrowserNotification(name: string, payload: unknown) {
+  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
     return;
   }
 
-  const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextCtor) {
-    return;
-  }
+  const type = name === "notifications.created" && isObject(payload) && typeof payload.type === "string" ? payload.type : name;
+  const notificationPayload = name === "notifications.created" && isObject(payload) && "payload" in payload ? payload.payload : payload;
+  const title = formatNotificationTitle(type);
+  const body = formatNotificationMessage(notificationPayload);
+  const tag = getRealtimeNotificationKey(name, payload) ?? `${type}-${Date.now()}`;
 
   try {
-    const audioContext = new AudioContextCtor();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    const now = audioContext.currentTime;
+    const notification = new Notification(title, {
+      body,
+      icon: "/empanada hauz logo.jpg",
+      badge: "/empanada hauz logo.jpg",
+      tag
+    });
 
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, now);
-    oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
-
-    gainNode.gain.setValueAtTime(0.0001, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.06, now + 0.01);
-    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    oscillator.start(now);
-    oscillator.stop(now + 0.28);
-
-    oscillator.onended = () => {
-      void audioContext.close();
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
     };
   } catch {
     return;
   }
+}
+
+function speakNotification(name: string, payload: unknown) {
+  const type = name === "notifications.created" && isObject(payload) && typeof payload.type === "string" ? payload.type : name;
+  const notificationPayload = name === "notifications.created" && isObject(payload) && "payload" in payload ? payload.payload : payload;
+  speakText(`${formatNotificationTitle(type)}. ${formatNotificationSpeechMessage(notificationPayload)}`);
+}
+
+function formatNotificationSpeechMessage(payload: unknown) {
+  if (typeof payload !== "object" || payload === null) {
+    return "New system notification.";
+  }
+
+  const value = payload as {
+    customerName?: string;
+    orderNumber?: string;
+    minutesUntilSchedule?: number;
+    quantity?: number;
+    status?: string;
+    message?: string;
+    customer?: {
+      name?: string;
+    };
+    order?: {
+      customer?: {
+        name?: string;
+      };
+    };
+    name?: string;
+  };
+  const customerName = value.customerName ?? value.customer?.name ?? value.order?.customer?.name ?? value.name;
+
+  if (value.message) {
+    return value.message;
+  }
+
+  if (customerName && typeof value.quantity === "number") {
+    return `${customerName} ordered ${value.quantity} pc${value.quantity === 1 ? "" : "s"}.`;
+  }
+
+  if (customerName && typeof value.minutesUntilSchedule === "number") {
+    return `${customerName} is scheduled in ${value.minutesUntilSchedule} minute${value.minutesUntilSchedule === 1 ? "" : "s"}.`;
+  }
+
+  if (customerName && value.status) {
+    return `${customerName} is now ${formatStatus(value.status)}.`;
+  }
+
+  if (customerName) {
+    return `${customerName} was updated.`;
+  }
+
+  if (value.status) {
+    return `Order status is now ${formatStatus(value.status)}.`;
+  }
+
+  return "New notification.";
+}
+
+function speakText(text: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+    return;
+  }
+
+  const normalized = text.replace(/\s+/g, " ").trim().slice(0, 240);
+  if (!normalized) {
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(normalized);
+    utterance.lang = "en-US";
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    return;
+  }
+}
+
+function shouldAnnounceRealtimeEvent(name: string, payload: unknown, recentNotificationKeys: Map<string, number>) {
+  const notificationKey = getRealtimeNotificationKey(name, payload);
+  if (!notificationKey) {
+    return false;
+  }
+
+  const now = Date.now();
+  for (const [key, timestamp] of recentNotificationKeys) {
+    if (now - timestamp > 5000) {
+      recentNotificationKeys.delete(key);
+    }
+  }
+
+  if (recentNotificationKeys.has(notificationKey)) {
+    return false;
+  }
+
+  recentNotificationKeys.set(notificationKey, now);
+  return true;
+}
+
+function getRealtimeNotificationKey(name: string, payload: unknown) {
+  if (name === "notifications.created" && isObject(payload)) {
+    const type = typeof payload.type === "string" ? payload.type : "notification";
+    const createdAt = typeof payload.createdAt === "string" ? payload.createdAt : String(Date.now());
+    const notificationPayload = isObject(payload.payload) ? payload.payload : null;
+    const orderId = notificationPayload && typeof notificationPayload.orderId === "string" ? notificationPayload.orderId : undefined;
+
+    return orderId ? `order:${orderId}` : `notification:${type}:${createdAt}`;
+  }
+
+  if (["orders.updated", "kitchen.updated", "batches.updated", "deliveries.updated"].includes(name)) {
+    return getActionEventKey(name, payload);
+  }
+
+  return null;
+}
+
+function getActionEventKey(name: string, payload: unknown) {
+  if (!isObject(payload)) {
+    return `${name}:${Date.now()}`;
+  }
+
+  const id = typeof payload.orderId === "string"
+    ? payload.orderId
+    : typeof payload.id === "string"
+    ? payload.id
+    : typeof payload.orderNumber === "string"
+    ? payload.orderNumber
+    : undefined;
+  const version = typeof payload.updatedAt === "string"
+    ? payload.updatedAt
+    : typeof payload.status === "string"
+    ? payload.status
+    : Date.now();
+
+  return id ? `${name}:${id}:${version}` : `${name}:${version}`;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stopVoiceCallStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
 }

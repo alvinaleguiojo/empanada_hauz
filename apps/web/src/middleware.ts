@@ -8,25 +8,51 @@ const privateRoutes = [
   "/inbox",
   "/inventory",
   "/kitchen",
-  "/orders"
+  "/orders",
+  "/referrals"
 ];
 
 const publicRoutes = ["/", "/customer"];
+const referralPublicRoutes = ["/referrals/signup", "/referrals/login"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get("empanada-token")?.value;
+  const referralToken = request.cookies.get("empanada-referral-token")?.value;
   const hasValidToken = Boolean(token && !isJwtExpired(token));
+  const hasValidReferralToken = Boolean(referralToken && !isJwtExpired(referralToken));
 
   if (pathname === "/login" && hasValidToken) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  if (referralPublicRoutes.includes(pathname)) {
+    if (hasValidReferralToken) {
+      return NextResponse.redirect(new URL("/referrals/dashboard", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  if (pathname === "/referrals/dashboard" && !hasValidReferralToken) {
+    const url = new URL("/referrals/login", request.url);
+    return NextResponse.redirect(url);
+  }
+
+  if (pathname === "/referrals/pending" && !hasValidReferralToken) {
+    const url = new URL("/referrals/login", request.url);
+    return NextResponse.redirect(url);
   }
 
   if (publicRoutes.includes(pathname)) {
     return NextResponse.next();
   }
 
-  if (privateRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`)) && !hasValidToken) {
+  if (
+    privateRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`)) &&
+    pathname !== "/referrals/dashboard" &&
+    pathname !== "/referrals/pending" &&
+    !hasValidToken
+  ) {
     const url = new URL("/login", request.url);
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
@@ -36,7 +62,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*"]
+  matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*", "/referrals/:path*", "/referrals"]
 };
 
 function isJwtExpired(token: string) {

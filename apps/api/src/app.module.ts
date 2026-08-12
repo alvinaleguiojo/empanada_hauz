@@ -10,9 +10,11 @@ import { BatchesModule } from "./modules/batches/batches.module";
 import { KitchenModule } from "./modules/kitchen/kitchen.module";
 import { DeliveriesModule } from "./modules/deliveries/deliveries.module";
 import { DeliveryNetworkModule } from "./modules/delivery-network/delivery-network.module";
+import { RiderModule } from "./modules/rider/rider.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { ExpensesModule } from "./modules/expenses/expenses.module";
+import { ReferralsModule } from "./modules/referrals/referrals.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { HealthModule } from "./modules/health/health.module";
 import { McpModule } from "./modules/mcp/mcp.module";
@@ -42,9 +44,11 @@ import { RealtimeModule } from "./common/realtime.module";
     KitchenModule,
     DeliveriesModule,
     DeliveryNetworkModule,
+    RiderModule,
     AnalyticsModule,
     InventoryModule,
     ExpensesModule,
+    ReferralsModule,
     NotificationsModule,
     McpModule
   ]

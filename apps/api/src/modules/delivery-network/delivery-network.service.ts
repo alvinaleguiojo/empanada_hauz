@@ -36,36 +36,39 @@ export class DeliveryNetworkService {
   async createRider(dto: CreateRiderDto) {
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
-    const rider = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: dto.email.toLowerCase().trim(),
-          name: dto.name.trim(),
-          passwordHash,
-          role: "rider"
-        }
-      });
-
-      return tx.rider.create({
-        data: {
-          userId: user.id,
-          phoneNumber: dto.phoneNumber?.trim() || null,
-          serviceArea: dto.serviceArea?.trim() || null,
-          vehicles: {
-            create: {
-              type: dto.vehicleType ?? "motorcycle",
-              plateNumber: dto.plateNumber?.trim() || null,
-              model: dto.vehicleModel?.trim() || null,
-              color: dto.vehicleColor?.trim() || null
-            }
+    const rider = await this.prisma.$transaction(
+      async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: dto.email.toLowerCase().trim(),
+            name: dto.name.trim(),
+            passwordHash,
+            role: "rider"
           }
-        },
-        include: {
-          user: { select: { id: true, name: true, email: true, role: true } },
-          vehicles: true
-        }
-      });
-    });
+        });
+
+        return tx.rider.create({
+          data: {
+            userId: user.id,
+            phoneNumber: dto.phoneNumber?.trim() || null,
+            serviceArea: dto.serviceArea?.trim() || null,
+            vehicles: {
+              create: {
+                type: dto.vehicleType ?? "motorcycle",
+                plateNumber: dto.plateNumber?.trim() || null,
+                model: dto.vehicleModel?.trim() || null,
+                color: dto.vehicleColor?.trim() || null
+              }
+            }
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true, role: true } },
+            vehicles: true
+          }
+        });
+      },
+      { timeout: 15000 }
+    );
 
     this.realtime.emit("delivery-network.riders.updated", rider);
     return rider;

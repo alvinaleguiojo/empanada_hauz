@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Request, Response } from "express";
 import { z } from "zod";
 import { DeliveryMethod, OrderStatus, PaymentMethod } from "../orders/dto";
+import { McpExpensesService } from "./mcp-expenses.service";
 import { McpOrdersService } from "./mcp-orders.service";
 
 type ToolResult = {
@@ -31,7 +32,10 @@ type ToolRegistrar = (
 @UseInterceptors(NoCacheInterceptor)
 @Controller("mcp")
 export class McpController {
-  constructor(private readonly orders: McpOrdersService) {}
+  constructor(
+    private readonly orders: McpOrdersService,
+    private readonly expenses: McpExpensesService
+  ) {}
 
   @All()
   async handle(@Req() req: Request, @Res() res: Response) {
@@ -314,6 +318,109 @@ export class McpController {
       })
     );
 
+    registerTool(
+      "list_expenses",
+      {
+        title: "List expenses",
+        description:
+          "Read Empanada Hauz expenses for a Manila-date range. Dates use YYYY-MM-DD. Defaults to today's expenses when no dates are provided. Use nextCursor to fetch all pages.",
+        inputSchema: {
+          cursor: z.string().optional(),
+          limit: z.number().int().min(1).max(500).optional(),
+          category: z.string().optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional()
+        },
+        annotations: {
+          readOnlyHint: true,
+          openWorldHint: false
+        }
+      },
+      async (args) => ({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(await this.expenses.listExpenses(this.toListExpensesArgs(args)), null, 2)
+          }
+        ]
+      })
+    );
+
+    registerTool(
+      "get_expense",
+      {
+        title: "Get expense",
+        description: "Read one Empanada Hauz expense by database ID.",
+        inputSchema: {
+          id: z.string().min(1)
+        },
+        annotations: {
+          readOnlyHint: true,
+          openWorldHint: false
+        }
+      },
+      async (args) => {
+        const id = this.toOptionalString(args.id);
+        if (!id) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "id is required." }]
+          };
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(await this.expenses.getExpense({ id }), null, 2) }]
+        };
+      }
+    );
+
+    registerTool(
+      "create_expense",
+      {
+        title: "Create expense",
+        description: "Create a new Empanada Hauz expense. expenseDate uses YYYY-MM-DD in Manila time.",
+        inputSchema: {
+          category: z.string().min(1),
+          name: z.string().min(1),
+          amount: z.number().min(0.01),
+          expenseDate: z.string().min(1)
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      async (args) => {
+        const createArgs = this.toCreateExpenseArgs(args);
+        if (!createArgs.category || !createArgs.name || createArgs.amount === undefined || !createArgs.expenseDate) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "category, name, amount, and expenseDate are required." }]
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                await this.expenses.createExpense({
+                  category: createArgs.category,
+                  name: createArgs.name,
+                  amount: createArgs.amount,
+                  expenseDate: createArgs.expenseDate
+                }),
+                null,
+                2
+              )
+            }
+          ]
+        };
+      }
+    );
+
     return server;
   }
 
@@ -361,6 +468,25 @@ export class McpController {
       status: this.toOrderStatus(args.status),
       items: Array.isArray(args.items) ? args.items : undefined,
       notes: this.toOptionalString(args.notes)
+    };
+  }
+
+  private toListExpensesArgs(args: Record<string, unknown>) {
+    return {
+      cursor: this.toOptionalString(args.cursor),
+      limit: typeof args.limit === "number" ? args.limit : undefined,
+      category: this.toOptionalString(args.category),
+      startDate: this.toOptionalString(args.startDate),
+      endDate: this.toOptionalString(args.endDate)
+    };
+  }
+
+  private toCreateExpenseArgs(args: Record<string, unknown>) {
+    return {
+      category: this.toOptionalString(args.category),
+      name: this.toOptionalString(args.name),
+      amount: typeof args.amount === "number" ? args.amount : undefined,
+      expenseDate: this.toOptionalString(args.expenseDate)
     };
   }
 

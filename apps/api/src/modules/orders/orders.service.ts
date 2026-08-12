@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { BatchesService } from "../batches/batches.service";
+import { NotificationsService } from "../notifications/notifications.service";
+import { ReferralsService } from "../referrals/referrals.service";
 import { GoogleDriveOrderExportService } from "./google-drive-order-export.service";
 import { GoogleSheetsOrderSyncService } from "./google-sheets-order-sync.service";
 import { CreateOrderDto, ManualOrderEntryDto, OrderLineItemDto, OrderStatus, PublicOrderEntryDto, UpdateOrderDto } from "./dto";
@@ -17,7 +19,9 @@ export class OrdersService {
     private readonly realtime: RealtimeGateway,
     private readonly batchesService: BatchesService,
     private readonly googleSheetsOrderSync: GoogleSheetsOrderSyncService,
-    private readonly googleDriveOrderExport: GoogleDriveOrderExportService
+    private readonly googleDriveOrderExport: GoogleDriveOrderExportService,
+    private readonly notificationsService: NotificationsService,
+    private readonly referralsService: ReferralsService
   ) {}
 
   async list({ date, search }: { date?: string; search?: string } = {}) {
@@ -182,6 +186,7 @@ export class OrdersService {
     });
 
     this.realtime.emit("orders.updated", order);
+    this.notifyOrderCreated(order);
     await this.googleSheetsOrderSync.appendOrder(order);
     return order;
   }
@@ -211,6 +216,17 @@ export class OrdersService {
       preferredSchedule: dto.preferredSchedule,
       items: trustedItems,
       notes: dto.notes
+    });
+
+    await this.referralsService.recordOrderReferral({
+      referralCode: dto.referralCode,
+      customerId: order.customer.id,
+      customerName: order.customer.name,
+      phoneNumber: order.customer.phoneNumber,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      orderTotal: Number(order.totalAmount ?? 0),
+      status: order.status
     });
 
     return {
@@ -317,11 +333,40 @@ export class OrdersService {
     });
 
     this.realtime.emit("orders.updated", order);
+    this.notifyOrderCreated(order);
     await this.googleSheetsOrderSync.appendOrder(order);
     if (order.status === "ready_for_booking" || order.status === "booked") {
-      this.realtime.emit("deliveries.updated", { orderId: order.id, status: order.status });
+      this.realtime.emit("deliveries.updated", {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customer?.name,
+        status: order.status
+      });
     }
     return order;
+  }
+
+  private notifyOrderCreated(order: {
+    id: string;
+    orderNumber: string;
+    quantity: number;
+    totalAmount: unknown;
+    deliveryMethod: string;
+    paymentMethod: string;
+    status: string;
+    customer?: { name?: string | null; phoneNumber?: string | null } | null;
+  }) {
+    this.notificationsService.notify("order.created", {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customer?.name,
+      phoneNumber: order.customer?.phoneNumber,
+      quantity: order.quantity,
+      totalAmount: order.totalAmount,
+      deliveryMethod: order.deliveryMethod,
+      paymentMethod: order.paymentMethod,
+      status: order.status
+    });
   }
 
   private async findReusableCustomer(dto: Pick<ManualOrderEntryDto, "customerName" | "phoneNumber" | "address">) {
@@ -382,7 +427,12 @@ export class OrdersService {
     });
 
     this.realtime.emit("orders.updated", order);
-    this.realtime.emit("kitchen.updated", { orderId: order.id, status: order.status });
+    this.realtime.emit("kitchen.updated", {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customer?.name,
+      status: order.status
+    });
     return order;
   }
 
@@ -514,10 +564,25 @@ export class OrdersService {
       return order;
     });
 
-    this.realtime.emit("orders.deleted", { id: deleted.id, status: deleted.status });
-    this.realtime.emit("kitchen.updated", { orderId: deleted.id, status: "deleted" });
+    this.realtime.emit("orders.deleted", {
+      id: deleted.id,
+      orderNumber: deleted.orderNumber,
+      customerName: deleted.customer?.name,
+      status: deleted.status
+    });
+    this.realtime.emit("kitchen.updated", {
+      orderId: deleted.id,
+      orderNumber: deleted.orderNumber,
+      customerName: deleted.customer?.name,
+      status: "deleted"
+    });
     if (deleted.deliveryId) {
-      this.realtime.emit("deliveries.updated", { orderId: deleted.id, status: "deleted" });
+      this.realtime.emit("deliveries.updated", {
+        orderId: deleted.id,
+        orderNumber: deleted.orderNumber,
+        customerName: deleted.customer?.name,
+        status: "deleted"
+      });
     }
     return deleted;
   }

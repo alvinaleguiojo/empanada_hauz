@@ -13,9 +13,16 @@
     "dev": "concurrently \"npm run dev --workspace @empanada-hauz/api\" \"npm run dev --workspace @empanada-hauz/web\"",
     "dev:api": "npm run dev --workspace @empanada-hauz/api",
     "dev:web": "npm run dev --workspace @empanada-hauz/web",
+    "dev:rider": "npm run start --workspace @empanada-hauz/rider",
+    "android:rider": "npm run android --workspace @empanada-hauz/rider",
+    "ios:rider": "npm run ios --workspace @empanada-hauz/rider",
     "build": "npm run build --workspace @empanada-hauz/shared && npm run build --workspace @empanada-hauz/api && npm run build --workspace @empanada-hauz/web",
-    "lint": "npm run lint --workspace @empanada-hauz/api && npm run lint --workspace @empanada-hauz/web",
+    "lint": "npm run lint --workspace @empanada-hauz/api && npm run lint --workspace @empanada-hauz/web && npm run lint --workspace @empanada-hauz/rider",
     "db:generate": "npm run prisma:generate --workspace @empanada-hauz/api",
     "db:push": "npm run prisma:push --workspace @empanada-hauz/api"
+  },
+  "dependencies": {
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   }
 }

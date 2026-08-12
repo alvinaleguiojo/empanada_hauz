@@ -167,6 +167,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     customerName: "",
     phoneNumber: "",
     deliveryFee: "0",
+    discountAmount: "0",
     deliveryMethod: "pickup",
     paymentMethod: "cod",
     location: "",
@@ -325,6 +326,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         customerName: selectedOrder.customer?.name ?? "",
         phoneNumber: selectedOrder.customer?.phoneNumber ?? "",
         deliveryFee: String(selectedOrder.deliveryFee ?? 0),
+        discountAmount: String(selectedOrder.discountAmount ?? 0),
         deliveryMethod: selectedOrder.deliveryMethod ?? "pickup",
         paymentMethod: selectedOrder.paymentMethod ?? "cod",
         location: selectedOrder.location ?? "",
@@ -361,6 +363,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         customerName: selectedOrder.customer?.name ?? "",
         phoneNumber: selectedOrder.customer?.phoneNumber ?? "",
         deliveryFee: String(selectedOrder.deliveryFee ?? 0),
+        discountAmount: String(selectedOrder.discountAmount ?? 0),
         deliveryMethod: selectedOrder.deliveryMethod ?? "pickup",
         paymentMethod: selectedOrder.paymentMethod ?? "cod",
         location: selectedOrder.location ?? "",
@@ -412,6 +415,31 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     return `${totals.totalOrders} orders`;
   }, [search, selectedDate, statusFilter, totals.totalOrders, totals.visibleOrders]);
 
+  const queuedFlavorTotals = useMemo(() => {
+    const totalsByFlavor = new Map<string, number>();
+
+    filteredItems
+      .filter((order) => order.status === "queued")
+      .forEach((order) => {
+        const lineItems = getOrderLineItems(order);
+        const displayItems = lineItems.length > 0 ? lineItems : [{ name: "Empanada", quantity: Number(order.quantity ?? 0) }];
+        displayItems.forEach((item) => {
+          const quantity = Number(item.quantity ?? 0);
+          if (!item.name || quantity < 1) {
+            return;
+          }
+
+          totalsByFlavor.set(item.name, (totalsByFlavor.get(item.name) ?? 0) + quantity);
+        });
+      });
+
+    return [...totalsByFlavor.entries()]
+      .map(([name, quantity]) => ({ name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name));
+  }, [filteredItems]);
+
+  const queuedFlavorQuantity = queuedFlavorTotals.reduce((sum, item) => sum + item.quantity, 0);
+
   const orderItemSummary = useMemo(() => {
     const items = lineItems
       .map((item) => {
@@ -429,16 +457,18 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     const quantity = items.reduce((sum, item) => sum + item.quantity, 0);
     const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
     const deliveryFee = form.deliveryMethod === "maxim" ? Number(form.deliveryFee || 0) : 0;
+    const discountAmount = Number(form.discountAmount || 0);
 
     return {
       items,
       quantity,
       subtotal,
       deliveryFee,
-      total: subtotal + deliveryFee,
+      discountAmount,
+      total: Math.max(0, subtotal + deliveryFee - discountAmount),
       unitPrice: quantity > 0 ? subtotal / quantity : 0
     };
-  }, [form.deliveryFee, form.deliveryMethod, lineItems]);
+  }, [form.deliveryFee, form.deliveryMethod, form.discountAmount, lineItems]);
 
   function updateStatus() {
     if (!selectedOrder) {
@@ -480,6 +510,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
             quantity: orderItemSummary.quantity,
             unitPrice: orderItemSummary.unitPrice,
             deliveryFee: orderItemSummary.deliveryFee,
+            discountAmount: orderItemSummary.discountAmount,
             items: orderItemSummary.items,
             deliveryMethod: form.deliveryMethod,
             paymentMethod: form.paymentMethod,
@@ -721,6 +752,28 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
         </div>
       ) : null}
 
+      <Card className="border-line/70 bg-panel/80 p-3 shadow-none">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-foreground/35">Queued Flavor Count</p>
+            <p className="mt-1 text-sm text-foreground/55">
+              {queuedFlavorTotals.length} flavor{queuedFlavorTotals.length === 1 ? "" : "s"} · {queuedFlavorQuantity} pcs total
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {queuedFlavorTotals.length > 0 ? (
+              queuedFlavorTotals.map((item) => (
+                <Badge key={item.name} className="border border-line/70 bg-black/15 text-foreground/72">
+                  {item.name}: <span className="ml-1 font-semibold text-foreground">{item.quantity} pcs</span>
+                </Badge>
+              ))
+            ) : (
+              <span className="text-sm text-foreground/45">No queued flavors.</span>
+            )}
+          </div>
+        </div>
+      </Card>
+
       <div className="min-w-0 overflow-x-auto rounded-lg border border-line/80 bg-panel/55 p-2 pb-3 shadow-sm shadow-black/10 sm:p-3 sm:pb-4">
         <div className="grid min-w-full grid-flow-col auto-cols-[minmax(224px,85vw)] gap-3 sm:auto-cols-[minmax(248px,1fr)]">
           {visibleColumns.map((status) => {
@@ -961,6 +1014,14 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                           {shouldShowMaximTrackingFields() ? (
                             <Input type="number" min="0" step="0.01" value={form.deliveryFee} onChange={(e) => setForm((c) => ({ ...c, deliveryFee: e.target.value }))} placeholder="Delivery fee" />
                           ) : null}
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={form.discountAmount}
+                            onChange={(e) => setForm((c) => ({ ...c, discountAmount: e.target.value }))}
+                            placeholder="Discount"
+                          />
                           <Input value={form.location} onChange={(e) => setForm((c) => ({ ...c, location: e.target.value }))} placeholder="Area / location" />
                           <Input value={form.address} onChange={(e) => setForm((c) => ({ ...c, address: e.target.value }))} placeholder="Address" />
                           <Input type="datetime-local" value={form.preferredSchedule} onChange={(e) => setForm((c) => ({ ...c, preferredSchedule: e.target.value }))} />
@@ -1042,9 +1103,12 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
                               <div className="grid gap-3 sm:grid-cols-2">
                                 <MiniStat
                                   label="Item Subtotal"
-                                  value={`Php ${String(Number(selectedOrder.totalAmount ?? 0) - Number(selectedOrder.deliveryFee ?? 0))}`}
+                                  value={`Php ${String(Number(selectedOrder.totalAmount ?? 0) - Number(selectedOrder.deliveryFee ?? 0) + Number(selectedOrder.discountAmount ?? 0))}`}
                                 />
                                 <MiniStat label="Delivery Fee" value={`Php ${String(selectedOrder.deliveryFee ?? 0)}`} />
+                                {Number(selectedOrder.discountAmount ?? 0) > 0 ? (
+                                  <MiniStat label="Discount" value={`Php ${String(selectedOrder.discountAmount ?? 0)}`} />
+                                ) : null}
                               </div>
                               <div className="space-y-3 rounded-lg border border-line/75 bg-black/[0.08] p-4">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1447,12 +1511,14 @@ function formatOrderDetailsForCopy(order: any) {
     return `${item.name}: ${item.quantity} pcs${price}${amount}`;
   });
   const address = order?.address ?? order?.location ?? "No address provided";
+  const landmark = typeof order?.location === "string" ? order.location.trim() : "";
 
   return [
     `Order: ${order?.orderNumber ?? ""}`,
     `Customer: ${order?.customer?.name ?? ""}`,
     `Phone: ${order?.customer?.phoneNumber ?? "No phone number"}`,
     `Address: ${address}`,
+    ...(landmark ? [`Landmark: ${landmark}`] : []),
     `Schedule: ${formatSchedule(order?.preferredSchedule)}`,
     `Delivery: ${order?.deliveryMethod ?? ""}`,
     `Payment: ${formatPaymentMethod(order?.paymentMethod)}`,

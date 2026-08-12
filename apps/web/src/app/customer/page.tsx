@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Baloo_2, Caveat, IBM_Plex_Mono } from "next/font/google";
 import {
   ArrowLeft,
@@ -43,7 +43,6 @@ type SelectedFlavor = {
 
 type FormState = {
   deliveryDate: string;
-  deliveryTime: string;
   customerName: string;
   address: string;
   landmark: string;
@@ -69,7 +68,6 @@ type SuccessState = {
 
 const initialState: FormState = {
   deliveryDate: "",
-  deliveryTime: "",
   customerName: "",
   address: "",
   landmark: "",
@@ -78,14 +76,6 @@ const initialState: FormState = {
   deliveryMethod: "pickup",
   notes: ""
 };
-
-function formatHourLabel(time24: string) {
-  const [hourStr] = time24.split(":");
-  const hour = Number(hourStr);
-  const period = hour >= 12 ? "PM" : "AM";
-  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${hour12}:00 ${period}`;
-}
 
 const steps = [
   { title: "Choose flavors", subtitle: "Pick one or more flavors" },
@@ -101,6 +91,7 @@ export default function CustomerKioskPage() {
   const [success, setSuccess] = useState<SuccessState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -127,6 +118,8 @@ export default function CustomerKioskPage() {
     return { items, totalQuantity, subtotal };
   }, [selectedFlavors]);
 
+  const allFlavorsSelected = selectedFlavors.length === flavorOptions.length;
+
   const todayDateString = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -135,18 +128,21 @@ export default function CustomerKioskPage() {
     return `${year}-${month}-${day}`;
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("ref")?.trim();
+    if (code) {
+      window.localStorage.setItem("empanada-referral-code", code);
+      setReferralCode(code);
+      return;
+    }
+
+    setReferralCode(window.localStorage.getItem("empanada-referral-code") ?? "");
+  }, []);
+
   // If the delivery date is today, the earliest selectable time is the start
   // of the next full hour — e.g. at 10:15 the earliest option is 11:00, not
   // any time within the current hour.
-  const minDeliveryTime = useMemo(() => {
-    if (form.deliveryDate !== todayDateString) {
-      return undefined;
-    }
-    const now = new Date();
-    const nextHour = (now.getHours() + 1) % 24;
-    return `${String(nextHour).padStart(2, "0")}:00`;
-  }, [form.deliveryDate, todayDateString]);
-
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
@@ -158,6 +154,19 @@ export default function CustomerKioskPage() {
         return current.filter((item) => item.value !== value);
       }
       return [...current, { value, quantity: "1" }];
+    });
+  };
+
+  const toggleAllFlavors = () => {
+    setSelectedFlavors((current) => {
+      if (current.length === flavorOptions.length) {
+        return [];
+      }
+
+      return flavorOptions.map((option) => {
+        const existing = current.find((item) => item.value === option.value);
+        return existing ?? { value: option.value, quantity: "1" };
+      });
     });
   };
 
@@ -209,20 +218,12 @@ export default function CustomerKioskPage() {
       return;
     }
 
-    if (form.deliveryDate && form.deliveryTime) {
-      const scheduled = new Date(`${form.deliveryDate}T${form.deliveryTime}`);
-      if (scheduled.getTime() < Date.now()) {
-        setError("Your selected delivery date/time has already passed. Please choose a later time.");
-        return;
-      }
-    }
-
     setError(null);
     setSuccess(null);
     setSubmitting(true);
 
     try {
-      const preferredSchedule = form.deliveryDate && form.deliveryTime ? `${form.deliveryDate}T${form.deliveryTime}` : undefined;
+      const preferredSchedule = form.deliveryDate ? `${form.deliveryDate}T00:00` : undefined;
       const result = await apiFetch<PublicOrderResponse>("/orders/public", {
         method: "POST",
         body: JSON.stringify({
@@ -236,7 +237,8 @@ export default function CustomerKioskPage() {
           paymentMethod: form.paymentMethod,
           preferredSchedule,
           items: summary.items,
-          notes: form.notes.trim() || undefined
+          notes: form.notes.trim() || undefined,
+          referralCode: referralCode || undefined
         })
       });
       const trackingPath = result.trackingPath ?? `/track/${result.order.id}`;
@@ -432,8 +434,21 @@ export default function CustomerKioskPage() {
                       <h2 className="font-[family-name:var(--font-display)] text-2xl text-[#F6EFDD]">Today&apos;s flavors</h2>
                       <p className="mt-1 text-sm text-[#F2E8D5]/60">Tap as many as you like, set quantity per flavor.</p>
                     </div>
-                    <div className="rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-3 py-1 text-xs font-semibold text-[#E3A64B]">
-                      Pick one or more
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={toggleAllFlavors}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                          allFlavorsSelected
+                            ? "border-[#F2E8D5]/25 bg-[#F2E8D5]/10 text-[#F2E8D5]/70 active:bg-[#F2E8D5]/15"
+                            : "border-[#E3A64B]/45 bg-[#E3A64B]/15 text-[#E3A64B] active:bg-[#E3A64B]/25"
+                        }`}
+                      >
+                        {allFlavorsSelected ? "Clear all" : "Select all"}
+                      </button>
+                      <div className="rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-3 py-1 text-xs font-semibold text-[#E3A64B]">
+                        Pick one or more
+                      </div>
                     </div>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -560,34 +575,9 @@ export default function CustomerKioskPage() {
                         type="date"
                         value={form.deliveryDate}
                         min={todayDateString}
-                        onChange={(event) => {
-                          const nextDate = event.target.value;
-                          handleChange("deliveryDate", nextDate);
-                          // Clear a previously chosen time if it's no longer valid for the new date
-                          if (nextDate === todayDateString && form.deliveryTime) {
-                            const now = new Date();
-                            const nextHour = (now.getHours() + 1) % 24;
-                            const minTime = `${String(nextHour).padStart(2, "0")}:00`;
-                            if (form.deliveryTime < minTime) {
-                              handleChange("deliveryTime", "");
-                            }
-                          }
-                        }}
+                        onChange={(event) => handleChange("deliveryDate", event.target.value)}
                         className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none"
                       />
-                    </label>
-                    <label className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4">
-                      <span className="mb-2 block text-sm font-medium text-[#F2E8D5]/75">Delivery time</span>
-                      <input
-                        type="time"
-                        value={form.deliveryTime}
-                        min={minDeliveryTime}
-                        onChange={(event) => handleChange("deliveryTime", event.target.value)}
-                        className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none"
-                      />
-                      {minDeliveryTime ? (
-                        <span className="mt-1.5 block text-xs text-[#F2E8D5]/40">Earliest today: {formatHourLabel(minDeliveryTime)}</span>
-                      ) : null}
                     </label>
                   </div>
                 </div>
