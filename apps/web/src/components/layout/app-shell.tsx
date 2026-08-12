@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, LogOut, MessageCircle, Mic, MicOff, ReceiptText, Send, Share2, Truck, Video, VideoOff } from "lucide-react";
+import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, LogOut, Maximize2, MessageCircle, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, ReceiptText, Send, Share2, Truck, Video, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { socket } from "@/lib/socket";
 import { useRealtimeStore } from "@/store/realtime-store";
@@ -66,12 +67,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [voiceCallType, setVoiceCallType] = useState<VoiceCallType>("audio");
   const [voiceMuted, setVoiceMuted] = useState(false);
   const [videoMuted, setVideoMuted] = useState(false);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [videoFullscreen, setVideoFullscreen] = useState(false);
+  const [panelPosition, setPanelPosition] = useState<{ x: number; y: number } | null>(null);
+  const [panelDragging, setPanelDragging] = useState(false);
   const voiceCallStreamRef = useRef<MediaStream | null>(null);
   const voiceCallRemoteStreamRef = useRef<MediaStream | null>(null);
+  const voiceCallScreenStreamRef = useRef<MediaStream | null>(null);
   const voiceCallPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const voiceCallRemoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceCallLocalVideoRef = useRef<HTMLVideoElement | null>(null);
   const voiceCallRemoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const voiceCallVideoStageRef = useRef<HTMLDivElement | null>(null);
+  const voiceCallPanelRef = useRef<HTMLDivElement | null>(null);
+  const panelDragOffsetRef = useRef({ x: 0, y: 0 });
   const voiceCallStatusRef = useRef<VoiceCallStatus>("idle");
   const voiceCallTypeRef = useRef<VoiceCallType>("audio");
   const voiceMutedRef = useRef(false);
@@ -154,6 +163,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       void voiceCallRemoteVideoRef.current.play().catch(() => undefined);
     }
   }, [voiceCallOpen, voiceCallStatus, voiceCallType]);
+
+  useEffect(() => {
+    if (!panelDragging) {
+      return;
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      const panel = voiceCallPanelRef.current;
+      const width = panel?.offsetWidth ?? 0;
+      const height = panel?.offsetHeight ?? 0;
+      const nextX = clampNumber(event.clientX - panelDragOffsetRef.current.x, 8, window.innerWidth - width - 8);
+      const nextY = clampNumber(event.clientY - panelDragOffsetRef.current.y, 8, window.innerHeight - height - 8);
+      setPanelPosition({ x: nextX, y: nextY });
+    }
+
+    function handlePointerUp() {
+      setPanelDragging(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [panelDragging]);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setVideoFullscreen(Boolean(document.fullscreenElement));
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    if (!voiceCallOpen) {
+      setPanelPosition(null);
+    }
+  }, [voiceCallOpen]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -459,6 +509,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setVoiceCallType(callType);
       setVoiceMuted(false);
       setVideoMuted(false);
+      setScreenSharing(false);
       await ensureVoiceCallStream(callType);
       const callId = crypto.randomUUID();
       voiceCallIdRef.current = callId;
@@ -486,6 +537,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     try {
       setVoiceMuted(false);
       setVideoMuted(false);
+      setScreenSharing(false);
       await ensureVoiceCallStream(voiceCallTypeRef.current);
       setVoiceCallStatus("connecting");
       setVoiceCallError(null);
@@ -514,6 +566,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     voiceCallTypeRef.current = "audio";
     setVoiceMuted(false);
     setVideoMuted(false);
+    setScreenSharing(false);
     setVoicePeerName("Operator");
     setVoiceCallError(null);
   }
@@ -533,6 +586,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     voiceCallTypeRef.current = "audio";
     setVoiceMuted(false);
     setVideoMuted(false);
+    setScreenSharing(false);
     setVoicePeerName("Operator");
     setVoiceCallError(message ?? null);
   }
@@ -548,7 +602,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       peerConnection.close();
     }
     stopVoiceCallStream(voiceCallStreamRef.current);
+    stopVoiceCallStream(voiceCallScreenStreamRef.current);
     voiceCallStreamRef.current = null;
+    voiceCallScreenStreamRef.current = null;
     voiceCallRemoteStreamRef.current = null;
     if (voiceCallRemoteAudioRef.current) {
       voiceCallRemoteAudioRef.current.srcObject = null;
@@ -558,6 +614,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     if (voiceCallRemoteVideoRef.current) {
       voiceCallRemoteVideoRef.current.srcObject = null;
+    }
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
     }
     pendingVoiceIceCandidatesRef.current = [];
     voiceCallIdRef.current = null;
@@ -635,6 +694,91 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     voiceCallStreamRef.current?.getVideoTracks().forEach((track) => {
       track.enabled = enabled;
     });
+  }
+
+  async function toggleScreenShare() {
+    if (!voiceCallBusy || voiceCallTypeRef.current !== "video") {
+      return;
+    }
+
+    const peerConnection = voiceCallPeerConnectionRef.current;
+
+    if (screenSharing) {
+      const cameraTrack = voiceCallStreamRef.current?.getVideoTracks()[0] ?? null;
+      const sender = peerConnection?.getSenders().find((item) => item.track?.kind === "video");
+      if (sender && cameraTrack) {
+        await sender.replaceTrack(cameraTrack);
+      }
+      if (voiceCallLocalVideoRef.current && voiceCallStreamRef.current) {
+        voiceCallLocalVideoRef.current.srcObject = voiceCallStreamRef.current;
+        void voiceCallLocalVideoRef.current.play().catch(() => undefined);
+      }
+      voiceCallScreenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      voiceCallScreenStreamRef.current = null;
+      setScreenSharing(false);
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setVoiceCallError("Screen sharing isn't supported in this browser.");
+      return;
+    }
+
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+      voiceCallScreenStreamRef.current = screenStream;
+
+      const sender = peerConnection?.getSenders().find((item) => item.track?.kind === "video");
+      if (sender) {
+        await sender.replaceTrack(screenTrack);
+      }
+
+      if (voiceCallLocalVideoRef.current) {
+        voiceCallLocalVideoRef.current.srcObject = screenStream;
+        void voiceCallLocalVideoRef.current.play().catch(() => undefined);
+      }
+
+      // The browser's own "Stop sharing" control ends the track directly,
+      // so react to that the same way as our own toggle button.
+      screenTrack.onended = () => {
+        void toggleScreenShare();
+      };
+
+      setScreenSharing(true);
+    } catch {
+      setVoiceCallError("Screen sharing permission was blocked or cancelled.");
+    }
+  }
+
+  function toggleVideoFullscreen() {
+    const stage = voiceCallVideoStageRef.current;
+    if (!stage) {
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void stage.requestFullscreen();
+    }
+  }
+
+  function startPanelDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if ((event.target as HTMLElement).closest("button, input, a")) {
+      return;
+    }
+
+    const panel = voiceCallPanelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const rect = panel.getBoundingClientRect();
+    panelDragOffsetRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    setPanelPosition((current) => current ?? { x: rect.left, y: rect.top });
+    setPanelDragging(true);
+    event.preventDefault();
   }
 
   async function addOrQueueVoiceIceCandidate(candidate: RTCIceCandidateInit) {
@@ -824,9 +968,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ) : null}
                 </button>
                 {voiceCallOpen ? (
-                  <div className="absolute right-0 top-12 z-[100] flex max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] max-w-[420px] flex-col overflow-y-auto rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]">
-                    <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 bg-[#111827] pb-2">
-                      <div>
+                  <div
+                    ref={voiceCallPanelRef}
+                    style={panelPosition ? { position: "fixed", left: panelPosition.x, top: panelPosition.y, right: "auto" } : undefined}
+                    className={cn(
+                      "absolute right-0 top-12 z-[100] flex max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] flex-col overflow-y-auto rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]",
+                      voiceCallType === "video" && voiceCallBusy ? "max-w-[560px]" : "max-w-[420px]"
+                    )}
+                  >
+                    <div
+                      onPointerDown={startPanelDrag}
+                      className="sticky top-0 z-10 mb-3 flex cursor-grab items-center justify-between gap-3 bg-[#111827] pb-2 active:cursor-grabbing"
+                    >
+                      <div className="select-none">
                         <h3 className="text-sm font-semibold text-white">Communications</h3>
                         <p className="text-[11px] text-white/45">{realtimeConnected ? "Realtime connected" : "Realtime disconnected"}</p>
                       </div>
@@ -854,10 +1008,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {voiceCallError ?? formatVoiceCallStatus(voiceCallStatus, voicePeerName, voiceCallType)}
                     </div>
                     {voiceCallType === "video" && voiceCallBusy ? (
-                      <div className="relative mt-3 aspect-video max-h-[220px] overflow-hidden rounded-md border border-white/10 bg-black">
-                        <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                      <div
+                        ref={voiceCallVideoStageRef}
+                        className={cn(
+                          "group relative mt-3 overflow-hidden rounded-md border border-white/10 bg-black",
+                          videoFullscreen ? "aspect-auto h-screen w-screen" : "aspect-video max-h-[420px]"
+                        )}
+                      >
+                        <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
                         <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">Remote</span>
-                        <div className="absolute bottom-2 right-2 h-20 w-28 overflow-hidden rounded-md border border-white/20 bg-black shadow-lg sm:h-24 sm:w-32">
+                        <button
+                          type="button"
+                          suppressHydrationWarning
+                          onClick={toggleVideoFullscreen}
+                          aria-label={videoFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                          title={videoFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                          className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-black/60 text-white/75 transition hover:bg-black/80 hover:text-white"
+                        >
+                          {videoFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                        </button>
+                        <div
+                          className={cn(
+                            "absolute overflow-hidden rounded-md border border-white/20 bg-black shadow-lg",
+                            videoFullscreen ? "bottom-4 right-4 h-32 w-44" : "bottom-2 right-2 h-20 w-28 sm:h-24 sm:w-32"
+                          )}
+                        >
                           {videoMuted ? (
                             <div className="flex h-full w-full items-center justify-center bg-black/80">
                               <VideoOff size={16} className="text-white/40" />
@@ -865,12 +1040,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           ) : (
                             <video ref={voiceCallLocalVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
                           )}
-                          <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white/75">You</span>
+                          <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white/75">
+                            {screenSharing ? "Your screen" : "You"}
+                          </span>
                         </div>
                       </div>
                     ) : null}
                     {voiceCallBusy && voiceCallStatus !== "incoming" ? (
-                      <div className={cn("mt-3 grid gap-2", voiceCallType === "video" ? "grid-cols-2" : "grid-cols-1")}>
+                      <div className={cn("mt-3 grid gap-2", voiceCallType === "video" ? "grid-cols-3" : "grid-cols-1")}>
                         <button
                           type="button"
                           suppressHydrationWarning
@@ -883,22 +1060,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           )}
                         >
                           {voiceMuted ? <MicOff size={16} /> : <Mic size={16} />}
-                          {voiceMuted ? "Unmute" : "Mute"}
+                          <span className="hidden sm:inline">{voiceMuted ? "Unmute" : "Mute"}</span>
                         </button>
                         {voiceCallType === "video" ? (
                           <button
                             type="button"
                             suppressHydrationWarning
                             onClick={toggleVideoMute}
+                            disabled={screenSharing}
                             className={cn(
-                              "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
+                              "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
                               videoMuted
                                 ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
                                 : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
                             )}
                           >
                             {videoMuted ? <VideoOff size={16} /> : <Video size={16} />}
-                            {videoMuted ? "Start Video" : "Stop Video"}
+                            <span className="hidden sm:inline">{videoMuted ? "Start Video" : "Stop Video"}</span>
+                          </button>
+                        ) : null}
+                        {voiceCallType === "video" ? (
+                          <button
+                            type="button"
+                            suppressHydrationWarning
+                            onClick={() => void toggleScreenShare()}
+                            className={cn(
+                              "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
+                              screenSharing
+                                ? "border-sky-300/45 bg-sky-300/12 text-sky-100 hover:bg-sky-300/18"
+                                : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
+                            )}
+                          >
+                            {screenSharing ? <MonitorOff size={16} /> : <MonitorUp size={16} />}
+                            <span className="hidden sm:inline">{screenSharing ? "Stop Sharing" : "Share Screen"}</span>
                           </button>
                         ) : null}
                       </div>
@@ -1212,6 +1406,13 @@ function formatChatTime(value: string) {
     hour: "numeric",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (max < min) {
+    return min;
+  }
+  return Math.min(Math.max(value, min), max);
 }
 
 function formatVoiceCallStatus(status: VoiceCallStatus, peerName: string, callType: VoiceCallType) {
