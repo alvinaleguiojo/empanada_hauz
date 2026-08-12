@@ -370,6 +370,30 @@ function buildDailyCashFlow(
   });
 }
 
+/**
+ * Historical orders (manual entry / Messenger intake) contain flavor names
+ * that drifted from the canonical menu list (apps/web/src/lib/menu.ts).
+ * Without normalizing these, the same flavor gets split into multiple rows
+ * in "Most Ordered Items". Map known variants to their canonical name here.
+ * Keys are matched case-insensitively after trimming.
+ */
+const ITEM_NAME_ALIASES: Record<string, string> = {
+  "pork regular with egg": "Pork with Egg",
+  "mango": "Mango Flavor",
+  "ube empanada": "Ube with Cheese",
+  "ube": "Ube with Cheese",
+  "bacon with cheese": "Bacon",
+  "choco": "Choco Flavor",
+  "new flavor pork asado": "Pork Asado",
+  "pork asado (new flavor)": "Pork Asado",
+  "beef special": "Beef"
+};
+
+function normalizeItemName(name: string): string {
+  const key = name.trim().toLowerCase();
+  return ITEM_NAME_ALIASES[key] ?? name.trim();
+}
+
 function buildTopItems(orders: Array<{ items: unknown; quantity: number }>) {
   const itemCounts = new Map<string, number>();
 
@@ -382,7 +406,7 @@ function buildTopItems(orders: Array<{ items: unknown; quantity: number }>) {
     }
 
     for (const item of lineItems) {
-      addItemCount(itemCounts, item.name, item.quantity);
+      addItemCount(itemCounts, normalizeItemName(item.name), item.quantity);
     }
   }
 
