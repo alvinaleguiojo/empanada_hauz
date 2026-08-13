@@ -8,6 +8,7 @@ import {
   WebSocketServer
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
+import { ChatService } from "../modules/chat/chat.service";
 
 @WebSocketGateway({
   cors: {
@@ -20,6 +21,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   server!: Server;
 
   private readonly voiceClients = new Map<string, string>();
+
+  constructor(private readonly chatService: ChatService) {}
 
   handleConnection() {
     return;
@@ -95,22 +98,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   @SubscribeMessage("operator.chat.send")
-  handleOperatorChatSend(
+  async handleOperatorChatSend(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: OperatorChatMessagePayload
   ) {
     const text = typeof payload?.text === "string" ? payload.text.trim() : "";
-    if (!text) {
+    if (!text || !payload?.from) {
       return;
     }
 
-    client.broadcast.emit("operator.chat.message", {
-      id: payload.id ?? `${Date.now()}-${client.id}`,
-      from: payload.from,
+    const saved = await this.chatService.record({
+      fromId: payload.from,
       name: payload.name ?? "Operator",
       text: text.slice(0, 1000),
-      createdAt: payload.createdAt ?? new Date().toISOString()
+      createdAt: payload.createdAt
     });
+
+    client.broadcast.emit("operator.chat.message", saved);
   }
 
   private emitToVoiceClient(clientId: string | undefined, event: string, payload: unknown) {

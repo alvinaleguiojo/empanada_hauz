@@ -16,6 +16,7 @@ import { InventoryModule } from "./modules/inventory/inventory.module";
 import { ExpensesModule } from "./modules/expenses/expenses.module";
 import { ReferralsModule } from "./modules/referrals/referrals.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { ChatModule } from "./modules/chat/chat.module";
 import { HealthModule } from "./modules/health/health.module";
 import { McpModule } from "./modules/mcp/mcp.module";
 import { DatabaseModule } from "./database/database.module";
@@ -50,6 +51,7 @@ import { RealtimeModule } from "./common/realtime.module";
     ExpensesModule,
     ReferralsModule,
     NotificationsModule,
+    ChatModule,
     McpModule
   ]
 })

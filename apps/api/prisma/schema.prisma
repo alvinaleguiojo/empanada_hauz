@@ -462,3 +462,13 @@ model AnalyticsSnapshot {
   productionEfficiency Float
   createdAt           DateTime @default(now())
 }
+
+model OperatorChatMessage {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  fromId    String
+  name      String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

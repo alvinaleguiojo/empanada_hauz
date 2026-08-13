@@ -8,6 +8,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, LogOut, Maximize2, MessageCircle, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, ReceiptText, Send, Share2, Truck, Video, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 import { socket } from "@/lib/socket";
 import { useRealtimeStore } from "@/store/realtime-store";
 import { VOICE_ICE_SERVERS } from "@/lib/config";
@@ -59,6 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [operatorChatDraft, setOperatorChatDraft] = useState("");
   const [operatorChatMessages, setOperatorChatMessages] = useState<OperatorChatMessage[]>([]);
   const [operatorChatUnread, setOperatorChatUnread] = useState(0);
+  const [chatOpen, setChatOpen] = useState(false);
   const [voiceCallOpen, setVoiceCallOpen] = useState(false);
   const [voiceCallStatus, setVoiceCallStatus] = useState<VoiceCallStatus>("idle");
   const [voiceCallError, setVoiceCallError] = useState<string | null>(null);
@@ -111,6 +113,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.sessionStorage.setItem("empanada-voice-client-id", nextVoiceClientId);
     setVoiceClientId(nextVoiceClientId);
 
+    apiFetch<OperatorChatMessage[]>("/chat/messages")
+      .then((history) => setOperatorChatMessages(history))
+      .catch(() => undefined);
+
     return () => {
       cleanupVoiceCall();
     };
@@ -118,21 +124,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     voiceCallStatusRef.current = voiceCallStatus;
-  }, [voiceCallStatus]);
+
+    if (voiceCallStatus === "connecting" || voiceCallStatus === "active") {
+      if (voiceCallIdRef.current && voiceRemoteClientIdRef.current) {
+        window.sessionStorage.setItem(
+          "empanada-active-voice-call",
+          JSON.stringify({
+            callId: voiceCallIdRef.current,
+            remoteClientId: voiceRemoteClientIdRef.current,
+            type: voiceCallTypeRef.current,
+            peerName: voicePeerName
+          })
+        );
+      }
+    } else if (voiceCallStatus === "idle") {
+      window.sessionStorage.removeItem("empanada-active-voice-call");
+    }
+  }, [voiceCallStatus, voicePeerName]);
 
   useEffect(() => {
-    communicationsOpenRef.current = voiceCallOpen;
-    if (voiceCallOpen) {
+    communicationsOpenRef.current = voiceCallOpen && chatOpen;
+    if (voiceCallOpen && chatOpen) {
       setOperatorChatUnread(0);
       window.setTimeout(() => operatorChatMessagesEndRef.current?.scrollIntoView({ block: "end" }), 0);
     }
-  }, [voiceCallOpen]);
+  }, [voiceCallOpen, chatOpen]);
 
   useEffect(() => {
-    if (voiceCallOpen) {
+    if (voiceCallOpen && chatOpen) {
       operatorChatMessagesEndRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [operatorChatMessages, voiceCallOpen]);
+  }, [operatorChatMessages, voiceCallOpen, chatOpen]);
 
   useEffect(() => {
     voiceCallTypeRef.current = voiceCallType;
@@ -229,7 +251,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setOperatorChatMessages((current) => [...current, message].slice(-100));
+      setOperatorChatMessages((current) => (current.some((item) => item.id === message.id) ? current : [...current, message].slice(-200)));
       if (!communicationsOpenRef.current) {
         setOperatorChatUnread((current) => current + 1);
       }
@@ -389,6 +411,79 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       await addOrQueueVoiceIceCandidate(payload.candidate);
     };
 
+    const handleClientJoined = async (payload: { clientId?: string; name?: string }) => {
+      const isSameActiveCallPeer =
+        payload?.clientId &&
+        payload.clientId === voiceRemoteClientIdRef.current &&
+        (voiceCallStatusRef.current === "active" || voiceCallStatusRef.current === "connecting") &&
+        voiceCallIdRef.current;
+
+      if (!isSameActiveCallPeer) {
+        return;
+      }
+
+      // Our call partner's tab just (re)announced itself, most likely because
+      // they refreshed mid-call. Tear down the now-stale connection and
+      // re-offer using the same callId so their reload can pick it back up.
+      const stalePeerConnection = voiceCallPeerConnectionRef.current;
+      voiceCallPeerConnectionRef.current = null;
+      if (stalePeerConnection) {
+        stalePeerConnection.onicecandidate = null;
+        stalePeerConnection.ontrack = null;
+        stalePeerConnection.onconnectionstatechange = null;
+        stalePeerConnection.close();
+      }
+
+      try {
+        const peerConnection = await createVoicePeerConnection(payload.clientId!);
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit("voice.call.offer", {
+          callId: voiceCallIdRef.current,
+          from: voiceClientId,
+          to: payload.clientId,
+          description: offer
+        });
+        setVoiceCallStatus("connecting");
+      } catch {
+        endVoiceCall(false, "Lost connection to the other operator.");
+      }
+    };
+
+    const storedCallRaw = window.sessionStorage.getItem("empanada-active-voice-call");
+    if (storedCallRaw && voiceCallStatusRef.current === "idle") {
+      try {
+        const storedCall = JSON.parse(storedCallRaw) as {
+          callId: string;
+          remoteClientId: string;
+          type: VoiceCallType;
+          peerName: string;
+        };
+        if (storedCall.callId && storedCall.remoteClientId) {
+          voiceCallIdRef.current = storedCall.callId;
+          voiceRemoteClientIdRef.current = storedCall.remoteClientId;
+          voiceCallTypeRef.current = storedCall.type === "video" ? "video" : "audio";
+          setVoiceCallType(voiceCallTypeRef.current);
+          setVoicePeerName(storedCall.peerName || "Operator");
+          setVoiceCallStatus("connecting");
+          setVoiceCallError(null);
+          setVoiceCallOpen(true);
+
+          const resumeTimeout = window.setTimeout(() => {
+            if (voiceCallStatusRef.current === "connecting") {
+              endVoiceCall(true, "Couldn't reconnect the call after refresh.");
+            }
+          }, 20000);
+
+          const clearResumeTimeout = () => window.clearTimeout(resumeTimeout);
+          socket.once("voice.call.offer", clearResumeTimeout);
+          socket.once("voice.call.ended", clearResumeTimeout);
+        }
+      } catch {
+        window.sessionStorage.removeItem("empanada-active-voice-call");
+      }
+    }
+
     announcePresence();
     socket.on("connect", announcePresence);
     socket.on("voice.call.incoming", handleIncomingCall);
@@ -398,6 +493,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     socket.on("voice.call.offer", handleOffer);
     socket.on("voice.call.answer", handleAnswer);
     socket.on("voice.call.ice", handleIce);
+    socket.on("voice.client.joined", handleClientJoined);
 
     return () => {
       socket.off("connect", announcePresence);
@@ -408,6 +504,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       socket.off("voice.call.offer", handleOffer);
       socket.off("voice.call.answer", handleAnswer);
       socket.off("voice.call.ice", handleIce);
+      socket.off("voice.client.joined", handleClientJoined);
     };
   }, [voiceClientId]);
 
@@ -969,242 +1066,286 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </button>
                 {voiceCallOpen ? (
                   <div
+                    onClick={() => setVoiceCallOpen(false)}
+                    className="fixed inset-0 z-[95] bg-black/65 backdrop-blur-[1px]"
+                  />
+                ) : null}
+                {voiceCallOpen ? (
+                  <div
                     ref={voiceCallPanelRef}
-                    style={panelPosition ? { position: "fixed", left: panelPosition.x, top: panelPosition.y, right: "auto" } : undefined}
+                    onClick={(event) => event.stopPropagation()}
+                    style={
+                      panelPosition
+                        ? { position: "fixed", left: panelPosition.x, top: panelPosition.y, right: "auto" }
+                        : { position: "fixed", left: "50%", top: "50%", transform: "translate(-50%, -50%)" }
+                    }
                     className={cn(
-                      "absolute right-0 top-12 z-[100] max-h-[calc(100vh-6rem)] w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border border-white/[0.16] bg-[#111827] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.72)]",
-                      voiceCallType === "video" && voiceCallBusy ? "max-w-[560px]" : "max-w-[420px]"
+                      "z-[100] flex max-h-[calc(100vh-3rem)] w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-lg border border-white/[0.16] bg-[#111827] shadow-[0_24px_80px_rgba(0,0,0,0.72)]",
+                      voiceCallType === "video" && voiceCallBusy
+                        ? chatOpen
+                          ? "max-w-[880px]"
+                          : "max-w-[640px]"
+                        : "max-w-[420px]"
                     )}
                   >
                     <div
                       onPointerDown={startPanelDrag}
-                      className="sticky top-0 z-10 mb-3 flex cursor-grab items-center justify-between gap-3 bg-[#111827] pb-2 active:cursor-grabbing"
+                      className="flex shrink-0 cursor-grab items-center justify-between gap-3 border-b border-white/10 bg-[#111827] px-4 py-3 active:cursor-grabbing"
                     >
                       <div className="select-none">
                         <h3 className="text-sm font-semibold text-white">Communications</h3>
                         <p className="text-[11px] text-white/45">{realtimeConnected ? "Realtime connected" : "Realtime disconnected"}</p>
                       </div>
-                      <button
-                        type="button"
-                        suppressHydrationWarning
-                        onClick={() => setVoiceCallOpen(false)}
-                        className="rounded-md border border-white/15 bg-white/[0.06] px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.1] hover:text-white"
-                      >
-                        Close
-                      </button>
-                    </div>
-                    <div
-                      className={cn(
-                        "rounded-md border px-2.5 py-2 text-xs font-medium",
-                        voiceCallActive
-                          ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100/85"
-                          : voiceCallError
-                          ? "border-rose-400/25 bg-rose-400/10 text-rose-100/85"
-                          : voiceCallStatus === "incoming"
-                          ? "border-sky-400/25 bg-sky-400/10 text-sky-100/85"
-                          : "border-white/10 bg-black/15 text-white/60"
-                      )}
-                    >
-                      {voiceCallError ?? formatVoiceCallStatus(voiceCallStatus, voicePeerName, voiceCallType)}
-                    </div>
-                    {voiceCallType === "video" && voiceCallBusy ? (
-                      <div
-                        ref={voiceCallVideoStageRef}
-                        style={videoFullscreen ? undefined : { aspectRatio: "16 / 9" }}
-                        className={cn(
-                          "group relative mt-3 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black",
-                          videoFullscreen ? "h-screen w-screen" : "max-h-[420px] w-full"
-                        )}
-                      >
-                        <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
-                        <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">Remote</span>
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
                           suppressHydrationWarning
-                          onClick={toggleVideoFullscreen}
-                          aria-label={videoFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                          title={videoFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                          className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-black/60 text-white/75 transition hover:bg-black/80 hover:text-white"
+                          onClick={() => setChatOpen((value) => !value)}
+                          aria-label={chatOpen ? "Hide chat" : "Show chat"}
+                          title={chatOpen ? "Hide chat" : "Show chat"}
+                          className={cn(
+                            "relative inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-semibold transition",
+                            chatOpen
+                              ? "border-accent/45 bg-accent/18 text-white"
+                              : "border-white/15 bg-white/[0.06] text-white/70 hover:bg-white/[0.1]"
+                          )}
                         >
-                          {videoFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                          <MessageCircle size={13} />
+                          Chat
+                          {!chatOpen && operatorChatUnread > 0 ? (
+                            <span className="absolute -right-1.5 -top-1.5 min-w-4 rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
+                              {operatorChatUnread > 9 ? "9+" : operatorChatUnread}
+                            </span>
+                          ) : null}
                         </button>
+                        <button
+                          type="button"
+                          suppressHydrationWarning
+                          onClick={() => setVoiceCallOpen(false)}
+                          className="rounded-md border border-white/15 bg-white/[0.06] px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.1] hover:text-white"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto sm:flex-row sm:overflow-hidden">
+                      <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:min-w-0">
                         <div
                           className={cn(
-                            "absolute overflow-hidden rounded-md border border-white/20 bg-black shadow-lg",
-                            videoFullscreen ? "bottom-4 right-4 h-32 w-44" : "bottom-2 right-2 h-20 w-28 sm:h-24 sm:w-32"
+                            "rounded-md border px-2.5 py-2 text-xs font-medium",
+                            voiceCallActive
+                              ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100/85"
+                              : voiceCallError
+                              ? "border-rose-400/25 bg-rose-400/10 text-rose-100/85"
+                              : voiceCallStatus === "incoming"
+                              ? "border-sky-400/25 bg-sky-400/10 text-sky-100/85"
+                              : "border-white/10 bg-black/15 text-white/60"
                           )}
                         >
-                          {videoMuted ? (
-                            <div className="flex h-full w-full items-center justify-center bg-black/80">
-                              <VideoOff size={16} className="text-white/40" />
+                          {voiceCallError ?? formatVoiceCallStatus(voiceCallStatus, voicePeerName, voiceCallType)}
+                        </div>
+                        {voiceCallType === "video" && voiceCallBusy ? (
+                          <div
+                            ref={voiceCallVideoStageRef}
+                            style={videoFullscreen ? undefined : { aspectRatio: "16 / 9" }}
+                            className={cn(
+                              "group relative shrink-0 overflow-hidden rounded-md border border-white/10 bg-black",
+                              videoFullscreen ? "h-screen w-screen" : "max-h-[560px] w-full"
+                            )}
+                          >
+                            <video ref={voiceCallRemoteVideoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
+                            <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-1 text-[11px] font-semibold text-white/75">Remote</span>
+                            <button
+                              type="button"
+                              suppressHydrationWarning
+                              onClick={toggleVideoFullscreen}
+                              aria-label={videoFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                              title={videoFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                              className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-black/60 text-white/75 transition hover:bg-black/80 hover:text-white"
+                            >
+                              {videoFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                            </button>
+                            <div
+                              className={cn(
+                                "absolute overflow-hidden rounded-md border border-white/20 bg-black shadow-lg",
+                                videoFullscreen ? "bottom-4 right-4 h-32 w-44" : "bottom-2 right-2 h-20 w-28 sm:h-24 sm:w-32"
+                              )}
+                            >
+                              {videoMuted ? (
+                                <div className="flex h-full w-full items-center justify-center bg-black/80">
+                                  <VideoOff size={16} className="text-white/40" />
+                                </div>
+                              ) : (
+                                <video ref={voiceCallLocalVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                              )}
+                              <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white/75">
+                                {screenSharing ? "Your screen" : "You"}
+                              </span>
                             </div>
-                          ) : (
-                            <video ref={voiceCallLocalVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-                          )}
-                          <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white/75">
-                            {screenSharing ? "Your screen" : "You"}
-                          </span>
-                        </div>
-                      </div>
-                    ) : null}
-                    {voiceCallBusy && voiceCallStatus !== "incoming" ? (
-                      <div className={cn("mt-3 grid gap-2", voiceCallType === "video" ? "grid-cols-3" : "grid-cols-1")}>
-                        <button
-                          type="button"
-                          suppressHydrationWarning
-                          onClick={toggleVoiceMute}
-                          className={cn(
-                            "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
-                            voiceMuted
-                              ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
-                              : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
-                          )}
-                        >
-                          {voiceMuted ? <MicOff size={16} /> : <Mic size={16} />}
-                          <span className="hidden sm:inline">{voiceMuted ? "Unmute" : "Mute"}</span>
-                        </button>
-                        {voiceCallType === "video" ? (
-                          <button
-                            type="button"
-                            suppressHydrationWarning
-                            onClick={toggleVideoMute}
-                            disabled={screenSharing}
-                            className={cn(
-                              "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
-                              videoMuted
-                                ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
-                                : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
-                            )}
-                          >
-                            {videoMuted ? <VideoOff size={16} /> : <Video size={16} />}
-                            <span className="hidden sm:inline">{videoMuted ? "Start Video" : "Stop Video"}</span>
-                          </button>
+                          </div>
                         ) : null}
-                        {voiceCallType === "video" ? (
-                          <button
-                            type="button"
-                            suppressHydrationWarning
-                            onClick={() => void toggleScreenShare()}
-                            className={cn(
-                              "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
-                              screenSharing
-                                ? "border-sky-300/45 bg-sky-300/12 text-sky-100 hover:bg-sky-300/18"
-                                : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
-                            )}
-                          >
-                            {screenSharing ? <MonitorOff size={16} /> : <MonitorUp size={16} />}
-                            <span className="hidden sm:inline">{screenSharing ? "Stop Sharing" : "Share Screen"}</span>
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {voiceCallStatus === "incoming" ? (
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          suppressHydrationWarning
-                          onClick={acceptVoiceCall}
-                          className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-400/45 bg-emerald-400/12 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/18"
-                        >
-                          {voiceCallType === "video" ? <Video size={16} /> : <Mic size={16} />}
-                          Accept
-                        </button>
-                        <button
-                          type="button"
-                          suppressHydrationWarning
-                          onClick={declineVoiceCall}
-                          className="inline-flex items-center justify-center gap-2 rounded-md border border-rose-400/45 bg-rose-400/12 px-3 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/18"
-                        >
-                          <MicOff size={16} />
-                          Decline
-                        </button>
-                      </div>
-                    ) : (
-                      voiceCallBusy ? (
-                        <button
-                          type="button"
-                          suppressHydrationWarning
-                          onClick={() => endVoiceCall(true)}
-                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-rose-400/45 bg-rose-400/12 px-3 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/18"
-                        >
-                          {voiceCallType === "video" ? <VideoOff size={16} /> : <MicOff size={16} />}
-                          End call
-                        </button>
-                      ) : (
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            suppressHydrationWarning
-                            onClick={() => void startVoiceCall("audio")}
-                            className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-400/45 bg-emerald-400/12 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/18"
-                          >
-                            <Mic size={16} />
-                            Audio
-                          </button>
-                          <button
-                            type="button"
-                            suppressHydrationWarning
-                            onClick={() => void startVoiceCall("video")}
-                            className="inline-flex items-center justify-center gap-2 rounded-md border border-sky-400/45 bg-sky-400/12 px-3 py-2 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/18"
-                          >
-                            <Video size={16} />
-                            Video
-                          </button>
-                        </div>
-                      )
-                    )}
-                    <div className="mt-4 border-t border-white/10 pt-3">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-white/52">Chat</h4>
-                        <span className="text-[11px] text-white/35">{operatorChatMessages.length} messages</span>
-                      </div>
-                      <div className="max-h-[260px] min-h-[170px] space-y-2 overflow-y-auto rounded-md border border-white/10 bg-black/15 p-2.5">
-                        {operatorChatMessages.length === 0 ? (
-                          <p className="py-10 text-center text-sm text-white/45">No chat messages yet.</p>
-                        ) : null}
-                        {operatorChatMessages.map((message) => {
-                          const mine = message.from === voiceClientId;
-                          return (
-                            <div key={message.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
-                              <div
+                        {voiceCallBusy && voiceCallStatus !== "incoming" ? (
+                          <div className={cn("grid gap-2", voiceCallType === "video" ? "grid-cols-3" : "grid-cols-1")}>
+                            <button
+                              type="button"
+                              suppressHydrationWarning
+                              onClick={toggleVoiceMute}
+                              className={cn(
+                                "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
+                                voiceMuted
+                                  ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
+                                  : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
+                              )}
+                            >
+                              {voiceMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                              <span className="hidden sm:inline">{voiceMuted ? "Unmute" : "Mute"}</span>
+                            </button>
+                            {voiceCallType === "video" ? (
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                onClick={toggleVideoMute}
+                                disabled={screenSharing}
                                 className={cn(
-                                  "max-w-[82%] rounded-lg border px-3 py-2 text-sm shadow-[0_10px_24px_rgba(0,0,0,0.18)]",
-                                  mine
-                                    ? "border-accent/35 bg-accent/18 text-white"
-                                    : "border-white/12 bg-white/[0.07] text-white/82"
+                                  "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
+                                  videoMuted
+                                    ? "border-amber-300/45 bg-amber-300/12 text-amber-100 hover:bg-amber-300/18"
+                                    : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
                                 )}
                               >
-                                <div className="mb-1 flex items-center justify-between gap-3">
-                                  <span className="truncate text-[11px] font-semibold text-white/50">{mine ? "You" : message.name}</span>
-                                  <span className="shrink-0 text-[10px] text-white/35">{formatChatTime(message.createdAt)}</span>
-                                </div>
-                                <p className="whitespace-pre-wrap break-words leading-5">{message.text}</p>
-                              </div>
+                                {videoMuted ? <VideoOff size={16} /> : <Video size={16} />}
+                                <span className="hidden sm:inline">{videoMuted ? "Start Video" : "Stop Video"}</span>
+                              </button>
+                            ) : null}
+                            {voiceCallType === "video" ? (
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                onClick={() => void toggleScreenShare()}
+                                className={cn(
+                                  "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition",
+                                  screenSharing
+                                    ? "border-sky-300/45 bg-sky-300/12 text-sky-100 hover:bg-sky-300/18"
+                                    : "border-white/15 bg-white/[0.06] text-white/80 hover:bg-white/[0.1]"
+                                )}
+                              >
+                                {screenSharing ? <MonitorOff size={16} /> : <MonitorUp size={16} />}
+                                <span className="hidden sm:inline">{screenSharing ? "Stop Sharing" : "Share Screen"}</span>
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {voiceCallStatus === "incoming" ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              suppressHydrationWarning
+                              onClick={acceptVoiceCall}
+                              className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-400/45 bg-emerald-400/12 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/18"
+                            >
+                              {voiceCallType === "video" ? <Video size={16} /> : <Mic size={16} />}
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              suppressHydrationWarning
+                              onClick={declineVoiceCall}
+                              className="inline-flex items-center justify-center gap-2 rounded-md border border-rose-400/45 bg-rose-400/12 px-3 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/18"
+                            >
+                              <MicOff size={16} />
+                              Decline
+                            </button>
+                          </div>
+                        ) : (
+                          voiceCallBusy ? (
+                            <button
+                              type="button"
+                              suppressHydrationWarning
+                              onClick={() => endVoiceCall(true)}
+                              className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-rose-400/45 bg-rose-400/12 px-3 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/18"
+                            >
+                              {voiceCallType === "video" ? <VideoOff size={16} /> : <MicOff size={16} />}
+                              End call
+                            </button>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                onClick={() => void startVoiceCall("audio")}
+                                className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-400/45 bg-emerald-400/12 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/18"
+                              >
+                                <Mic size={16} />
+                                Audio
+                              </button>
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                onClick={() => void startVoiceCall("video")}
+                                className="inline-flex items-center justify-center gap-2 rounded-md border border-sky-400/45 bg-sky-400/12 px-3 py-2 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/18"
+                              >
+                                <Video size={16} />
+                                Video
+                              </button>
                             </div>
-                          );
-                        })}
-                        <div ref={operatorChatMessagesEndRef} />
+                          )
+                        )}
                       </div>
-                      <form onSubmit={sendOperatorChatMessage} className="mt-3 flex gap-2">
-                        <input
-                          value={operatorChatDraft}
-                          onChange={(event) => setOperatorChatDraft(event.target.value)}
-                          placeholder={realtimeConnected ? "Message operators" : "Realtime disconnected"}
-                          disabled={!realtimeConnected}
-                          maxLength={1000}
-                          className="h-10 min-w-0 flex-1 rounded-lg border border-white/[0.09] bg-[#101827]/80 px-3 text-sm text-white outline-none transition placeholder:text-white/32 focus:border-accent/70 disabled:cursor-not-allowed disabled:opacity-55"
-                        />
-                        <button
-                          type="submit"
-                          suppressHydrationWarning
-                          disabled={!operatorChatDraft.trim() || !realtimeConnected}
-                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-accent/45 bg-accent/15 text-accent transition hover:bg-accent/22 disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label="Send chat message"
-                          title="Send"
-                        >
-                          <Send size={16} />
-                        </button>
-                      </form>
+                      {chatOpen ? (
+                        <div className="flex w-full shrink-0 flex-col border-t border-white/10 sm:h-full sm:w-[300px] sm:border-l sm:border-t-0">
+                          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
+                            <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-white/52">Chat</h4>
+                            <span className="text-[11px] text-white/35">{operatorChatMessages.length} messages</span>
+                          </div>
+                          <div className="min-h-[220px] flex-1 space-y-2 overflow-y-auto p-3 sm:min-h-0">
+                            {operatorChatMessages.length === 0 ? (
+                              <p className="py-10 text-center text-sm text-white/45">No chat messages yet.</p>
+                            ) : null}
+                            {operatorChatMessages.map((message) => {
+                              const mine = message.from === voiceClientId;
+                              return (
+                                <div key={message.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+                                  <div
+                                    className={cn(
+                                      "max-w-[92%] rounded-lg border px-3 py-2 text-sm shadow-[0_10px_24px_rgba(0,0,0,0.18)]",
+                                      mine
+                                        ? "border-accent/35 bg-accent/18 text-white"
+                                        : "border-white/12 bg-white/[0.07] text-white/82"
+                                    )}
+                                  >
+                                    <div className="mb-1 flex items-center justify-between gap-3">
+                                      <span className="truncate text-[11px] font-semibold text-white/50">{mine ? "You" : message.name}</span>
+                                      <span className="shrink-0 text-[10px] text-white/35">{formatChatTime(message.createdAt)}</span>
+                                    </div>
+                                    <p className="whitespace-pre-wrap break-words leading-5">{message.text}</p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            <div ref={operatorChatMessagesEndRef} />
+                          </div>
+                          <form onSubmit={sendOperatorChatMessage} className="flex shrink-0 gap-2 border-t border-white/10 p-3">
+                            <input
+                              value={operatorChatDraft}
+                              onChange={(event) => setOperatorChatDraft(event.target.value)}
+                              placeholder={realtimeConnected ? "Message operators" : "Realtime disconnected"}
+                              disabled={!realtimeConnected}
+                              maxLength={1000}
+                              className="h-10 min-w-0 flex-1 rounded-lg border border-white/[0.09] bg-[#101827]/80 px-3 text-sm text-white outline-none transition placeholder:text-white/32 focus:border-accent/70 disabled:cursor-not-allowed disabled:opacity-55"
+                            />
+                            <button
+                              type="submit"
+                              suppressHydrationWarning
+                              disabled={!operatorChatDraft.trim() || !realtimeConnected}
+                              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-accent/45 bg-accent/15 text-accent transition hover:bg-accent/22 disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label="Send chat message"
+                              title="Send"
+                            >
+                              <Send size={16} />
+                            </button>
+                          </form>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
