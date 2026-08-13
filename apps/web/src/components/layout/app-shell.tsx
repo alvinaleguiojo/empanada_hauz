@@ -78,6 +78,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const voiceCallScreenStreamRef = useRef<MediaStream | null>(null);
   const voiceCallPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const voiceCallRemoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceCallLocalVideoRef = useRef<HTMLVideoElement | null>(null);
   const voiceCallRemoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const voiceCallVideoStageRef = useRef<HTMLDivElement | null>(null);
@@ -141,6 +142,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.sessionStorage.removeItem("empanada-active-voice-call");
     }
   }, [voiceCallStatus, voicePeerName]);
+
+  useEffect(() => {
+    const ringtone = ringtoneAudioRef.current;
+    if (!ringtone) {
+      return;
+    }
+
+    if (voiceCallStatus === "incoming") {
+      ringtone.currentTime = 0;
+      void ringtone.play().catch(() => undefined);
+    } else {
+      ringtone.pause();
+      ringtone.currentTime = 0;
+    }
+  }, [voiceCallStatus]);
 
   useEffect(() => {
     communicationsOpenRef.current = voiceCallOpen && chatOpen;
@@ -1129,7 +1145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       </div>
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto sm:flex-row sm:overflow-hidden">
-                      <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:min-w-0">
+                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 sm:min-w-0">
                         <div
                           className={cn(
                             "rounded-md border px-2.5 py-2 text-xs font-medium",
@@ -1292,12 +1308,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         )}
                       </div>
                       {chatOpen ? (
-                        <div className="flex w-full shrink-0 flex-col border-t border-white/10 sm:h-full sm:w-[300px] sm:border-l sm:border-t-0">
+                        <div className="flex min-h-0 w-full shrink-0 flex-col border-t border-white/10 sm:h-full sm:w-[300px] sm:border-l sm:border-t-0">
                           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
                             <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-white/52">Chat</h4>
                             <span className="text-[11px] text-white/35">{operatorChatMessages.length} messages</span>
                           </div>
-                          <div className="min-h-[220px] flex-1 space-y-2 overflow-y-auto p-3 sm:min-h-0">
+                          <div className="max-h-[45vh] min-h-[160px] flex-1 space-y-2 overflow-y-auto p-3 sm:max-h-none sm:min-h-0">
                             {operatorChatMessages.length === 0 ? (
                               <p className="py-10 text-center text-sm text-white/45">No chat messages yet.</p>
                             ) : null}
@@ -1448,6 +1464,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           {children}
           <audio ref={voiceCallRemoteAudioRef} autoPlay playsInline />
+          <audio ref={ringtoneAudioRef} src="/IPhone%20original%20ringtone.mp3" loop preload="auto" />
         </main>
       </div>
     </div>
