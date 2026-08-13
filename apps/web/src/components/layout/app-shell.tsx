@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -1080,13 +1081,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </span>
                   ) : null}
                 </button>
-                {voiceCallOpen ? (
-                  <div
-                    onClick={() => setVoiceCallOpen(false)}
-                    className="fixed inset-0 z-[95] bg-black/65 backdrop-blur-[1px]"
-                  />
-                ) : null}
-                {voiceCallOpen ? (
+                {voiceCallOpen && typeof document !== "undefined"
+                  ? createPortal(
+                      <>
+                        <div
+                          onClick={() => setVoiceCallOpen(false)}
+                          className="fixed inset-0 z-[95] bg-black/65 backdrop-blur-[1px]"
+                        />
+                        {voiceCallOpen ? (
                   <div
                     ref={voiceCallPanelRef}
                     onClick={(event) => event.stopPropagation()}
@@ -1365,6 +1367,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </div>
                   </div>
                 ) : null}
+                      </>,
+                      document.body
+                    )
+                  : null}
               </div>
               <div className="relative">
               <button
