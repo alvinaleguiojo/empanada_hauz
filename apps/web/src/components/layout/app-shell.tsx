@@ -1310,12 +1310,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         )}
                       </div>
                       {chatOpen ? (
-                        <div className="flex min-h-0 w-full shrink-0 flex-col border-t border-white/10 sm:h-full sm:w-[300px] sm:border-l sm:border-t-0">
+                        <div className="flex w-full shrink-0 flex-col border-t border-white/10 sm:max-h-[calc(100vh-9rem)] sm:w-[300px] sm:border-l sm:border-t-0">
                           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
                             <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-white/52">Chat</h4>
                             <span className="text-[11px] text-white/35">{operatorChatMessages.length} messages</span>
                           </div>
-                          <div className="max-h-[45vh] min-h-[160px] flex-1 space-y-2 overflow-y-auto p-3 sm:max-h-none sm:min-h-0">
+                          <div className="max-h-[45vh] min-h-[160px] space-y-2 overflow-y-auto p-3 sm:max-h-[calc(100vh-14rem)]">
                             {operatorChatMessages.length === 0 ? (
                               <p className="py-10 text-center text-sm text-white/45">No chat messages yet.</p>
                             ) : null}
