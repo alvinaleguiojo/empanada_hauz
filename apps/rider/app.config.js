@@ -1,12 +1,11 @@
-const appConfig = require('./app.json');
-
 module.exports = ({ config }) => ({
-  ...appConfig.expo,
+  ...config,
   android: {
-    ...appConfig.expo.android,
+    ...config.android,
     config: {
-      ...appConfig.expo.android?.config,
+      ...config.android?.config,
       googleMaps: {
+        ...config.android?.config?.googleMaps,
         apiKey: process.env.GOOGLE_MAPS_API_KEY,
       },
     },
