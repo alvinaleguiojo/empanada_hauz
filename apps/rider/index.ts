@@ -1,5 +1,5 @@
 import { registerRootComponent } from "expo";
 
-import RiderTabbedApp from "./RiderTabbedApp";
+import RiderRealtimeApp from "./RiderRealtimeApp";
 
-registerRootComponent(RiderTabbedApp);
+registerRootComponent(RiderRealtimeApp);
