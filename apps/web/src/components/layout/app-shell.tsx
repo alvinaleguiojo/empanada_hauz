@@ -86,6 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const voiceCallPanelRef = useRef<HTMLDivElement | null>(null);
   const panelDragOffsetRef = useRef({ x: 0, y: 0 });
   const voiceCallStatusRef = useRef<VoiceCallStatus>("idle");
+  const voiceCallPersistHydratedRef = useRef(false);
   const voiceCallTypeRef = useRef<VoiceCallType>("audio");
   const voiceMutedRef = useRef(false);
   const videoMutedRef = useRef(false);
@@ -128,6 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     voiceCallStatusRef.current = voiceCallStatus;
 
     if (voiceCallStatus === "connecting" || voiceCallStatus === "active") {
+      voiceCallPersistHydratedRef.current = true;
       if (voiceCallIdRef.current && voiceRemoteClientIdRef.current) {
         window.sessionStorage.setItem(
           "empanada-active-voice-call",
@@ -140,7 +142,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         );
       }
     } else if (voiceCallStatus === "idle") {
-      window.sessionStorage.removeItem("empanada-active-voice-call");
+      // On the very first render voiceCallStatus is "idle" by default,
+      // before the restore-on-reload effect (a few renders later) has had
+      // a chance to read sessionStorage. Without this guard, that initial
+      // "idle" render wipes the persisted call before it can ever be
+      // resumed. Only actually clear storage once we've observed a real
+      // busy status at least once this session.
+      if (voiceCallPersistHydratedRef.current) {
+        window.sessionStorage.removeItem("empanada-active-voice-call");
+      }
     }
   }, [voiceCallStatus, voicePeerName]);
 
