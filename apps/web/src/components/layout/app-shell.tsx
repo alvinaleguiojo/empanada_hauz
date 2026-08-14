@@ -1059,37 +1059,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="relative min-w-0 rounded-lg border border-white/[0.04] bg-[#0e1524]/38 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-sm sm:p-4">
           <div className="mb-4 flex justify-end">
             <div className="flex items-center gap-2">
-              <div className="relative">
-                <button
-                  type="button"
-                  suppressHydrationWarning
-                  onClick={() => setVoiceCallOpen((value) => !value)}
-                  aria-label="Open communications"
-                  title="Communications"
-                  className={cn(
-                    "relative inline-flex h-10 w-10 items-center justify-center rounded-lg border shadow-lg shadow-black/15 transition",
-                    voiceCallOpen || voiceCallBusy
-                      ? "border-sky-400/45 bg-sky-400/15 text-sky-100 hover:bg-sky-400/22"
-                      : "border-white/[0.09] bg-panel/80 hover:bg-white/[0.08]"
-                  )}
-                >
-                  <MessageCircle size={18} />
-                  {voiceCallBusy ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.9)]" /> : null}
-                  {operatorChatUnread > 0 ? (
-                    <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      {operatorChatUnread > 9 ? "9+" : operatorChatUnread}
-                    </span>
-                  ) : null}
-                </button>
-                {voiceCallOpen && typeof document !== "undefined"
-                  ? createPortal(
-                      <>
-                        <div
-                          onClick={() => setVoiceCallOpen(false)}
-                          className="fixed inset-0 z-[95] bg-black/65 backdrop-blur-[1px]"
-                        />
-                        {voiceCallOpen ? (
-                  <div
+              {voiceCallOpen && typeof document !== "undefined"
+                ? createPortal(
+                    <>
+                      <div
+                        onClick={() => setVoiceCallOpen(false)}
+                        className="fixed inset-0 z-[95] bg-black/65 backdrop-blur-[1px]"
+                      />
+                      <div
                     ref={voiceCallPanelRef}
                     onClick={(event) => event.stopPropagation()}
                     style={
@@ -1366,12 +1343,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       ) : null}
                     </div>
                   </div>
-                ) : null}
                       </>,
                       document.body
                     )
                   : null}
-              </div>
               <div className="relative">
               <button
                 type="button"
@@ -1473,6 +1448,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <audio ref={ringtoneAudioRef} src="/IPhone%20original%20ringtone.mp3" loop preload="auto" />
         </main>
       </div>
+      {typeof document !== "undefined"
+        ? createPortal(
+            <button
+              type="button"
+              suppressHydrationWarning
+              onClick={() => setVoiceCallOpen((value) => !value)}
+              aria-label="Open communications"
+              title="Communications"
+              className={cn(
+                "fixed bottom-6 right-6 z-[90] inline-flex h-16 w-16 items-center justify-center rounded-full border shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur transition hover:scale-105",
+                voiceCallOpen || voiceCallBusy
+                  ? "border-sky-400/55 bg-sky-400/22 text-sky-100 hover:bg-sky-400/28"
+                  : "border-white/[0.12] bg-panel/90 text-foreground/85 hover:bg-white/[0.1]"
+              )}
+            >
+              <MessageCircle size={26} />
+              {voiceCallBusy ? (
+                <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.9)]" />
+              ) : null}
+              {operatorChatUnread > 0 ? (
+                <span className="absolute -right-1 -top-1 min-w-6 rounded-full bg-accent px-1.5 py-0.5 text-xs font-semibold text-white">
+                  {operatorChatUnread > 9 ? "9+" : operatorChatUnread}
+                </span>
+              ) : null}
+            </button>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
