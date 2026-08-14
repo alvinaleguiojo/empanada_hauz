@@ -15,6 +15,7 @@ import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { ExpensesModule } from "./modules/expenses/expenses.module";
 import { ReferralsModule } from "./modules/referrals/referrals.module";
+import { ReferralChatModule } from "./modules/referral-chat/referral-chat.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { ChatModule } from "./modules/chat/chat.module";
 import { HealthModule } from "./modules/health/health.module";
@@ -28,9 +29,7 @@ import { RealtimeModule } from "./common/realtime.module";
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        connection: {
-          url: config.getOrThrow<string>("REDIS_URL")
-        }
+        connection: { url: config.getOrThrow<string>("REDIS_URL") }
       })
     }),
     DatabaseModule,
@@ -50,6 +49,7 @@ import { RealtimeModule } from "./common/realtime.module";
     InventoryModule,
     ExpensesModule,
     ReferralsModule,
+    ReferralChatModule,
     NotificationsModule,
     ChatModule,
     McpModule
