@@ -24,9 +24,7 @@ export default async function ReferralPartnerDashboardPage() {
         <ReferralsDashboard initialData={initialData} endpoint="/referrals/partners/me" tokenStorageKey="empanada-referral-token" showLogout />
       </div>
 
-      <div className="fixed bottom-5 right-5 z-[70] h-[min(640px,calc(100vh-2rem))] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl shadow-2xl shadow-black/40 [&>div]:!h-full [&>div]:!min-h-0 [&>div>aside]:hidden [&>div>section]:!min-h-0">
-        <ReferralChat mode="partner" tokenStorageKey="empanada-referral-token" />
-      </div>
+      <ReferralChat mode="partner" tokenStorageKey="empanada-referral-token" floating />
     </main>
   );
 }
