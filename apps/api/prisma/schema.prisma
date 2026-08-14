@@ -502,33 +502,3 @@ model OperatorChatMessage {
 
   @@index([createdAt])
 }
-
-model ReferralChatConversation {
-  id                String    @id @default(auto()) @map("_id") @db.ObjectId
-  referralUserId    String?   @db.ObjectId
-  referralPartnerId String?   @db.ObjectId
-  adminUserId       String?   @db.ObjectId
-  status            String    @default("open")
-  lastMessage       String?
-  lastMessageAt     DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@index([referralUserId, updatedAt])
-  @@index([referralPartnerId, updatedAt])
-  @@index([adminUserId, updatedAt])
-}
-
-model ReferralChatMessage {
-  id             String    @id @default(auto()) @map("_id") @db.ObjectId
-  conversationId String    @db.ObjectId
-  senderType     String
-  senderId       String    @db.ObjectId
-  senderName     String
-  content        String
-  readAt         DateTime?
-  createdAt      DateTime  @default(now())
-
-  @@index([conversationId, createdAt])
-  @@index([conversationId, readAt])
-}
