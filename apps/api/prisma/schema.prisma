@@ -144,6 +144,36 @@ model ReferralPartner {
   updatedAt    DateTime @updatedAt
 }
 
+model ReferralChatConversation {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  referralUserId    String?  @db.ObjectId
+  referralPartnerId String?  @db.ObjectId
+  adminUserId       String?  @db.ObjectId
+  status            String   @default("open")
+  lastMessage       String?
+  lastMessageAt     DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([referralUserId, updatedAt])
+  @@index([referralPartnerId, updatedAt])
+  @@index([adminUserId, updatedAt])
+}
+
+model ReferralChatMessage {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String   @db.ObjectId
+  senderType     String
+  senderId       String   @db.ObjectId
+  senderName     String
+  content        String
+  readAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([conversationId, readAt])
+}
+
 model Customer {
   id                      String         @id @default(auto()) @map("_id") @db.ObjectId
   messengerPsid           String?
@@ -460,7 +490,7 @@ model AnalyticsSnapshot {
   topLocations        Json
   cancelledOrders     Int
   productionEfficiency Float
-  createdAt           DateTime @default(now())
+  createdAt            DateTime @default(now())
 }
 
 model OperatorChatMessage {
@@ -471,4 +501,34 @@ model OperatorChatMessage {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+model ReferralChatConversation {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  referralUserId    String?   @db.ObjectId
+  referralPartnerId String?   @db.ObjectId
+  adminUserId       String?   @db.ObjectId
+  status            String    @default("open")
+  lastMessage       String?
+  lastMessageAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([referralUserId, updatedAt])
+  @@index([referralPartnerId, updatedAt])
+  @@index([adminUserId, updatedAt])
+}
+
+model ReferralChatMessage {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String    @db.ObjectId
+  senderType     String
+  senderId       String    @db.ObjectId
+  senderName     String
+  content        String
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([conversationId, readAt])
 }
