@@ -35,114 +35,55 @@ export class DeliveryNetworkService {
 
   async createRider(dto: CreateRiderDto) {
     const passwordHash = await bcrypt.hash(dto.password, 10);
-
-    const rider = await this.prisma.$transaction(
-      async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            email: dto.email.toLowerCase().trim(),
-            name: dto.name.trim(),
-            passwordHash,
-            role: "rider"
-          }
-        });
-
-        return tx.rider.create({
-          data: {
-            userId: user.id,
-            phoneNumber: dto.phoneNumber?.trim() || null,
-            serviceArea: dto.serviceArea?.trim() || null,
-            vehicles: {
-              create: {
-                type: dto.vehicleType ?? "motorcycle",
-                plateNumber: dto.plateNumber?.trim() || null,
-                model: dto.vehicleModel?.trim() || null,
-                color: dto.vehicleColor?.trim() || null
-              }
-            }
-          },
-          include: {
-            user: { select: { id: true, name: true, email: true, role: true } },
-            vehicles: true
-          }
-        });
-      },
-      { timeout: 15000 }
-    );
-
+    const rider = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({ data: { email: dto.email.toLowerCase().trim(), name: dto.name.trim(), passwordHash, role: "rider" } });
+      return tx.rider.create({
+        data: {
+          userId: user.id,
+          phoneNumber: dto.phoneNumber?.trim() || null,
+          serviceArea: dto.serviceArea?.trim() || null,
+          vehicles: { create: { type: dto.vehicleType ?? "motorcycle", plateNumber: dto.plateNumber?.trim() || null, model: dto.vehicleModel?.trim() || null, color: dto.vehicleColor?.trim() || null } }
+        },
+        include: { user: { select: { id: true, name: true, email: true, role: true } }, vehicles: true }
+      });
+    }, { timeout: 15000 });
     this.realtime.emit("delivery-network.riders.updated", rider);
     return rider;
   }
 
   async updateRiderStatus(id: string, dto: UpdateRiderStatusDto) {
     await this.ensureRider(id);
-
     const rider = await this.prisma.rider.update({
-      where: { id },
-      data: { status: dto.status },
-      include: {
-        user: { select: { id: true, name: true, email: true, role: true } },
-        vehicles: { where: { isActive: true } },
-        locations: { orderBy: { createdAt: "desc" }, take: 1 }
-      }
+      where: { id }, data: { status: dto.status },
+      include: { user: { select: { id: true, name: true, email: true, role: true } }, vehicles: { where: { isActive: true } }, locations: { orderBy: { createdAt: "desc" }, take: 1 } }
     });
-
     this.realtime.emit("delivery-network.riders.updated", rider);
+    this.realtime.emitToRider(id, "rider.status.updated", rider);
     return rider;
   }
 
   async updateRiderLocation(id: string, dto: UpdateRiderLocationDto) {
     await this.ensureRider(id);
-
     const location = await this.prisma.riderLocation.create({
-      data: {
-        riderId: id,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        heading: dto.heading,
-        speed: dto.speed
-      },
-      include: {
-        rider: {
-          include: {
-            user: { select: { id: true, name: true, email: true, role: true } }
-          }
-        }
-      }
+      data: { riderId: id, latitude: dto.latitude, longitude: dto.longitude, heading: dto.heading, speed: dto.speed },
+      include: { rider: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }
     });
-
     this.realtime.emit("delivery-network.rider-location.updated", location);
+    this.realtime.emitToRider(id, "rider.location.updated", location);
     return location;
   }
 
   async listJobs(status?: DeliveryJobStatus) {
-    return this.prisma.deliveryJob.findMany({
-      where: status ? { status } : undefined,
-      include: this.jobIncludes(),
-      orderBy: { requestedAt: "desc" },
-      take: 200
-    });
+    return this.prisma.deliveryJob.findMany({ where: status ? { status } : undefined, include: this.jobIncludes(), orderBy: { requestedAt: "desc" }, take: 200 });
   }
 
   async createJob(dto: CreateDeliveryJobDto) {
-    if (dto.orderId) {
-      await this.ensureOrder(dto.orderId);
-    }
-
+    if (dto.orderId) await this.ensureOrder(dto.orderId);
     const routeEstimate = await this.maps.estimateRoute(
-      {
-        address: dto.pickupAddress,
-        latitude: dto.pickupLatitude,
-        longitude: dto.pickupLongitude
-      },
-      {
-        address: dto.dropoffAddress,
-        latitude: dto.dropoffLatitude,
-        longitude: dto.dropoffLongitude
-      }
+      { address: dto.pickupAddress, latitude: dto.pickupLatitude, longitude: dto.pickupLongitude },
+      { address: dto.dropoffAddress, latitude: dto.dropoffLatitude, longitude: dto.dropoffLongitude }
     );
     const distanceKm = routeEstimate?.distanceKm ?? dto.distanceKm;
-
     const job = await this.prisma.deliveryJob.create({
       data: {
         orderId: dto.orderId,
@@ -158,77 +99,28 @@ export class DeliveryNetworkService {
         estimatedFare: dto.estimatedFare ?? this.estimateFare(distanceKm),
         notes: dto.notes?.trim() || null,
         status: "requested"
-      },
-      include: this.jobIncludes()
+      }, include: this.jobIncludes()
     });
-
     this.realtime.emit("delivery-network.jobs.updated", job);
     return job;
   }
 
   async createJobFromOrder(dto: CreateDeliveryJobFromOrderDto) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: dto.orderId },
-      include: { customer: true, deliveryJobs: true }
-    });
-
-    if (!order) {
-      throw new NotFoundException("Order not found");
-    }
-
-    if (!order.address && !order.location) {
-      throw new BadRequestException("Order needs an address or location before creating a delivery job");
-    }
-
+    const order = await this.prisma.order.findUnique({ where: { id: dto.orderId }, include: { customer: true, deliveryJobs: true } });
+    if (!order) throw new NotFoundException("Order not found");
+    if (!order.address && !order.location) throw new BadRequestException("Order needs an address or location before creating a delivery job");
     const existingOpenJob = order.deliveryJobs.find((job) => !["delivered", "cancelled"].includes(job.status));
-    if (existingOpenJob) {
-      throw new BadRequestException("Order already has an open delivery job");
-    }
-
-    const routeEstimate = await this.maps.estimateRoute(
-      {
-        address: dto.pickupAddress,
-        latitude: dto.pickupLatitude,
-        longitude: dto.pickupLongitude
-      },
-      {
-        address: order.address ?? order.location ?? "No address"
-      }
-    );
+    if (existingOpenJob) throw new BadRequestException("Order already has an open delivery job");
+    const routeEstimate = await this.maps.estimateRoute({ address: dto.pickupAddress, latitude: dto.pickupLatitude, longitude: dto.pickupLongitude }, { address: order.address ?? order.location ?? "No address" });
     const estimatedFare = dto.estimatedFare ?? this.resolveEstimatedFare(routeEstimate, Number(order.deliveryFee || 0));
-
     const result = await this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: order.id },
-        data: {
-          deliveryMethod: "own_delivery",
-          status: order.status === "ready_for_booking" ? "booked" : order.status
-        },
-        include: { customer: true, delivery: true, batch: true, orderNotes: true }
-      });
-
+      const updatedOrder = await tx.order.update({ where: { id: order.id }, data: { deliveryMethod: "own_delivery", status: order.status === "ready_for_booking" ? "booked" : order.status }, include: { customer: true, delivery: true, batch: true, orderNotes: true } });
       const job = await tx.deliveryJob.create({
-        data: {
-          orderId: order.id,
-          pickupAddress: dto.pickupAddress,
-          pickupLatitude: routeEstimate?.origin.latitude ?? dto.pickupLatitude,
-          pickupLongitude: routeEstimate?.origin.longitude ?? dto.pickupLongitude,
-          dropoffAddress: order.address ?? order.location ?? "No address",
-          dropoffLatitude: routeEstimate?.destination.latitude,
-          dropoffLongitude: routeEstimate?.destination.longitude,
-          distanceKm: routeEstimate?.distanceKm,
-          estimatedDurationMinutes: routeEstimate?.durationMinutes,
-          estimatedArrivalAt: routeEstimate?.estimatedArrivalAt,
-          estimatedFare,
-          notes: order.notes,
-          status: "requested"
-        },
+        data: { orderId: order.id, pickupAddress: dto.pickupAddress, pickupLatitude: routeEstimate?.origin.latitude ?? dto.pickupLatitude, pickupLongitude: routeEstimate?.origin.longitude ?? dto.pickupLongitude, dropoffAddress: order.address ?? order.location ?? "No address", dropoffLatitude: routeEstimate?.destination.latitude, dropoffLongitude: routeEstimate?.destination.longitude, distanceKm: routeEstimate?.distanceKm, estimatedDurationMinutes: routeEstimate?.durationMinutes, estimatedArrivalAt: routeEstimate?.estimatedArrivalAt, estimatedFare, notes: order.notes, status: "requested" },
         include: this.jobIncludes()
       });
-
       return { job, updatedOrder };
     });
-
     this.realtime.emit("orders.updated", result.updatedOrder);
     this.realtime.emit("delivery-network.jobs.updated", result.job);
     return result.job;
@@ -236,157 +128,42 @@ export class DeliveryNetworkService {
 
   async assignJob(id: string, dto: AssignDeliveryJobDto) {
     const [job, rider] = await Promise.all([this.ensureJob(id), this.ensureRider(dto.riderId)]);
-
-    if (["delivered", "cancelled"].includes(job.status)) {
-      throw new BadRequestException("Cannot assign a closed delivery job");
-    }
-
-    if (rider.status === "suspended" || rider.status === "offline") {
-      throw new BadRequestException("Rider must be online before assignment");
-    }
-
+    if (["delivered", "cancelled"].includes(job.status)) throw new BadRequestException("Cannot assign a closed delivery job");
+    if (rider.status === "suspended" || rider.status === "offline") throw new BadRequestException("Rider must be online before assignment");
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.deliveryOffer.upsert({
         where: { jobId_riderId: { jobId: id, riderId: dto.riderId } },
-        create: {
-          jobId: id,
-          riderId: dto.riderId,
-          status: "accepted",
-          expiresAt: dto.offerExpiresAt ? new Date(dto.offerExpiresAt) : null
-        },
-        update: {
-          status: "accepted",
-          expiresAt: dto.offerExpiresAt ? new Date(dto.offerExpiresAt) : null
-        }
+        create: { jobId: id, riderId: dto.riderId, status: "accepted", expiresAt: dto.offerExpiresAt ? new Date(dto.offerExpiresAt) : null },
+        update: { status: "accepted", expiresAt: dto.offerExpiresAt ? new Date(dto.offerExpiresAt) : null }
       });
-
-      await tx.rider.update({
-        where: { id: dto.riderId },
-        data: { status: "busy" }
-      });
-
-      return tx.deliveryJob.update({
-        where: { id },
-        data: {
-          riderId: dto.riderId,
-          status: "assigned"
-        },
-        include: this.jobIncludes()
-      });
+      await tx.rider.update({ where: { id: dto.riderId }, data: { status: "busy" } });
+      return tx.deliveryJob.update({ where: { id }, data: { riderId: dto.riderId, status: "assigned" }, include: this.jobIncludes() });
     });
-
     this.realtime.emit("delivery-network.jobs.updated", updated);
+    this.realtime.emitToRider(dto.riderId, "rider.delivery.assigned", updated);
     this.realtime.emit("delivery-network.riders.updated", { id: dto.riderId, status: "busy" });
+    this.realtime.emitToRider(dto.riderId, "rider.status.updated", { id: dto.riderId, status: "busy" });
     return updated;
   }
 
   async updateJobStatus(id: string, dto: UpdateDeliveryJobStatusDto) {
     const job = await this.ensureJob(id);
-
     const updated = await this.prisma.$transaction(async (tx) => {
-      const updatedJob = await tx.deliveryJob.update({
-        where: { id },
-        data: {
-          status: dto.status,
-          finalFare: dto.finalFare,
-          acceptedAt: dto.status === "accepted" ? new Date() : job.acceptedAt,
-          pickedUpAt: dto.status === "picked_up" ? new Date() : job.pickedUpAt,
-          deliveredAt: dto.status === "delivered" ? new Date() : job.deliveredAt,
-          cancelledAt: dto.status === "cancelled" ? new Date() : job.cancelledAt
-        },
-        include: this.jobIncludes()
-      });
-
-      if (job.riderId && ["delivered", "cancelled"].includes(dto.status)) {
-        await tx.rider.update({
-          where: { id: job.riderId },
-          data: {
-            status: "online",
-            ...(dto.status === "delivered" ? { completedJobs: { increment: 1 } } : {})
-          }
-        });
-      }
-
-      if (job.orderId && dto.status === "delivered") {
-        await tx.order.update({
-          where: { id: job.orderId },
-          data: { status: "completed" }
-        });
-      }
-
+      const updatedJob = await tx.deliveryJob.update({ where: { id }, data: { status: dto.status, finalFare: dto.finalFare, acceptedAt: dto.status === "accepted" ? new Date() : job.acceptedAt, pickedUpAt: dto.status === "picked_up" ? new Date() : job.pickedUpAt, deliveredAt: dto.status === "delivered" ? new Date() : job.deliveredAt, cancelledAt: dto.status === "cancelled" ? new Date() : job.cancelledAt }, include: this.jobIncludes() });
+      if (job.riderId && ["delivered", "cancelled"].includes(dto.status)) await tx.rider.update({ where: { id: job.riderId }, data: { status: "online", ...(dto.status === "delivered" ? { completedJobs: { increment: 1 } } : {}) } });
+      if (job.orderId && dto.status === "delivered") await tx.order.update({ where: { id: job.orderId }, data: { status: "completed" } });
       return updatedJob;
     });
-
     this.realtime.emit("delivery-network.jobs.updated", updated);
-    if (updated.orderId && dto.status === "delivered") {
-      this.realtime.emit("orders.updated", updated.order);
-    }
+    if (updated.riderId) this.realtime.emitToRider(updated.riderId, "rider.delivery.updated", updated);
+    if (updated.orderId && dto.status === "delivered") this.realtime.emit("orders.updated", updated.order);
     return updated;
   }
 
-  private resolveEstimatedFare(routeEstimate: RouteEstimate | null, fallbackFare: number) {
-    if (routeEstimate) {
-      return this.estimateFare(routeEstimate.distanceKm);
-    }
-
-    return fallbackFare;
-  }
-
-  private estimateFare(distanceKm?: number) {
-    if (!distanceKm) {
-      return 0;
-    }
-
-    const baseFare = Number(process.env.DELIVERY_BASE_FARE ?? 50);
-    const perKmRate = Number(process.env.DELIVERY_PER_KM_RATE ?? 12);
-    const serviceFee = Number(process.env.DELIVERY_SERVICE_FEE ?? 0);
-    return Math.ceil(baseFare + distanceKm * perKmRate + serviceFee);
-  }
-
-  private jobIncludes() {
-    return {
-      order: { include: { customer: true } },
-      rider: {
-        include: {
-          user: { select: { id: true, name: true, email: true, role: true } },
-          vehicles: { where: { isActive: true } },
-          locations: { orderBy: { createdAt: "desc" }, take: 1 }
-        }
-      },
-      offers: {
-        include: {
-          rider: {
-            include: {
-              user: { select: { id: true, name: true, email: true, role: true } }
-            }
-          }
-        },
-        orderBy: { createdAt: "desc" }
-      }
-    } as const;
-  }
-
-  private async ensureRider(id: string) {
-    const rider = await this.prisma.rider.findUnique({ where: { id } });
-    if (!rider) {
-      throw new NotFoundException("Rider not found");
-    }
-    return rider;
-  }
-
-  private async ensureOrder(id: string) {
-    const order = await this.prisma.order.findUnique({ where: { id } });
-    if (!order) {
-      throw new NotFoundException("Order not found");
-    }
-    return order;
-  }
-
-  private async ensureJob(id: string) {
-    const job = await this.prisma.deliveryJob.findUnique({ where: { id } });
-    if (!job) {
-      throw new NotFoundException("Delivery job not found");
-    }
-    return job;
-  }
+  private resolveEstimatedFare(routeEstimate: RouteEstimate | null, fallbackFare: number) { return routeEstimate ? this.estimateFare(routeEstimate.distanceKm) : fallbackFare; }
+  private estimateFare(distanceKm?: number) { if (!distanceKm) return 0; const baseFare = Number(process.env.DELIVERY_BASE_FARE ?? 50); const perKmRate = Number(process.env.DELIVERY_PER_KM_RATE ?? 12); const serviceFee = Number(process.env.DELIVERY_SERVICE_FEE ?? 0); return Math.ceil(baseFare + distanceKm * perKmRate + serviceFee); }
+  private jobIncludes() { return { order: { include: { customer: true } }, rider: { include: { user: { select: { id: true, name: true, email: true, role: true } }, vehicles: { where: { isActive: true } }, locations: { orderBy: { createdAt: "desc" }, take: 1 } } }, offers: { include: { rider: { include: { user: { select: { id: true, name: true, email: true, role: true } } } } }, orderBy: { createdAt: "desc" } } } as const; }
+  private async ensureRider(id: string) { const rider = await this.prisma.rider.findUnique({ where: { id } }); if (!rider) throw new NotFoundException("Rider not found"); return rider; }
+  private async ensureOrder(id: string) { const order = await this.prisma.order.findUnique({ where: { id } }); if (!order) throw new NotFoundException("Order not found"); return order; }
+  private async ensureJob(id: string) { const job = await this.prisma.deliveryJob.findUnique({ where: { id } }); if (!job) throw new NotFoundException("Delivery job not found"); return job; }
 }
