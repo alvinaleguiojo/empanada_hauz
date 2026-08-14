@@ -18,9 +18,16 @@ export class RiderService {
   async listJobs(userId: string, status?: DeliveryJobStatus) {
     const rider = await this.ensureRiderForUser(userId);
 
+    // Rider home should only show deliveries for the current local calendar day.
+    // Keep the end exclusive so jobs created exactly at midnight tomorrow are not included.
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
     return this.prisma.deliveryJob.findMany({
       where: {
         riderId: rider.id,
+        requestedAt: { gte: startOfToday, lt: startOfTomorrow },
         ...(status ? { status } : {})
       },
       include: this.jobIncludes(),
