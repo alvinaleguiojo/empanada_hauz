@@ -1,7 +1,7 @@
-import Link from "next/link";
 import type { Route } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { ReferralChat } from "@/components/referrals/referral-chat";
 import { ReferralsDashboard, type ReferralsOverview } from "@/components/referrals/referrals-dashboard";
 import { apiFetch } from "@/lib/api";
 
@@ -14,5 +14,19 @@ export default async function ReferralPartnerDashboardPage() {
   if (!status.approved) redirect("/referrals/pending" as Route);
   const initialData = await apiFetch<ReferralsOverview>("/referrals/partners/me", undefined, token).catch(() => emptyReferrals);
 
-  return <main className="min-h-screen p-4 text-foreground sm:p-6"><div className="mx-auto max-w-6xl space-y-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm text-foreground/55">Share your link and track referred orders.</p><h1 className="text-3xl font-semibold">Referral Dashboard</h1></div><Link href="/referrals/chat" className="inline-flex h-10 items-center justify-center rounded-lg bg-accent px-4 text-sm font-semibold text-black">Chat with Admin</Link></div><ReferralsDashboard initialData={initialData} endpoint="/referrals/partners/me" tokenStorageKey="empanada-referral-token" showLogout /></div></main>;
+  return (
+    <main className="min-h-screen p-4 text-foreground sm:p-6">
+      <div className="mx-auto max-w-6xl space-y-5">
+        <div>
+          <p className="text-sm text-foreground/55">Share your link and track referred orders.</p>
+          <h1 className="text-3xl font-semibold">Referral Dashboard</h1>
+        </div>
+        <ReferralsDashboard initialData={initialData} endpoint="/referrals/partners/me" tokenStorageKey="empanada-referral-token" showLogout />
+      </div>
+
+      <div className="fixed bottom-5 right-5 z-[70] h-[min(640px,calc(100vh-2rem))] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl shadow-2xl shadow-black/40 [&>div]:!h-full [&>div]:!min-h-0 [&>div>aside]:hidden [&>div>section]:!min-h-0">
+        <ReferralChat mode="partner" tokenStorageKey="empanada-referral-token" />
+      </div>
+    </main>
+  );
 }
