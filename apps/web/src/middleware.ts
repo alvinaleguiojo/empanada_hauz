@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const privateRoutes = [
-  "/analytics", "/batches", "/dashboard", "/deliveries", "/inbox", "/inventory", "/kitchen", "/orders", "/referrals"
+  "/analytics", "/batches", "/dashboard", "/deliveries", "/inbox", "/inventory", "/kitchen", "/orders", "/referrals", "/referral-chat"
 ];
 const publicRoutes = ["/", "/customer"];
 const referralPublicRoutes = ["/referrals/signup", "/referrals/login"];
@@ -15,20 +15,16 @@ export function middleware(request: NextRequest) {
   const hasValidReferralToken = Boolean(referralToken && !isJwtExpired(referralToken));
 
   if (pathname === "/login" && hasValidToken) return NextResponse.redirect(new URL("/dashboard", request.url));
-
   if (referralPublicRoutes.includes(pathname)) {
     if (hasValidReferralToken) return NextResponse.redirect(new URL("/referrals/dashboard", request.url));
     return NextResponse.next();
   }
-
   if (referralProtectedRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`))) {
     if (hasValidReferralToken) return NextResponse.next();
     if (pathname.startsWith("/referrals/chat") && hasValidToken) return NextResponse.next();
     return NextResponse.redirect(new URL("/referrals/login", request.url));
   }
-
   if (publicRoutes.includes(pathname)) return NextResponse.next();
-
   if (privateRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`)) && !hasValidToken) {
     const url = new URL("/login", request.url);
     url.searchParams.set("next", pathname);
@@ -37,7 +33,7 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*", "/referrals/:path*", "/referrals"] };
+export const config = { matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*", "/referrals/:path*", "/referrals", "/referral-chat/:path*"] };
 
 function isJwtExpired(token: string) {
   const [, payload] = token.split(".");
