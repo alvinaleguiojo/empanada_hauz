@@ -52,6 +52,13 @@ export class ReferralsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get("all")
+  all(@Req() req: AuthenticatedRequest) {
+    this.assertAdmin(req);
+    return this.referralsService.getAllReferrals();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch("partners/:id/approve")
   approvePartner(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
     this.assertAdmin(req);

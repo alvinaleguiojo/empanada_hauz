@@ -430,7 +430,7 @@ export class ReferralsService {
     };
   }
 
-  private serializeReferral(referral: ReferralRecord) {
+  private serializeReferral(referral: ReferralRecord, referrerName?: string) {
     return {
       id: referral.id,
       customerName: referral.customerName,
@@ -441,7 +441,49 @@ export class ReferralsService {
       commissionPercentage: Number(referral.commissionPercentage ?? 0),
       commissionAmount: Number(referral.commissionAmount ?? 0),
       commissionPaidAt: referral.commissionPaidAt ?? null,
-      createdAt: referral.createdAt
+      createdAt: referral.createdAt,
+      referralCode: referral.referralCode,
+      referrerName: referrerName ?? null
+    };
+  }
+
+  async getAllReferrals() {
+    const db = this.getDb();
+    const referrals = await db.referral.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 300
+    });
+
+    const userIds = [...new Set(referrals.map((referral) => referral.referrerUserId).filter((id): id is string => Boolean(id)))];
+    const partnerIds = [...new Set(referrals.map((referral) => referral.referralPartnerId).filter((id): id is string => Boolean(id)))];
+
+    const [users, partners] = await Promise.all([
+      userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+      partnerIds.length ? db.referralPartner.findMany({ where: { id: { in: partnerIds } }, select: { id: true, name: true } }) : Promise.resolve([])
+    ]);
+
+    const userNameById = new Map(users.map((user) => [user.id, user.name]));
+    const partnerNameById = new Map(partners.map((partner) => [partner.id, partner.name]));
+
+    const totalRevenue = referrals.reduce((sum, referral) => sum + Number(referral.orderTotal ?? 0), 0);
+    const uniqueCustomers = new Set(
+      referrals.map((referral) => referral.customerId ?? normalizePhoneNumber(referral.phoneNumber) ?? referral.customerName)
+    ).size;
+
+    return {
+      totalReferrals: referrals.length,
+      uniqueCustomers,
+      totalRevenue,
+      unpaidCommission: referrals.reduce((sum, referral) => sum + (referral.commissionPaidAt ? 0 : Number(referral.commissionAmount ?? 0)), 0),
+      paidCommission: referrals.reduce((sum, referral) => sum + (referral.commissionPaidAt ? Number(referral.commissionAmount ?? 0) : 0), 0),
+      referrals: referrals.map((referral) =>
+        this.serializeReferral(
+          referral,
+          (referral.referrerUserId && userNameById.get(referral.referrerUserId)) ||
+            (referral.referralPartnerId && partnerNameById.get(referral.referralPartnerId)) ||
+            undefined
+        )
+      )
     };
   }
 

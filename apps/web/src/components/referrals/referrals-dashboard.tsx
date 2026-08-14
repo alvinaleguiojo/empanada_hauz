@@ -19,6 +19,8 @@ type Referral = {
   commissionAmount: number;
   commissionPaidAt?: string | null;
   createdAt: string;
+  referralCode?: string | null;
+  referrerName?: string | null;
 };
 
 export type ReferralPartner = {
@@ -409,8 +411,10 @@ export function ReferralsDashboard({
       <Card>
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Referral Orders</h2>
-            <p className="text-sm text-foreground/50">Latest orders attributed to your referral code.</p>
+            <h2 className="text-lg font-semibold">{allowAdminActions ? "All Referral Orders" : "Referral Orders"}</h2>
+            <p className="text-sm text-foreground/50">
+              {allowAdminActions ? "Latest orders attributed to every referral partner." : "Latest orders attributed to your referral code."}
+            </p>
           </div>
           <p className="text-sm font-semibold tabular-nums text-foreground/62">{data.referrals.length} shown</p>
         </div>
@@ -420,6 +424,7 @@ export function ReferralsDashboard({
             <thead>
               <tr>
                 <Th>Date</Th>
+                {allowAdminActions ? <Th>Referred By</Th> : null}
                 <Th>Customer</Th>
                 <Th>Order</Th>
                 <Th>Status</Th>
@@ -436,6 +441,14 @@ export function ReferralsDashboard({
                 return (
                   <tr key={referral.id}>
                     <Td>{formatDate(referral.createdAt)}</Td>
+                    {allowAdminActions ? (
+                      <Td>
+                        <div>
+                          <p className="font-medium">{referral.referrerName ?? "Unknown"}</p>
+                          {referral.referralCode ? <p className="text-xs text-foreground/42">{referral.referralCode}</p> : null}
+                        </div>
+                      </Td>
+                    ) : null}
                     <Td>
                       <div>
                         <p className="font-medium">{referral.customerName}</p>
@@ -480,7 +493,7 @@ export function ReferralsDashboard({
               })}
               {data.referrals.length === 0 ? (
                 <tr>
-                  <Td colSpan={allowAdminActions ? 8 : 7}>
+                  <Td colSpan={allowAdminActions ? 9 : 7}>
                     <span className="text-foreground/50">No referral orders yet.</span>
                   </Td>
                 </tr>

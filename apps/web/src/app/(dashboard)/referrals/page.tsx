@@ -27,11 +27,31 @@ const emptyPartners: ReferralPartnersPage = {
   }
 };
 
+type AllReferralsResponse = {
+  totalReferrals: number;
+  uniqueCustomers: number;
+  totalRevenue: number;
+  unpaidCommission?: number;
+  paidCommission?: number;
+  referrals: ReferralsOverview["referrals"];
+};
+
 export default async function ReferralsPage() {
   const initialData = await apiFetch<ReferralsOverview>("/referrals/me").catch(() => emptyReferrals);
-  const partners = initialData.user.role === "admin"
+  const isAdmin = initialData.user.role === "admin";
+  const partners = isAdmin
     ? await apiFetch<ReferralPartnersPage>("/referrals/partners?page=1&pageSize=10").catch(() => emptyPartners)
     : emptyPartners;
+
+  // Admins see referral orders from every partner, not just their own
+  // personal referral code - the "me" endpoint only returns the caller's
+  // own referrals, so pull the site-wide list separately and swap it in
+  // while keeping the admin's own referralCode/referralPath for sharing.
+  const overview = isAdmin
+    ? await apiFetch<AllReferralsResponse>("/referrals/all")
+        .then((all) => ({ ...initialData, ...all }))
+        .catch(() => initialData)
+    : initialData;
 
   return (
     <div className="space-y-5">
@@ -39,7 +59,7 @@ export default async function ReferralsPage() {
         <p className="text-sm text-foreground/55">Referral link, customer attribution, and referral order history.</p>
         <h1 className="text-3xl font-semibold">Referrals</h1>
       </div>
-      <ReferralsDashboard initialData={initialData} initialPartners={partners} allowAdminActions={initialData.user.role === "admin"} />
+      <ReferralsDashboard initialData={overview} initialPartners={partners} allowAdminActions={isAdmin} />
     </div>
   );
 }
