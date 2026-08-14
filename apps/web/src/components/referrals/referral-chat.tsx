@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, MessageCircle, Minus, Paperclip, Send, UserRound, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,6 +25,7 @@ export function ReferralChat({ mode, tokenStorageKey, floating = false }: Referr
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(!floating);
+  const messagesRequestId = useRef(0);
   const token = typeof window === "undefined" ? undefined : window.localStorage.getItem(tokenStorageKey) ?? undefined;
   const selected = useMemo(() => conversations.find((item) => item.id === selectedId), [conversations, selectedId]);
   const base = mode === "admin" ? "/referrals/chat/admin" : "/referrals/chat";
@@ -51,7 +52,13 @@ export function ReferralChat({ mode, tokenStorageKey, floating = false }: Referr
         ? await apiFetch<Conversation[]>("/referrals/chat/admin/conversations", undefined, token)
         : [await apiFetch<Conversation>("/referrals/chat/partner", undefined, token)];
       setConversations(result);
-      if (!selectedId && result[0]) setSelectedId(result[0].id);
+      // Do not overwrite an admin's current selection during polling. The old
+      // implementation captured the initial empty selectedId in the interval
+      // callback and kept snapping the UI back to the first conversation.
+      setSelectedId((current) => {
+        if (current && result.some((conversation) => conversation.id === current)) return current;
+        return result[0]?.id ?? "";
+      });
     } catch (err) {
       if (!silent) setError(err instanceof Error ? err.message : "Unable to load chat.");
     } finally {
@@ -60,10 +67,16 @@ export function ReferralChat({ mode, tokenStorageKey, floating = false }: Referr
   }
 
   async function loadMessages(id: string, silent = false) {
+    const requestId = ++messagesRequestId.current;
     try {
-      setMessages(await apiFetch<Message[]>(`${base}/${id}/messages`, undefined, token));
+      const nextMessages = await apiFetch<Message[]>(`${base}/${id}/messages`, undefined, token);
+      // A slower response for a previously selected conversation must never
+      // overwrite the messages for the conversation the admin is viewing now.
+      if (requestId !== messagesRequestId.current || id !== selectedId) return;
+      setMessages(nextMessages);
       if (!silent) setError("");
     } catch (err) {
+      if (requestId !== messagesRequestId.current || id !== selectedId) return;
       if (!silent) setError(err instanceof Error ? err.message : "Unable to load messages.");
     }
   }
