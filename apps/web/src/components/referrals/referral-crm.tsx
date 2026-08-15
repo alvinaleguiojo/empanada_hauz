@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, Td, Th } from "@/components/ui/table";
 import { apiFetch } from "@/lib/api";
-import type { ReferralPartnersPage, ReferralsOverview } from "./referrals-dashboard";
+import type { ReferralPartner, ReferralPartnersPage, ReferralsOverview } from "./referrals-dashboard";
 
 type Referral = ReferralsOverview["referrals"][number];
 
@@ -18,6 +18,9 @@ type ReferralCrmProps = { initialData: ReferralsOverview; initialPartners: Refer
 export function ReferralCrm({ initialData, initialPartners }: ReferralCrmProps) {
   const router = useRouter();
   const [data, setData] = useState(initialData);
+  const [partners, setPartners] = useState(initialPartners.items);
+  const [pendingCount, setPendingCount] = useState(initialPartners.pagination.pendingCount);
+  const [approvingPartnerId, setApprovingPartnerId] = useState<string | null>(null);
   const [partnerId, setPartnerId] = useState("all");
   const [status, setStatus] = useState("all");
   const [payment, setPayment] = useState("all");
@@ -28,7 +31,7 @@ export function ReferralCrm({ initialData, initialPartners }: ReferralCrmProps) 
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  const selectedPartner = useMemo(() => initialPartners.items.find((partner) => partner.id === partnerId) ?? null, [initialPartners.items, partnerId]);
+  const selectedPartner = useMemo(() => partners.find((partner) => partner.id === partnerId) ?? null, [partners, partnerId]);
   const statuses = useMemo(() => Array.from(new Set(data.referrals.map((item) => item.status))).filter(Boolean), [data.referrals]);
 
   const filteredOrders = useMemo(() => {
@@ -89,16 +92,72 @@ export function ReferralCrm({ initialData, initialPartners }: ReferralCrmProps) 
     finally { setSaving(false); }
   }
 
+  async function approvePartner(partner: ReferralPartner) {
+    setApprovingPartnerId(partner.id); setError("");
+    try {
+      const updated = await apiFetch<ReferralPartner>(`/referrals/partners/${partner.id}/approve`, { method: "PATCH" });
+      setPartners((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setPendingCount((current) => Math.max(0, current - (partner.approvalStatus === "approved" ? 0 : 1)));
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to approve referral partner."); }
+    finally { setApprovingPartnerId(null); }
+  }
+
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard label="Referral Partners" value={String(initialPartners.pagination.total)} />
+        <SummaryCard label="Pending Approval" value={String(pendingCount)} accent={pendingCount > 0} />
         <SummaryCard label="Referral Orders" value={String(data.totalReferrals)} />
         <SummaryCard label="Referral Sales" value={formatPeso(data.totalRevenue)} />
         <SummaryCard label="Unpaid Commission" value={formatPeso(data.unpaidCommission ?? totals.unpaid)} />
       </div>
 
       {error ? <div className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger"><span>{error}</span><button type="button" onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div> : null}
+
+      {pendingCount > 0 ? (
+        <Card>
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold">Referral Partner Approval</h2>
+            <p className="text-sm text-foreground/50">Approve new referral partner signups before their referral links go live.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Name</Th>
+                  <Th>Email</Th>
+                  <Th>Phone</Th>
+                  <Th>Code</Th>
+                  <Th>Status</Th>
+                  <Th>Actions</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {partners
+                  .filter((partner) => partner.approvalStatus !== "approved")
+                  .map((partner) => {
+                    const approving = approvingPartnerId === partner.id;
+                    return (
+                      <tr key={partner.id}>
+                        <Td>{partner.name}</Td>
+                        <Td>{partner.email}</Td>
+                        <Td>{partner.phoneNumber ?? "-"}</Td>
+                        <Td>{partner.referralCode}</Td>
+                        <Td>Pending</Td>
+                        <Td>
+                          <Button type="button" className="h-9 px-3" disabled={approving} onClick={() => void approvePartner(partner)}>
+                            {approving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                            Approve
+                          </Button>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </Table>
+          </div>
+        </Card>
+      ) : null}
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-line p-5">
@@ -109,7 +168,7 @@ export function ReferralCrm({ initialData, initialPartners }: ReferralCrmProps) 
 
           <div className="mt-5 grid gap-2 lg:grid-cols-[minmax(260px,1fr)_220px_180px_180px]">
             <div className="relative"><Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search order, customer, or partner" className="pl-9" /></div>
-            <select value={partnerId} onChange={(event) => setPartnerId(event.target.value)} className="h-10 rounded-lg border border-line bg-black/15 px-3 text-sm text-foreground outline-none"><option value="all">All referral partners</option>{initialPartners.items.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}</select>
+            <select value={partnerId} onChange={(event) => setPartnerId(event.target.value)} className="h-10 rounded-lg border border-line bg-black/15 px-3 text-sm text-foreground outline-none"><option value="all">All referral partners</option>{partners.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}</select>
             <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-line bg-black/15 px-3 text-sm text-foreground outline-none"><option value="all">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{formatStatus(item)}</option>)}</select>
             <select value={payment} onChange={(event) => setPayment(event.target.value)} className="h-10 rounded-lg border border-line bg-black/15 px-3 text-sm text-foreground outline-none"><option value="all">All commission</option><option value="unpaid">Unpaid</option><option value="paid">Paid</option></select>
           </div>
@@ -135,7 +194,7 @@ export function ReferralCrm({ initialData, initialPartners }: ReferralCrmProps) 
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) { return <Card className="p-4"><p className="text-xs font-semibold uppercase tracking-wide text-foreground/45">{label}</p><p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p></Card>; }
+function SummaryCard({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) { return <Card className="p-4"><p className="text-xs font-semibold uppercase tracking-wide text-foreground/45">{label}</p><p className={`mt-2 text-2xl font-semibold tabular-nums ${accent ? "text-amber-300" : ""}`}>{value}</p></Card>; }
 function MiniStat({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-line bg-background/30 px-4 py-3"><p className="text-xs text-foreground/45">{label}</p><p className="mt-1 font-semibold tabular-nums">{value}</p></div>; }
 function Detail({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-line bg-black/[0.03] p-3"><p className="text-xs text-foreground/40">{label}</p><p className="mt-1 text-sm font-semibold">{value}</p></div>; }
 function StatusBadge({ status }: { status: string }) { return <span className="inline-flex rounded-full border border-line px-2.5 py-1 text-xs font-semibold">{formatStatus(status)}</span>; }
