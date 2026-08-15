@@ -35,7 +35,7 @@ export default function RiderMapView({ riderLocation, pickup, dropoff, pickupAdd
 
   return (
     <View style={styles.container}>
-      <MapView style={StyleSheet.absoluteFillObject} initialRegion={regionFor(points)} showsUserLocation={Boolean(riderLocation)} showsMyLocationButton={false}>
+      <MapView style={StyleSheet.absoluteFill} initialRegion={regionFor(points)} showsUserLocation={Boolean(riderLocation)} showsMyLocationButton={false}>
         {riderLocation ? <Marker coordinate={riderLocation} title="You" pinColor="#ef6637" /> : null}
         {pickup ? <Marker coordinate={pickup} title="Pickup" description={pickupAddress} /> : null}
         {dropoff ? <Marker coordinate={dropoff} title="Drop-off" description={dropoffAddress} /> : null}
