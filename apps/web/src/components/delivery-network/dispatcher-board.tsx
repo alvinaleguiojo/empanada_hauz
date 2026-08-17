@@ -108,10 +108,10 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
     dropoffAddress: "",
     dropoffLatitude: "",
     dropoffLongitude: "",
-    distanceKm: "",
-    estimatedFare: "",
     notes: ""
   });
+  const [jobQuote, setJobQuote] = useState<{ distanceKm: number | null; estimatedFare: number; estimatedDurationMinutes: number | null } | null>(null);
+  const [quoting, setQuoting] = useState(false);
   const onlineRiders = useMemo(() => riders.filter((rider) => rider.status === "online" || rider.status === "busy"), [riders]);
 
   useEffect(() => {
@@ -138,26 +138,41 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
     const dropoffLng = Number(jobForm.dropoffLongitude);
 
     if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng) || !Number.isFinite(dropoffLat) || !Number.isFinite(dropoffLng)) {
+      setJobQuote(null);
       return;
     }
 
-    const distanceKm = calculateDistanceKm(
-      { latitude: pickupLat, longitude: pickupLng },
-      { latitude: dropoffLat, longitude: dropoffLng }
-    );
-    const estimatedFare = calculateEstimatedFare(distanceKm);
+    let cancelled = false;
+    setQuoting(true);
+    const timeout = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        pickupAddress: jobForm.pickupAddress,
+        pickupLatitude: String(pickupLat),
+        pickupLongitude: String(pickupLng),
+        dropoffAddress: jobForm.dropoffAddress,
+        dropoffLatitude: String(dropoffLat),
+        dropoffLongitude: String(dropoffLng)
+      });
+      apiFetch<{ distanceKm: number | null; estimatedFare: number; estimatedDurationMinutes: number | null }>(
+        `/delivery-network/quote?${params.toString()}`
+      )
+        .then((quote) => {
+          if (!cancelled) setJobQuote(quote);
+        })
+        .catch(() => {
+          if (!cancelled) setJobQuote(null);
+        })
+        .finally(() => {
+          if (!cancelled) setQuoting(false);
+        });
+    }, 400);
 
-    setJobForm((current) => {
-      const distanceOverride = current.distanceKm.trim() !== "";
-      const fareOverride = current.estimatedFare.trim() !== "";
-
-      return {
-        ...current,
-        distanceKm: distanceOverride ? current.distanceKm : String(distanceKm.toFixed(2)),
-        estimatedFare: fareOverride ? current.estimatedFare : String(estimatedFare)
-      };
-    });
-  }, [jobForm.pickupLatitude, jobForm.pickupLongitude, jobForm.dropoffLatitude, jobForm.dropoffLongitude]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      setQuoting(false);
+    };
+  }, [jobForm.pickupAddress, jobForm.dropoffAddress, jobForm.pickupLatitude, jobForm.pickupLongitude, jobForm.dropoffLatitude, jobForm.dropoffLongitude]);
 
   async function reload() {
     const [nextRiders, nextJobs] = await Promise.all([
@@ -200,9 +215,11 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
           pickupLatitude: jobForm.pickupLatitude ? Number(jobForm.pickupLatitude) : undefined,
           pickupLongitude: jobForm.pickupLongitude ? Number(jobForm.pickupLongitude) : undefined,
           dropoffLatitude: jobForm.dropoffLatitude ? Number(jobForm.dropoffLatitude) : undefined,
-          dropoffLongitude: jobForm.dropoffLongitude ? Number(jobForm.dropoffLongitude) : undefined,
-          distanceKm: jobForm.distanceKm ? Number(jobForm.distanceKm) : undefined,
-          estimatedFare: jobForm.estimatedFare ? Number(jobForm.estimatedFare) : undefined
+          dropoffLongitude: jobForm.dropoffLongitude ? Number(jobForm.dropoffLongitude) : undefined
+          // distanceKm/estimatedFare are intentionally omitted - the backend
+          // computes both authoritatively via Google Maps + the configured
+          // fare formula. The numbers shown in this form are a read-only
+          // preview of exactly what the server will calculate.
         })
       });
       setJobForm({
@@ -212,10 +229,9 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
         dropoffAddress: "",
         dropoffLatitude: "",
         dropoffLongitude: "",
-        distanceKm: "",
-        estimatedFare: "",
         notes: ""
       });
+      setJobQuote(null);
       await reload();
     });
   }
@@ -354,8 +370,25 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
               }
               required
             />
-            <Input placeholder="Distance override km" type="number" min="0" step="0.01" value={jobForm.distanceKm} onChange={(e) => setJobForm({ ...jobForm, distanceKm: e.target.value })} />
-            <Input placeholder="Fare override" type="number" min="0" step="0.01" value={jobForm.estimatedFare} onChange={(e) => setJobForm({ ...jobForm, estimatedFare: e.target.value })} />
+            <div className="md:col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-line bg-black/10 px-4 py-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-foreground/45">Distance</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums">
+                  {quoting ? "Calculating…" : jobQuote?.distanceKm != null ? `${jobQuote.distanceKm.toFixed(2)} km` : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-foreground/45">Fare</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums">
+                  {quoting ? "Calculating…" : jobQuote ? `Php ${jobQuote.estimatedFare}` : "—"}
+                </p>
+              </div>
+              <p className="col-span-2 text-xs text-foreground/40">
+                {jobForm.dropoffAddress.trim()
+                  ? "Auto-calculated from Google Maps and your delivery fee settings."
+                  : "Enter a drop-off address to see the calculated distance and fare."}
+              </p>
+            </div>
             <Input placeholder="Notes" className="md:col-span-2" value={jobForm.notes} onChange={(e) => setJobForm({ ...jobForm, notes: e.target.value })} />
             <Button className="md:col-span-2" disabled={pending}>
               <Plus size={16} />
@@ -634,30 +667,6 @@ function AssignSelect({ riders, onAssign }: { riders: Rider[]; onAssign: (riderI
 
 function emptyToUndefined(values: Record<string, string>) {
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim() || undefined]));
-}
-
-function calculateDistanceKm(origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) {
-  const earthRadiusKm = 6371;
-  const latDelta = degreesToRadians(destination.latitude - origin.latitude);
-  const lngDelta = degreesToRadians(destination.longitude - origin.longitude);
-  const originLat = degreesToRadians(origin.latitude);
-  const destinationLat = degreesToRadians(destination.latitude);
-  const a =
-    Math.sin(latDelta / 2) ** 2 +
-    Math.cos(originLat) * Math.cos(destinationLat) * Math.sin(lngDelta / 2) ** 2;
-
-  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function calculateEstimatedFare(distanceKm: number) {
-  const baseFare = 50;
-  const perKmRate = 12;
-  const serviceFee = 0;
-  return Math.ceil(baseFare + distanceKm * perKmRate + serviceFee);
-}
-
-function degreesToRadians(degrees: number) {
-  return (degrees * Math.PI) / 180;
 }
 
 function formatDistance(distanceKm?: number | null) {

@@ -7,6 +7,7 @@ import {
   CreateRiderDto,
   DeliveryJobStatus,
   DELIVERY_JOB_STATUSES,
+  QuoteDeliveryJobDto,
   UpdateDeliveryJobStatusDto,
   UpdateRiderLocationDto,
   UpdateRiderStatusDto
@@ -42,6 +43,11 @@ export class DeliveryNetworkController {
   listJobs(@Query("status") status?: DeliveryJobStatus) {
     const normalizedStatus = DELIVERY_JOB_STATUSES.includes(status as DeliveryJobStatus) ? status : undefined;
     return this.deliveryNetworkService.listJobs(normalizedStatus);
+  }
+
+  @Get("quote")
+  quoteJob(@Query() dto: QuoteDeliveryJobDto) {
+    return this.deliveryNetworkService.quoteJob(dto);
   }
 
   @Post("jobs")

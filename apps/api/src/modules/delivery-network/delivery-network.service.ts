@@ -9,6 +9,7 @@ import {
   CreateDeliveryJobFromOrderDto,
   CreateRiderDto,
   DeliveryJobStatus,
+  QuoteDeliveryJobDto,
   UpdateDeliveryJobStatusDto,
   UpdateRiderLocationDto,
   UpdateRiderStatusDto
@@ -75,6 +76,24 @@ export class DeliveryNetworkService {
 
   async listJobs(status?: DeliveryJobStatus) {
     return this.prisma.deliveryJob.findMany({ where: status ? { status } : undefined, include: this.jobIncludes(), orderBy: { requestedAt: "desc" }, take: 200 });
+  }
+
+  // Live preview for the dispatcher's "New Delivery Job" form - the same
+  // Google Maps route lookup + configured fare formula createJob() uses,
+  // exposed read-only so the UI can show real numbers before submitting
+  // instead of a client-side straight-line guess.
+  async quoteJob(dto: QuoteDeliveryJobDto) {
+    const routeEstimate = await this.maps.estimateRoute(
+      { address: dto.pickupAddress, latitude: dto.pickupLatitude, longitude: dto.pickupLongitude },
+      { address: dto.dropoffAddress, latitude: dto.dropoffLatitude, longitude: dto.dropoffLongitude }
+    );
+    const distanceKm = routeEstimate?.distanceKm;
+    return {
+      distanceKm: distanceKm ?? null,
+      estimatedDurationMinutes: routeEstimate?.durationMinutes ?? null,
+      estimatedArrivalAt: routeEstimate?.estimatedArrivalAt ?? null,
+      estimatedFare: this.estimateFare(distanceKm)
+    };
   }
 
   async createJob(dto: CreateDeliveryJobDto) {

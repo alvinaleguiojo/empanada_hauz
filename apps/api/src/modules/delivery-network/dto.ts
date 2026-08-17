@@ -1,3 +1,4 @@
+import { Type } from "class-transformer";
 import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Min } from "class-validator";
 
 export const RIDER_STATUSES = ["offline", "online", "busy", "suspended"] as const;
@@ -114,6 +115,34 @@ export class CreateDeliveryJobDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class QuoteDeliveryJobDto {
+  @IsString()
+  pickupAddress!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  pickupLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  pickupLongitude?: number;
+
+  @IsString()
+  dropoffAddress!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  dropoffLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  dropoffLongitude?: number;
 }
 
 export class CreateDeliveryJobFromOrderDto {
