@@ -64,6 +64,11 @@ type GoogleMapsWindow = Window & {
   };
 };
 
+const DEFAULT_PICKUP_COORDINATES = {
+  latitude: 10.2760457,
+  longitude: 123.8466921
+};
+
 const riderStatusOptions = [
   { label: "Online", value: "online" },
   { label: "Offline", value: "offline" },
@@ -98,8 +103,8 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
   });
   const [jobForm, setJobForm] = useState({
     pickupAddress: "Empanada Hauz",
-    pickupLatitude: "",
-    pickupLongitude: "",
+    pickupLatitude: String(DEFAULT_PICKUP_COORDINATES.latitude),
+    pickupLongitude: String(DEFAULT_PICKUP_COORDINATES.longitude),
     dropoffAddress: "",
     dropoffLatitude: "",
     dropoffLongitude: "",
@@ -108,6 +113,51 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
     notes: ""
   });
   const onlineRiders = useMemo(() => riders.filter((rider) => rider.status === "online" || rider.status === "busy"), [riders]);
+
+  useEffect(() => {
+    if (jobForm.pickupAddress.trim().toLowerCase() === "empanada hauz") {
+      setJobForm((current) => {
+        const nextPickupLatitude = String(DEFAULT_PICKUP_COORDINATES.latitude);
+        const nextPickupLongitude = String(DEFAULT_PICKUP_COORDINATES.longitude);
+        if (current.pickupLatitude === nextPickupLatitude && current.pickupLongitude === nextPickupLongitude) {
+          return current;
+        }
+        return {
+          ...current,
+          pickupLatitude: nextPickupLatitude,
+          pickupLongitude: nextPickupLongitude
+        };
+      });
+    }
+  }, [jobForm.pickupAddress]);
+
+  useEffect(() => {
+    const pickupLat = Number(jobForm.pickupLatitude);
+    const pickupLng = Number(jobForm.pickupLongitude);
+    const dropoffLat = Number(jobForm.dropoffLatitude);
+    const dropoffLng = Number(jobForm.dropoffLongitude);
+
+    if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng) || !Number.isFinite(dropoffLat) || !Number.isFinite(dropoffLng)) {
+      return;
+    }
+
+    const distanceKm = calculateDistanceKm(
+      { latitude: pickupLat, longitude: pickupLng },
+      { latitude: dropoffLat, longitude: dropoffLng }
+    );
+    const estimatedFare = calculateEstimatedFare(distanceKm);
+
+    setJobForm((current) => {
+      const distanceOverride = current.distanceKm.trim() !== "";
+      const fareOverride = current.estimatedFare.trim() !== "";
+
+      return {
+        ...current,
+        distanceKm: distanceOverride ? current.distanceKm : String(distanceKm.toFixed(2)),
+        estimatedFare: fareOverride ? current.estimatedFare : String(estimatedFare)
+      };
+    });
+  }, [jobForm.pickupLatitude, jobForm.pickupLongitude, jobForm.dropoffLatitude, jobForm.dropoffLongitude]);
 
   async function reload() {
     const [nextRiders, nextJobs] = await Promise.all([
@@ -157,8 +207,8 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
       });
       setJobForm({
         pickupAddress: "Empanada Hauz",
-        pickupLatitude: "",
-        pickupLongitude: "",
+        pickupLatitude: String(DEFAULT_PICKUP_COORDINATES.latitude),
+        pickupLongitude: String(DEFAULT_PICKUP_COORDINATES.longitude),
         dropoffAddress: "",
         dropoffLatitude: "",
         dropoffLongitude: "",
@@ -264,28 +314,43 @@ export function DispatcherBoard({ initialRiders, initialJobs }: { initialRiders:
             <PlacesAddressInput
               placeholder="Pickup address"
               value={jobForm.pickupAddress}
-              onChange={(pickupAddress) => setJobForm({ ...jobForm, pickupAddress, pickupLatitude: "", pickupLongitude: "" })}
+              onChange={(pickupAddress) =>
+                setJobForm((current) => ({
+                  ...current,
+                  pickupAddress,
+                  pickupLatitude: "",
+                  pickupLongitude: ""
+                }))
+              }
               onPlaceSelect={(place) =>
-                setJobForm({
-                  ...jobForm,
+                setJobForm((current) => ({
+                  ...current,
                   pickupAddress: place.address,
                   pickupLatitude: String(place.latitude),
                   pickupLongitude: String(place.longitude)
-                })
+                }))
               }
+              disableAutocomplete
               required
             />
             <PlacesAddressInput
               placeholder="Dropoff address"
               value={jobForm.dropoffAddress}
-              onChange={(dropoffAddress) => setJobForm({ ...jobForm, dropoffAddress, dropoffLatitude: "", dropoffLongitude: "" })}
+              onChange={(dropoffAddress) =>
+                setJobForm((current) => ({
+                  ...current,
+                  dropoffAddress,
+                  dropoffLatitude: "",
+                  dropoffLongitude: ""
+                }))
+              }
               onPlaceSelect={(place) =>
-                setJobForm({
-                  ...jobForm,
+                setJobForm((current) => ({
+                  ...current,
                   dropoffAddress: place.address,
                   dropoffLatitude: String(place.latitude),
                   dropoffLongitude: String(place.longitude)
-                })
+                }))
               }
               required
             />
@@ -395,17 +460,24 @@ function PlacesAddressInput({
   value,
   onChange,
   onPlaceSelect,
+  disableAutocomplete,
   required
 }: {
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
   onPlaceSelect: (place: { address: string; latitude: number; longitude: number }) => void;
+  disableAutocomplete?: boolean;
   required?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastGeocodeRef = useRef("");
 
   useEffect(() => {
+    if (disableAutocomplete) {
+      return;
+    }
+
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey || !inputRef.current) {
       return;
@@ -447,9 +519,76 @@ function PlacesAddressInput({
     return () => {
       cancelled = true;
     };
-  }, [onPlaceSelect]);
+  }, [disableAutocomplete, onPlaceSelect]);
+
+  useEffect(() => {
+    if (disableAutocomplete) {
+      return;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      lastGeocodeRef.current = "";
+      return;
+    }
+
+    if (trimmed.toLowerCase() === "empanada hauz") {
+      lastGeocodeRef.current = trimmed.toLowerCase();
+      return;
+    }
+
+    if (trimmed.length < 4 || lastGeocodeRef.current === trimmed.toLowerCase()) {
+      return;
+    }
+
+    lastGeocodeRef.current = trimmed.toLowerCase();
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void geocodeAddress(apiKey, trimmed).then((place) => {
+        if (!place) {
+          return;
+        }
+        onPlaceSelect(place);
+      });
+    }, 400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [disableAutocomplete, onPlaceSelect, value]);
 
   return <Input ref={inputRef} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} required={required} />;
+}
+
+async function geocodeAddress(apiKey: string, address: string) {
+  const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&region=ph&key=${encodeURIComponent(apiKey)}`);
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = (await response.json()) as {
+    status?: string;
+    results?: Array<{
+      formatted_address?: string;
+      geometry?: {
+        location?: { lat: number; lng: number };
+      };
+    }>;
+  };
+
+  const result = payload.results?.[0];
+  const location = result?.geometry?.location;
+  if (!result || !location || payload.status !== "OK") {
+    return null;
+  }
+
+  return {
+    address: result.formatted_address ?? address,
+    latitude: location.lat,
+    longitude: location.lng
+  };
 }
 
 function loadGooglePlaces(apiKey: string) {
@@ -495,6 +634,30 @@ function AssignSelect({ riders, onAssign }: { riders: Rider[]; onAssign: (riderI
 
 function emptyToUndefined(values: Record<string, string>) {
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim() || undefined]));
+}
+
+function calculateDistanceKm(origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) {
+  const earthRadiusKm = 6371;
+  const latDelta = degreesToRadians(destination.latitude - origin.latitude);
+  const lngDelta = degreesToRadians(destination.longitude - origin.longitude);
+  const originLat = degreesToRadians(origin.latitude);
+  const destinationLat = degreesToRadians(destination.latitude);
+  const a =
+    Math.sin(latDelta / 2) ** 2 +
+    Math.cos(originLat) * Math.cos(destinationLat) * Math.sin(lngDelta / 2) ** 2;
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calculateEstimatedFare(distanceKm: number) {
+  const baseFare = 50;
+  const perKmRate = 12;
+  const serviceFee = 0;
+  return Math.ceil(baseFare + distanceKm * perKmRate + serviceFee);
+}
+
+function degreesToRadians(degrees: number) {
+  return (degrees * Math.PI) / 180;
 }
 
 function formatDistance(distanceKm?: number | null) {
