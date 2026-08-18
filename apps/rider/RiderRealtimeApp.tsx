@@ -1,5 +1,5 @@
 import * as SecureStore from "expo-secure-store";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { io, Socket } from "socket.io-client";
 import RiderTabbedApp from "./RiderTabbedApp";
@@ -38,6 +38,11 @@ export default function RiderRealtimeApp() {
   const [revision, setRevision] = useState(0);
   const [mapOpen, setMapOpen] = useState(false);
   const [mapData, setMapData] = useState<{ riderLocation: Coordinate | null; job: Job | null }>({ riderLocation: null, job: null });
+  const [liveLocation, setLiveLocation] = useState<Coordinate | null>(null);
+
+  const handleLocation = useCallback((coords: { latitude: number; longitude: number }) => {
+    setLiveLocation({ latitude: coords.latitude, longitude: coords.longitude });
+  }, []);
 
   const openMap = async () => {
     const token = await SecureStore.getItemAsync(TOKEN_KEY);
@@ -111,7 +116,7 @@ export default function RiderRealtimeApp() {
 
   return (
     <View style={styles.root}>
-      <RiderTabbedApp key={revision} />
+      <RiderTabbedApp key={revision} onLocation={handleLocation} />
       <Pressable onPress={() => void openMap()} style={styles.mapButton} accessibilityLabel="Open delivery map">
         <Text style={styles.mapIcon}>⌖</Text>
         <Text style={styles.mapLabel}>Map</Text>
@@ -119,7 +124,7 @@ export default function RiderRealtimeApp() {
       <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)}>
         <View style={styles.modal}>
           <RiderMapView
-            riderLocation={mapData.riderLocation}
+            riderLocation={liveLocation ?? mapData.riderLocation}
             pickup={mapData.job?.pickupLatitude != null && mapData.job?.pickupLongitude != null ? { latitude: mapData.job.pickupLatitude, longitude: mapData.job.pickupLongitude } : null}
             dropoff={mapData.job?.dropoffLatitude != null && mapData.job?.dropoffLongitude != null ? { latitude: mapData.job.dropoffLatitude, longitude: mapData.job.dropoffLongitude } : null}
             pickupAddress={mapData.job?.pickupAddress}

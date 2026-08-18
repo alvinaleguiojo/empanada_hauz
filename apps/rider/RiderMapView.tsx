@@ -1,5 +1,9 @@
+import { useEffect, useRef, useState } from "react";
 import MapView, { Marker, Polyline, Region } from "react-native-maps";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+
+const DIRECTIONS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_DIRECTIONS_API_KEY;
+const REROUTE_METERS = 60;
 
 type Coordinate = { latitude: number; longitude: number };
 
@@ -29,18 +33,123 @@ function regionFor(points: Coordinate[]): Region {
   };
 }
 
+// Distance in meters between two coordinates (haversine), used only to
+// decide whether the rider has moved far enough to justify a re-route call.
+function metersBetween(a: Coordinate, b: Coordinate) {
+  const R = 6371000;
+  const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
+  const dLng = ((b.longitude - a.longitude) * Math.PI) / 180;
+  const lat1 = (a.latitude * Math.PI) / 180;
+  const lat2 = (b.latitude * Math.PI) / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Standard Google encoded-polyline decoder.
+function decodePolyline(encoded: string): Coordinate[] {
+  const points: Coordinate[] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let result = 0, shift = 0, byte: number;
+    do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    result = 0; shift = 0;
+    do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return points;
+}
+
+async function fetchDirections(origin: Coordinate, destination: Coordinate, waypoint?: Coordinate | null) {
+  if (!DIRECTIONS_API_KEY) return null;
+  const params = new URLSearchParams({
+    origin: `${origin.latitude},${origin.longitude}`,
+    destination: `${destination.latitude},${destination.longitude}`,
+    key: DIRECTIONS_API_KEY
+  });
+  if (waypoint) params.set("waypoints", `${waypoint.latitude},${waypoint.longitude}`);
+  const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
+  if (!response.ok) return null;
+  const data = await response.json();
+  const route = data?.routes?.[0];
+  if (!route) return null;
+  const coordinates = route.legs.flatMap((leg: any) => decodePolyline(leg.steps.map((step: any) => step.polyline.points).join("")));
+  const distanceMeters = route.legs.reduce((sum: number, leg: any) => sum + (leg.distance?.value ?? 0), 0);
+  const durationText = route.legs.map((leg: any) => leg.duration?.text).filter(Boolean).join(" + ");
+  return { coordinates, distanceKm: distanceMeters / 1000, durationText };
+}
+
 export default function RiderMapView({ riderLocation, pickup, dropoff, pickupAddress, dropoffAddress, onClose }: RiderMapViewProps) {
   const points = [riderLocation, pickup, dropoff].filter(Boolean) as Coordinate[];
-  const route = [riderLocation, pickup, dropoff].filter(Boolean) as Coordinate[];
+  const straightLineRoute = [riderLocation, pickup, dropoff].filter(Boolean) as Coordinate[];
   const hasDelivery = Boolean(pickup || dropoff);
+
+  const [routedPath, setRoutedPath] = useState<Coordinate[] | null>(null);
+  const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationText: string } | null>(null);
+  const [routing, setRouting] = useState(false);
+  const [following, setFollowing] = useState(true);
+  const lastRoutedFromRef = useRef<Coordinate | null>(null);
+  const mapRef = useRef<MapView | null>(null);
+
+  useEffect(() => {
+    const destination = dropoff ?? pickup ?? null;
+    const origin = riderLocation ?? pickup ?? null;
+    if (!DIRECTIONS_API_KEY || !origin || !destination) {
+      setRoutedPath(null);
+      setRouteInfo(null);
+      return;
+    }
+
+    const lastFrom = lastRoutedFromRef.current;
+    if (lastFrom && metersBetween(lastFrom, origin) < REROUTE_METERS) return;
+
+    let cancelled = false;
+    setRouting(true);
+    const waypoint = pickup && destination !== pickup ? pickup : null;
+    fetchDirections(origin, destination, waypoint)
+      .then((result) => {
+        if (cancelled || !result) return;
+        lastRoutedFromRef.current = origin;
+        setRoutedPath(result.coordinates);
+        setRouteInfo({ distanceKm: result.distanceKm, durationText: result.durationText });
+      })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setRouting(false); });
+
+    return () => { cancelled = true; };
+  }, [riderLocation?.latitude, riderLocation?.longitude, pickup?.latitude, pickup?.longitude, dropoff?.latitude, dropoff?.longitude]);
+
+  const displayRoute = routedPath && routedPath.length > 1 ? routedPath : straightLineRoute;
+
+  // Follow the rider like a driving app: keep the camera centered on their
+  // live position as it streams in, but stop the moment the person manually
+  // pans the map, so we're not fighting their own gesture. A "Recenter"
+  // button lets them jump back to follow mode.
+  useEffect(() => {
+    if (!following || !riderLocation) return;
+    mapRef.current?.animateToRegion(
+      { latitude: riderLocation.latitude, longitude: riderLocation.longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+      500
+    );
+  }, [following, riderLocation?.latitude, riderLocation?.longitude]);
 
   return (
     <View style={styles.container}>
-      <MapView style={StyleSheet.absoluteFill} initialRegion={regionFor(points)} showsUserLocation={Boolean(riderLocation)} showsMyLocationButton={false}>
+      <MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFill}
+        initialRegion={regionFor(points)}
+        showsUserLocation={Boolean(riderLocation)}
+        showsMyLocationButton={false}
+        onPanDrag={() => setFollowing(false)}
+      >
         {riderLocation ? <Marker coordinate={riderLocation} title="You" pinColor="#ff5a1f" /> : null}
         {pickup ? <Marker coordinate={pickup} title="Pickup" description={pickupAddress} pinColor="#ff7a00" /> : null}
         {dropoff ? <Marker coordinate={dropoff} title="Drop-off" description={dropoffAddress} pinColor="#ef3f23" /> : null}
-        {route.length > 1 ? <Polyline coordinates={route} strokeColor="#ff5a1f" strokeWidth={5} lineDashPattern={[1]} /> : null}
+        {displayRoute.length > 1 ? (
+          <Polyline coordinates={displayRoute} strokeColor="#ff5a1f" strokeWidth={5} lineDashPattern={routedPath ? undefined : [1]} />
+        ) : null}
       </MapView>
 
       <View style={styles.topBar}>
@@ -51,43 +160,29 @@ export default function RiderMapView({ riderLocation, pickup, dropoff, pickupAdd
         {onClose ? <Pressable onPress={onClose} style={styles.close} accessibilityLabel="Close map"><Text style={styles.closeText}>×</Text></Pressable> : null}
       </View>
 
-      <View style={styles.stats}>
-        <Metric icon="▣" label="Active" value={hasDelivery ? "1" : "0"} />
-        <Metric icon="₱" label="Today's Earnings" value="₱320" />
-        <Metric icon="★" label="Rider Rating" value="4.9" />
-      </View>
-
       <View style={styles.controls}>
-        <View style={styles.control}><Text style={styles.controlText}>➤</Text></View>
-        <View style={styles.control}><Text style={styles.controlText}>◎</Text></View>
+        {!following && riderLocation ? (
+          <Pressable onPress={() => setFollowing(true)} style={styles.control} accessibilityLabel="Recenter on my location">
+            <Text style={styles.controlText}>⌖</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.routeHint}>
         <Text style={styles.routeIcon}>▣</Text>
         <View style={{ flex: 1 }}>
           <Text style={styles.routeTitle}>{hasDelivery ? "Current delivery route" : "Waiting for delivery"}</Text>
-          <Text style={styles.routeSubtitle}>{hasDelivery ? "Pickup → Drop-off" : "Your assigned delivery will appear here"}</Text>
+          <Text style={styles.routeSubtitle}>
+            {routeInfo
+              ? `${routeInfo.distanceKm.toFixed(1)} km  •  ${routeInfo.durationText}`
+              : routing
+              ? "Calculating route…"
+              : hasDelivery
+              ? "Pickup → Drop-off"
+              : "Your assigned delivery will appear here"}
+          </Text>
         </View>
-      </View>
-
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <View style={styles.sheetHeader}>
-          <View style={styles.orderBadge}><Text style={styles.orderBadgeText}>EH</Text></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.orderTitle}>{hasDelivery ? "Current Order" : "No Active Order"}</Text>
-            <Text style={styles.orderSubtitle}>{hasDelivery ? "Ready for pickup and delivery" : "Stay online to receive orders"}</Text>
-          </View>
-          <View style={styles.statusPill}><Text style={styles.statusText}>{pickup ? "Pickup" : "Online"}</Text></View>
-        </View>
-
-        {pickupAddress ? <Stop icon="●" label="PICKUP" address={pickupAddress} /> : null}
-        {dropoffAddress ? <Stop icon="⌂" label="DROP-OFF" address={dropoffAddress} /> : null}
-
-        <Pressable style={[styles.navigateButton, !hasDelivery && styles.navigateDisabled]} disabled={!hasDelivery}>
-          <Text style={styles.navigateIcon}>➤</Text>
-          <Text style={styles.navigateText}>{hasDelivery ? "Navigate to Pickup" : "Waiting for Order"}</Text>
-        </Pressable>
+        {routing ? <ActivityIndicator size="small" color="#ff5a1f" /> : null}
       </View>
     </View>
   );
@@ -108,15 +203,14 @@ const styles = StyleSheet.create({
   online: { color: "#16834a", fontWeight: "800", marginTop: 2, fontSize: 12 },
   close: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#ff5a1f", alignItems: "center", justifyContent: "center" },
   closeText: { color: "#fff", fontSize: 27, lineHeight: 29, fontWeight: "500" },
-  stats: { position: "absolute", top: 86, left: 14, right: 14, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.96)", borderRadius: 20, paddingVertical: 12, elevation: 5, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   metric: { flex: 1, alignItems: "center", borderRightWidth: 1, borderRightColor: "#eee7dc" },
   metricIcon: { color: "#ff5a1f", fontWeight: "900", fontSize: 16 },
   metricValue: { color: "#261711", fontWeight: "900", fontSize: 18, marginTop: 2 },
   metricLabel: { color: "#766d66", fontSize: 9, marginTop: 2, textAlign: "center" },
-  controls: { position: "absolute", right: 16, top: 225, gap: 10 },
+  controls: { position: "absolute", right: 16, bottom: 132, gap: 10 },
   control: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 5, shadowColor: "#000", shadowOpacity: 0.13, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   controlText: { color: "#ff5a1f", fontSize: 24, fontWeight: "800" },
-  routeHint: { position: "absolute", left: 16, right: 84, top: 220, backgroundColor: "rgba(255,255,255,0.96)", borderRadius: 18, padding: 14, flexDirection: "row", alignItems: "center", elevation: 4 },
+  routeHint: { position: "absolute", left: 16, right: 16, bottom: 20, backgroundColor: "rgba(255,255,255,0.96)", borderRadius: 18, padding: 14, flexDirection: "row", alignItems: "center", elevation: 4, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   routeIcon: { color: "#ff5a1f", fontSize: 24, marginRight: 10 },
   routeTitle: { color: "#2d1b15", fontWeight: "900", fontSize: 14 },
   routeSubtitle: { color: "#766d66", fontSize: 11, marginTop: 2 },

@@ -28,7 +28,7 @@ const statusTone: Partial<Record<JobStatus, { bg: string; border: string; text: 
 };
 const defaultTone = { bg: "rgba(130,150,255,.14)", border: "rgba(130,150,255,.35)", text: "#c7d1ff", solid: "#8296ff" };
 
-export default function RiderTabbedApp() {
+export default function RiderTabbedApp({ onLocation }: { onLocation?: (coords: { latitude: number; longitude: number; heading?: number; speed?: number }) => void }) {
   const [booting, setBooting] = useState(true), [token, setToken] = useState<string | null>(null), [rider, setRider] = useState<Rider | null>(null), [jobs, setJobs] = useState<Job[]>([]), [tab, setTab] = useState<Tab>("home"), [selected, setSelected] = useState<Job | null>(null), [mapJob, setMapJob] = useState<Job | null>(null), [busy, setBusy] = useState(false), [refreshing, setRefreshing] = useState(false), [error, setError] = useState<string | null>(null), [email, setEmail] = useState(""), [password, setPassword] = useState(""), [locationMessage, setLocationMessage] = useState<string | null>(null);
 
   const load = useCallback(async (t = token) => { if (!t) return; const [p, j] = await Promise.all([apiFetch<Rider>("/rider/me", t), apiFetch<Job[]>("/rider/jobs", t)]); setRider(p); setJobs(j); }, [token]);
@@ -38,11 +38,37 @@ export default function RiderTabbedApp() {
   const delivered = useMemo(() => jobs.filter(j => j.status === "delivered"), [jobs]);
   const earnings = delivered.reduce((s, j) => s + Number(j.finalFare ?? j.estimatedFare ?? 0), 0);
 
+  // Continuous location sharing while the rider is online/busy - keeps the
+  // server (and anyone watching the delivery map) up to date automatically
+  // instead of relying only on the manual "Send GPS Check-In" button.
+  useEffect(() => {
+    if (!token || !rider || rider.status === "offline" || rider.status === "suspended") return;
+    let subscription: Location.LocationSubscription | null = null;
+    let lastSentAt = 0;
+    let cancelled = false;
+    void (async () => {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted" || cancelled) return;
+      subscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, timeInterval: 8000, distanceInterval: 25 },
+        (pos) => {
+          const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, heading: pos.coords.heading ?? undefined, speed: pos.coords.speed ?? undefined };
+          onLocation?.(coords);
+          const now = Date.now();
+          if (now - lastSentAt < 8000) return;
+          lastSentAt = now;
+          void apiFetch("/rider/location", token, { method: "POST", body: JSON.stringify(coords) }).catch(() => undefined);
+        }
+      );
+    })();
+    return () => { cancelled = true; subscription?.remove(); };
+  }, [token, rider?.status, onLocation]);
+
   async function login() { if (!email.trim() || password.length < 8) return setError("Enter your rider email and password."); setBusy(true); setError(null); try { const s = await apiFetch<Session>("/auth/login", undefined, { method: "POST", body: JSON.stringify({ email: email.trim().toLowerCase(), password }) }); if (s.user.role !== "rider") throw new Error("This account is not a rider account."); await SecureStore.setItemAsync(TOKEN_KEY, s.accessToken); setToken(s.accessToken); await load(s.accessToken); setPassword(""); } catch (e) { setError(message(e, "Login failed.")); } finally { setBusy(false); } }
   async function logout() { await SecureStore.deleteItemAsync(TOKEN_KEY); setToken(null); setRider(null); setJobs([]); }
   async function updateStatus(status: RiderStatus) { if (!token) return; setBusy(true); try { setRider(await apiFetch<Rider>("/rider/status", token, { method: "PATCH", body: JSON.stringify({ status }) })); } catch (e) { setError(message(e, "Unable to update availability.")); } finally { setBusy(false); } }
   async function updateJob(job: Job, status: JobStatus) { if (!token) return; setBusy(true); try { const updated = await apiFetch<Job>(`/rider/jobs/${job.id}/status`, token, { method: "PATCH", body: JSON.stringify({ status }) }); setJobs(x => x.map(j => j.id === job.id ? updated : j)); setSelected(x => x?.id === job.id ? updated : x); setMapJob(x => x?.id === job.id ? updated : x); await load(token); } catch (e) { setError(message(e, "Unable to update delivery.")); } finally { setBusy(false); } }
-  async function gps() { if (!token) return; setBusy(true); try { const p = await Location.requestForegroundPermissionsAsync(); if (p.status !== "granted") throw new Error("Location permission is required."); const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }); await apiFetch("/rider/location", token, { method: "POST", body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, heading: pos.coords.heading ?? undefined, speed: pos.coords.speed ?? undefined }) }); setLocationMessage(`GPS updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`); await load(token); } catch (e) { setError(message(e, "Unable to update GPS.")); } finally { setBusy(false); } }
+  async function gps() { if (!token) return; setBusy(true); try { const p = await Location.requestForegroundPermissionsAsync(); if (p.status !== "granted") throw new Error("Location permission is required."); const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }); const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, heading: pos.coords.heading ?? undefined, speed: pos.coords.speed ?? undefined }; await apiFetch("/rider/location", token, { method: "POST", body: JSON.stringify(coords) }); onLocation?.(coords); setLocationMessage(`GPS updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`); await load(token); } catch (e) { setError(message(e, "Unable to update GPS.")); } finally { setBusy(false); } }
   async function refresh() { setRefreshing(true); try { await load(); } catch (e) { setError(message(e, "Unable to refresh.")); } finally { setRefreshing(false); } }
 
   if (booting) return <SafeAreaView style={s.safe}><StatusBar style="dark" /><View style={s.center}><ActivityIndicator color="#ef6637" /><Text style={s.muted}>Loading rider app</Text></View></SafeAreaView>;
