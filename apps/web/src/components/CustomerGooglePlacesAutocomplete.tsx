@@ -29,7 +29,13 @@ type GoogleMapsWindow = Window & {
   };
 };
 
-const CUSTOMER_INPUTS = ["Address", "Landmark"] as const;
+const CUSTOMER_INPUTS = [
+  { placeholder: "Address", types: ["geocode"], autocomplete: "street-address" },
+  // A landmark is a POI, not a second street-address field. Restricting this
+  // to establishments also prevents Chrome/browser autofill from looking like
+  // a Google suggestion list with a customer's previous address.
+  { placeholder: "Landmark", types: ["establishment"], autocomplete: "off" }
+] as const;
 
 export default function CustomerGooglePlacesAutocomplete() {
   useEffect(() => {
@@ -46,15 +52,19 @@ export default function CustomerGooglePlacesAutocomplete() {
       const Autocomplete = (window as GoogleMapsWindow).google?.maps?.places?.Autocomplete;
       if (cancelled || !Autocomplete) return;
 
-      for (const placeholder of CUSTOMER_INPUTS) {
-        const inputs = document.querySelectorAll<HTMLInputElement>(`input[placeholder="${placeholder}"]`);
+      for (const field of CUSTOMER_INPUTS) {
+        const inputs = document.querySelectorAll<HTMLInputElement>(`input[placeholder="${field.placeholder}"]`);
         for (const input of inputs) {
           if (attached.has(input)) continue;
           attached.add(input);
 
+          // Prevent browser autofill from pre-populating the landmark field
+          // with an unrelated saved street address.
+          input.setAttribute("autocomplete", field.autocomplete);
+
           const autocomplete = new Autocomplete(input, {
             fields: ["formatted_address", "geometry", "name"],
-            types: ["geocode", "establishment"],
+            types: [...field.types],
             componentRestrictions: { country: "ph" }
           });
 
@@ -91,6 +101,7 @@ export default function CustomerGooglePlacesAutocomplete() {
       script.defer = true;
       script.dataset.googlePlaces = "true";
       script.addEventListener("load", attachAutocomplete, { once: true });
+      script.addEventListener("error", () => undefined, { once: true });
       document.head.appendChild(script);
     };
 
