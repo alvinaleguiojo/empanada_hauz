@@ -5,6 +5,7 @@ import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../../database/prisma.service";
 
 const CODE_PREFIX = "EH";
+const REFERRAL_REPORT_TIME_ZONE = "Asia/Manila";
 
 type ReferralRecord = {
   id: string;
@@ -450,7 +451,14 @@ export class ReferralsService {
 
   async getAllReferrals() {
     const db = this.getDb();
+    const { start, end } = getTodayRange(REFERRAL_REPORT_TIME_ZONE);
     const referrals = await db.referral.findMany({
+      where: {
+        createdAt: {
+          gte: start,
+          lt: end
+        }
+      },
       orderBy: { createdAt: "desc" },
       take: 300
     });
@@ -564,6 +572,21 @@ function normalizePhoneNumber(value?: string | null) {
 
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function getTodayRange(timeZone: string) {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+
+  const start = new Date(`${today}T00:00:00+08:00`);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+
+  return { start, end };
 }
 
 function createPartnerSearchWhere(value?: string) {
