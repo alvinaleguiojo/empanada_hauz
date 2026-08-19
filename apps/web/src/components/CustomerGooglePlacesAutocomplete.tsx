@@ -5,6 +5,12 @@ import { useEffect } from "react";
 type GooglePlace = {
   formatted_address?: string;
   name?: string;
+  geometry?: {
+    location?: {
+      lat: () => number;
+      lng: () => number;
+    };
+  };
 };
 
 type GoogleAutocomplete = {
@@ -29,13 +35,19 @@ type GoogleMapsWindow = Window & {
   };
 };
 
+type CustomerPlaceSelectedDetail = {
+  field: "address" | "landmark";
+  value: string;
+  formattedAddress?: string;
+  name?: string;
+  latitude?: number;
+  longitude?: number;
+};
+
 const CUSTOMER_INPUTS = [
-  { placeholder: "Address", types: ["geocode"], autocomplete: "street-address" },
-  // A landmark is a POI, not a second street-address field. Restricting this
-  // to establishments also prevents Chrome/browser autofill from looking like
-  // a Google suggestion list with a customer's previous address.
-  { placeholder: "Landmark", types: ["establishment"], autocomplete: "off" }
-] as const;
+  { placeholder: "Address", field: "address" as const, types: ["geocode", "establishment"] },
+  { placeholder: "Landmark", field: "landmark" as const, types: ["establishment"] }
+];
 
 export default function CustomerGooglePlacesAutocomplete() {
   useEffect(() => {
@@ -48,38 +60,66 @@ export default function CustomerGooglePlacesAutocomplete() {
     let observer: MutationObserver | null = null;
     const attached = new WeakSet<HTMLInputElement>();
 
+    const configureSuggestionContainer = () => {
+      document.querySelectorAll<HTMLElement>(".pac-container").forEach((container) => {
+        container.style.zIndex = "99999";
+      });
+    };
+
     const attachAutocomplete = () => {
       const Autocomplete = (window as GoogleMapsWindow).google?.maps?.places?.Autocomplete;
       if (cancelled || !Autocomplete) return;
 
-      for (const field of CUSTOMER_INPUTS) {
-        const inputs = document.querySelectorAll<HTMLInputElement>(`input[placeholder="${field.placeholder}"]`);
+      for (const config of CUSTOMER_INPUTS) {
+        const inputs = document.querySelectorAll<HTMLInputElement>(`input[placeholder="${config.placeholder}"]`);
+
         for (const input of inputs) {
           if (attached.has(input)) continue;
           attached.add(input);
 
-          // Prevent browser autofill from pre-populating the landmark field
-          // with an unrelated saved street address.
-          input.setAttribute("autocomplete", field.autocomplete);
+          // Prevent browser address autofill from copying a full address into
+          // the landmark field. Google Places remains the source of truth.
+          input.setAttribute("autocomplete", config.field === "landmark" ? "off" : "street-address");
 
           const autocomplete = new Autocomplete(input, {
             fields: ["formatted_address", "geometry", "name"],
-            types: [...field.types],
+            types: config.types,
             componentRestrictions: { country: "ph" }
           });
 
           autocomplete.addListener("place_changed", () => {
             const place = autocomplete.getPlace();
-            const value = place.formatted_address ?? place.name;
+            const location = place.geometry?.location;
+
+            // Address should prefer Google's full formatted address.
+            // Landmark should prefer the POI/place name (e.g. "Gaisano Tabunok")
+            // instead of replacing it with another full street address.
+            const value = config.field === "landmark"
+              ? (place.name ?? place.formatted_address ?? "")
+              : (place.formatted_address ?? place.name ?? "");
+
             if (!value) return;
 
             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
             setter?.call(input, value);
             input.dispatchEvent(new Event("input", { bubbles: true }));
             input.dispatchEvent(new Event("change", { bubbles: true }));
+
+            const detail: CustomerPlaceSelectedDetail = {
+              field: config.field,
+              value,
+              formattedAddress: place.formatted_address,
+              name: place.name,
+              latitude: location?.lat(),
+              longitude: location?.lng()
+            };
+
+            window.dispatchEvent(new CustomEvent<CustomerPlaceSelectedDetail>("customer-place-selected", { detail }));
           });
         }
       }
+
+      configureSuggestionContainer();
     };
 
     const loadGooglePlaces = () => {
@@ -101,14 +141,19 @@ export default function CustomerGooglePlacesAutocomplete() {
       script.defer = true;
       script.dataset.googlePlaces = "true";
       script.addEventListener("load", attachAutocomplete, { once: true });
-      script.addEventListener("error", () => undefined, { once: true });
+      script.addEventListener("error", () => {
+        // Keep the form usable even when Places fails to load.
+      }, { once: true });
       document.head.appendChild(script);
     };
 
     loadGooglePlaces();
     attachAutocomplete();
 
-    observer = new MutationObserver(() => attachAutocomplete());
+    observer = new MutationObserver(() => {
+      attachAutocomplete();
+      configureSuggestionContainer();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
