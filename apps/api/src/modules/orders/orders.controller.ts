@@ -25,11 +25,10 @@ export class OrdersController {
   }
 
   // Public - lets the customer ordering page show an estimated delivery
-  // fee before checkout, using the same Google Maps + fee-formula quote
-  // the staff dashboard uses. No auth since this runs during checkout,
-  // before the customer has any account/session.
+  // fee before checkout, using the same Google Maps + fee formula used by
+  // the delivery network. The store coordinates are fixed and authoritative.
   @Get("delivery-quote")
-  deliveryQuote(
+  async deliveryQuote(
     @Query("address") address?: string,
     @Query("landmark") landmark?: string,
     @Query("latitude") latitude?: string,
@@ -44,13 +43,15 @@ export class OrdersController {
     const parsedLatitude = Number(latitude);
     const parsedLongitude = Number(longitude);
     const hasDropoffCoordinates = Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude);
-    const dropoffAddress = trimmedLandmark ? `${trimmedLandmark}, ${trimmedAddress}` : trimmedAddress;
 
-    return this.deliveryNetworkService.quoteJob({
+    // Prefer the actual selected delivery address for routing. A landmark is
+    // only an additional geocoding hint and should never turn a valid address
+    // into an invalid/ambiguous route request.
+    const quote = await this.deliveryNetworkService.quoteJob({
       pickupAddress: "Empanada Hauz",
       pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
       pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
-      dropoffAddress,
+      dropoffAddress: trimmedAddress,
       ...(hasDropoffCoordinates
         ? {
             dropoffLatitude: parsedLatitude,
@@ -58,6 +59,26 @@ export class OrdersController {
           }
         : {})
     });
+
+    // If the address itself could not be geocoded, retry once with the
+    // landmark appended. This keeps the landmark useful without making it the
+    // primary route destination.
+    if (quote.estimatedFare === 0 && trimmedLandmark) {
+      return this.deliveryNetworkService.quoteJob({
+        pickupAddress: "Empanada Hauz",
+        pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
+        pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
+        dropoffAddress: `${trimmedLandmark}, ${trimmedAddress}`,
+        ...(hasDropoffCoordinates
+          ? {
+              dropoffLatitude: parsedLatitude,
+              dropoffLongitude: parsedLongitude
+            }
+          : {})
+      });
+    }
+
+    return quote;
   }
 
   @UseGuards(JwtAuthGuard)
