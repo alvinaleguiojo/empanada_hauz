@@ -53,6 +53,8 @@ export function ManualOrderForm() {
   const [lineItems, setLineItems] = useState<OrderLineItem[]>(createInitialLineItems);
   const [customers, setCustomers] = useState<CustomerSuggestion[]>([]);
   const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [ownDeliveryQuote, setOwnDeliveryQuote] = useState<{ distanceKm: number | null; estimatedFare: number } | null>(null);
+  const [quoting, setQuoting] = useState(false);
 
   useEffect(() => {
     setForm((current) => (current.preferredSchedule ? current : { ...current, preferredSchedule: getLocalDateTimeInputValue() }));
@@ -84,9 +86,47 @@ export function ManualOrderForm() {
     };
   }, [customersLoaded, open]);
 
+  // Empanada Hauz's own fleet fare is calculated the same way as the
+  // Delivery Network dispatcher form: real Google Maps road distance +
+  // the configured DELIVERY_BASE_FARE/PER_KM_RATE/SERVICE_FEE formula.
+  // Maxim's fee is set externally in their courier app, so that one
+  // stays a manual entry.
+  useEffect(() => {
+    if (!form.address.trim()) {
+      setOwnDeliveryQuote(null);
+      return;
+    }
+
+    let cancelled = false;
+    setQuoting(true);
+    const timeout = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        pickupAddress: "Empanada Hauz",
+        dropoffAddress: form.address
+      });
+      apiFetch<{ distanceKm: number | null; estimatedFare: number }>(`/delivery-network/quote?${params.toString()}`)
+        .then((quote) => {
+          if (!cancelled) setOwnDeliveryQuote(quote);
+        })
+        .catch(() => {
+          if (!cancelled) setOwnDeliveryQuote(null);
+        })
+        .finally(() => {
+          if (!cancelled) setQuoting(false);
+        });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      setQuoting(false);
+    };
+  }, [form.deliveryMethod, form.address]);
+
   const deliveryOptions = [
     { label: "Pickup", value: "pickup" },
-    { label: "Maxim", value: "maxim" }
+    { label: "Maxim", value: "maxim" },
+    { label: "Own Rider", value: "own_delivery" }
   ];
   const paymentOptions = [
     { label: "COD", value: "cod" },
@@ -122,7 +162,12 @@ export function ManualOrderForm() {
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
     const quantity = items.reduce((sum, item) => sum + item.quantity, 0);
     const itemSubtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
-    const deliveryFee = form.deliveryMethod === "maxim" ? Number(form.deliveryFee || 0) : 0;
+    const deliveryFee =
+      form.deliveryMethod === "maxim"
+        ? Number(form.deliveryFee || 0)
+        : form.deliveryMethod === "own_delivery"
+        ? ownDeliveryQuote?.estimatedFare ?? 0
+        : 0;
 
     return {
       items,
@@ -132,7 +177,7 @@ export function ManualOrderForm() {
       total: itemSubtotal + deliveryFee,
       unitPrice: quantity > 0 ? itemSubtotal / quantity : 0
     };
-  }, [form.deliveryFee, form.deliveryMethod, lineItems]);
+  }, [form.deliveryFee, form.deliveryMethod, lineItems, ownDeliveryQuote]);
 
   function updateLineItem(productName: string, quantity: string) {
     const normalized = quantity === "" ? "" : String(Math.max(0, Number(quantity)));
@@ -183,7 +228,9 @@ export function ManualOrderForm() {
       phoneNumber: customer.phoneNumber ?? current.phoneNumber,
       address: customer.defaultAddress ?? current.address,
       deliveryMethod:
-        customer.preferredDeliveryMethod === "pickup" || customer.preferredDeliveryMethod === "maxim"
+        customer.preferredDeliveryMethod === "pickup" ||
+        customer.preferredDeliveryMethod === "maxim" ||
+        customer.preferredDeliveryMethod === "own_delivery"
           ? customer.preferredDeliveryMethod
           : current.deliveryMethod,
       notes: customer.notes ?? current.notes
@@ -282,6 +329,18 @@ export function ManualOrderForm() {
                 <Select value={form.paymentMethod} onChange={(value) => update("paymentMethod", value)} options={paymentOptions} />
                 {form.deliveryMethod === "maxim" ? (
                   <Input placeholder="Delivery fee" type="number" min="0" step="0.01" value={form.deliveryFee} onChange={(e) => update("deliveryFee", e.target.value)} />
+                ) : null}
+                {form.address.trim() ? (
+                  <div className="flex h-10 items-center justify-between rounded-lg border border-line/70 bg-black/10 px-3 text-sm md:col-span-2">
+                    <span className="text-foreground/50">
+                      {quoting ? "Calculating own-rider fee..." : "Own-rider fee estimate"}
+                      {!quoting && ownDeliveryQuote?.distanceKm != null ? ` (${ownDeliveryQuote.distanceKm.toFixed(1)} km)` : ""}
+                      {form.deliveryMethod !== "own_delivery" ? " - for reference" : ""}
+                    </span>
+                    <span className="font-semibold">
+                      {quoting ? "…" : ownDeliveryQuote ? `Php ${formatPeso(ownDeliveryQuote.estimatedFare)}` : "—"}
+                    </span>
+                  </div>
                 ) : null}
                 <Input placeholder="Area / location" value={form.location} onChange={(e) => update("location", e.target.value)} />
                 <Input placeholder="Full address" value={form.address} onChange={(e) => update("address", e.target.value)} />
