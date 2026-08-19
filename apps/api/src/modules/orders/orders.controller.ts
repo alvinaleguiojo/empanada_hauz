@@ -4,6 +4,8 @@ import { DeliveryNetworkService } from "../delivery-network/delivery-network.ser
 import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, PublicOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
 import { OrdersService } from "./orders.service";
 
+const DEFAULT_PICKUP_COORDINATES = { latitude: 10.2760457, longitude: 123.8466921 };
+
 @Controller("orders")
 export class OrdersController {
   constructor(
@@ -27,15 +29,35 @@ export class OrdersController {
   // the staff dashboard uses. No auth since this runs during checkout,
   // before the customer has any account/session.
   @Get("delivery-quote")
-  deliveryQuote(@Query("address") address?: string, @Query("landmark") landmark?: string) {
+  deliveryQuote(
+    @Query("address") address?: string,
+    @Query("landmark") landmark?: string,
+    @Query("latitude") latitude?: string,
+    @Query("longitude") longitude?: string
+  ) {
     const trimmedAddress = (address ?? "").trim().slice(0, 300);
     const trimmedLandmark = (landmark ?? "").trim().slice(0, 200);
     if (!trimmedAddress) {
       return { distanceKm: null, estimatedDurationMinutes: null, estimatedArrivalAt: null, estimatedFare: 0 };
     }
 
+    const parsedLatitude = Number(latitude);
+    const parsedLongitude = Number(longitude);
+    const hasDropoffCoordinates = Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude);
     const dropoffAddress = trimmedLandmark ? `${trimmedLandmark}, ${trimmedAddress}` : trimmedAddress;
-    return this.deliveryNetworkService.quoteJob({ pickupAddress: "Empanada Hauz", dropoffAddress });
+
+    return this.deliveryNetworkService.quoteJob({
+      pickupAddress: "Empanada Hauz",
+      pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
+      pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
+      dropoffAddress,
+      ...(hasDropoffCoordinates
+        ? {
+            dropoffLatitude: parsedLatitude,
+            dropoffLongitude: parsedLongitude
+          }
+        : {})
+    });
   }
 
   @UseGuards(JwtAuthGuard)
