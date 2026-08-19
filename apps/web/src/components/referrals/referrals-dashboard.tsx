@@ -411,9 +411,9 @@ export function ReferralsDashboard({
       <Card>
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">{allowAdminActions ? "All Referral Orders" : "Referral Orders"}</h2>
+            <h2 className="text-lg font-semibold">{allowAdminActions ? "Today's Referral Orders" : "Referral Orders"}</h2>
             <p className="text-sm text-foreground/50">
-              {allowAdminActions ? "Latest orders attributed to every referral partner." : "Latest orders attributed to your referral code."}
+              {allowAdminActions ? "Orders attributed to referral partners today (Philippine time)." : "Latest orders attributed to your referral code."}
             </p>
           </div>
           <p className="text-sm font-semibold tabular-nums text-foreground/62">{data.referrals.length} shown</p>
