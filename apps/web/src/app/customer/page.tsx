@@ -92,6 +92,8 @@ export default function CustomerKioskPage() {
   const [error, setError] = useState<string | null>(null);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [referralCode, setReferralCode] = useState("");
+  const [deliveryQuote, setDeliveryQuote] = useState<{ distanceKm: number | null; estimatedFare: number } | null>(null);
+  const [quotingDelivery, setQuotingDelivery] = useState(false);
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -139,6 +141,42 @@ export default function CustomerKioskPage() {
 
     setReferralCode(window.localStorage.getItem("empanada-referral-code") ?? "");
   }, []);
+
+  // Estimate the delivery fee once the customer has entered an address (and
+  // optional landmark, which helps geocoding accuracy) and chosen "Delivery"
+  // - purely informational since the actual courier fee is confirmed by
+  // staff after the order comes in.
+  useEffect(() => {
+    if (form.deliveryMethod !== "maxim" || !form.address.trim()) {
+      setDeliveryQuote(null);
+      return;
+    }
+
+    let cancelled = false;
+    setQuotingDelivery(true);
+    const timeout = window.setTimeout(() => {
+      const params = new URLSearchParams({ address: form.address });
+      if (form.landmark.trim()) {
+        params.set("landmark", form.landmark);
+      }
+      apiFetch<{ distanceKm: number | null; estimatedFare: number }>(`/orders/delivery-quote?${params.toString()}`)
+        .then((quote) => {
+          if (!cancelled) setDeliveryQuote(quote);
+        })
+        .catch(() => {
+          if (!cancelled) setDeliveryQuote(null);
+        })
+        .finally(() => {
+          if (!cancelled) setQuotingDelivery(false);
+        });
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      setQuotingDelivery(false);
+    };
+  }, [form.deliveryMethod, form.address, form.landmark]);
 
   // If the delivery date is today, the earliest selectable time is the start
   // of the next full hour — e.g. at 10:15 the earliest option is 11:00, not
@@ -666,10 +704,27 @@ export default function CustomerKioskPage() {
                     <p className="py-2 text-[#241c13]/50">No flavors selected yet.</p>
                   )}
                 </div>
+                {form.deliveryMethod === "maxim" && form.address.trim() ? (
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t-2 border-dashed border-[#241c13]/25 pt-3 font-[family-name:var(--font-mono)] text-sm">
+                    <span className="flex items-center gap-1.5 text-[#241c13]/65">
+                      <Truck size={14} />
+                      {quotingDelivery ? "Estimating delivery…" : "Est. delivery fee"}
+                      {!quotingDelivery && deliveryQuote?.distanceKm != null ? ` (${deliveryQuote.distanceKm.toFixed(1)} km)` : ""}
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {quotingDelivery ? "…" : deliveryQuote ? `~Php ${deliveryQuote.estimatedFare}` : "—"}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="mt-4 flex items-center justify-between border-t-2 border-dashed border-[#241c13]/25 pt-3">
                   <span className="font-[family-name:var(--font-display)] text-base font-bold">TOTAL</span>
                   <span className="font-[family-name:var(--font-mono)] text-xl font-bold text-[#C0472B]">Php {summary.subtotal}</span>
                 </div>
+                {form.deliveryMethod === "maxim" ? (
+                  <p className="mt-1.5 text-center text-[11px] text-[#241c13]/45">
+                    Delivery fee is separate and confirmed by our team.
+                  </p>
+                ) : null}
                 <p className={`mt-3 text-center font-[family-name:var(--font-script)] text-lg ${summary.totalQuantity >= 10 ? "text-[#4f6a34]" : "text-[#C0472B]"}`}>
                   {summary.totalQuantity >= 10 ? "minimum reached, salamat!" : `add ${remaining} more piece${remaining === 1 ? "" : "s"} po`}
                 </p>
