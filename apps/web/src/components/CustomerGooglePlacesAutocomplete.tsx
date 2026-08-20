@@ -44,9 +44,11 @@ type CustomerPlaceSelectedDetail = {
   longitude?: number;
 };
 
+// Match the working delivery Drop-off selector: both fields should show
+// address and establishment/POI suggestions while typing in the Philippines.
 const CUSTOMER_INPUTS = [
   { placeholder: "Address", field: "address" as const, types: ["geocode", "establishment"] },
-  { placeholder: "Landmark", field: "landmark" as const, types: ["establishment"] }
+  { placeholder: "Landmark", field: "landmark" as const, types: ["geocode", "establishment"] }
 ];
 
 export default function CustomerGooglePlacesAutocomplete() {
@@ -58,17 +60,19 @@ export default function CustomerGooglePlacesAutocomplete() {
 
     let cancelled = false;
     let observer: MutationObserver | null = null;
+    let retryTimer: number | null = null;
     const attached = new WeakSet<HTMLInputElement>();
 
     const configureSuggestionContainer = () => {
       document.querySelectorAll<HTMLElement>(".pac-container").forEach((container) => {
         container.style.zIndex = "99999";
+        container.style.position = "absolute";
       });
     };
 
     const attachAutocomplete = () => {
       const Autocomplete = (window as GoogleMapsWindow).google?.maps?.places?.Autocomplete;
-      if (cancelled || !Autocomplete) return;
+      if (cancelled || !Autocomplete) return false;
 
       for (const config of CUSTOMER_INPUTS) {
         const inputs = document.querySelectorAll<HTMLInputElement>(`input[placeholder="${config.placeholder}"]`);
@@ -77,8 +81,8 @@ export default function CustomerGooglePlacesAutocomplete() {
           if (attached.has(input)) continue;
           attached.add(input);
 
-          // Prevent browser address autofill from copying a full address into
-          // the landmark field. Google Places remains the source of truth.
+          // Prevent browser autofill from inserting a saved address into the
+          // landmark field. Google Places remains the source of suggestions.
           input.setAttribute("autocomplete", config.field === "landmark" ? "off" : "street-address");
 
           const autocomplete = new Autocomplete(input, {
@@ -90,16 +94,12 @@ export default function CustomerGooglePlacesAutocomplete() {
           autocomplete.addListener("place_changed", () => {
             const place = autocomplete.getPlace();
             const location = place.geometry?.location;
-
-            // Address should prefer Google's full formatted address.
-            // Landmark should prefer the POI/place name (e.g. "Gaisano Tabunok")
-            // instead of replacing it with another full street address.
-            const value = config.field === "landmark"
-              ? (place.name ?? place.formatted_address ?? "")
-              : (place.formatted_address ?? place.name ?? "");
-
+            const value = place.formatted_address ?? place.name ?? "";
             if (!value) return;
 
+            // Keep the actual selected suggestion in the input, just like the
+            // working delivery selector. Landmark is still allowed to contain
+            // a place name or an address returned by Google.
             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
             setter?.call(input, value);
             input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -120,35 +120,38 @@ export default function CustomerGooglePlacesAutocomplete() {
       }
 
       configureSuggestionContainer();
+      return true;
     };
 
     const loadGooglePlaces = () => {
-      const mapsWindow = window as GoogleMapsWindow;
-      if (mapsWindow.google?.maps?.places?.Autocomplete) {
-        attachAutocomplete();
-        return;
-      }
+      if (attachAutocomplete()) return;
 
-      const existingScript = document.querySelector<HTMLScriptElement>("script[data-google-places]");
+      const existingScript = document.querySelector<HTMLScriptElement>("script[data-google-places-customer]");
       if (existingScript) {
-        existingScript.addEventListener("load", attachAutocomplete, { once: true });
-        return;
+        existingScript.addEventListener("load", () => attachAutocomplete(), { once: true });
+      } else {
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=en&region=PH`;
+        script.async = true;
+        script.defer = true;
+        script.dataset.googlePlacesCustomer = "true";
+        script.addEventListener("load", () => attachAutocomplete(), { once: true });
+        script.addEventListener("error", () => {
+          // Keep retrying because the form can render before Google finishes loading.
+        }, { once: true });
+        document.head.appendChild(script);
       }
 
-      const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=en&region=PH`;
-      script.async = true;
-      script.defer = true;
-      script.dataset.googlePlaces = "true";
-      script.addEventListener("load", attachAutocomplete, { once: true });
-      script.addEventListener("error", () => {
-        // Keep the form usable even when Places fails to load.
-      }, { once: true });
-      document.head.appendChild(script);
+      let attempts = 0;
+      const retry = () => {
+        if (cancelled || attachAutocomplete() || attempts >= 40) return;
+        attempts += 1;
+        retryTimer = window.setTimeout(retry, 250);
+      };
+      retry();
     };
 
     loadGooglePlaces();
-    attachAutocomplete();
 
     observer = new MutationObserver(() => {
       attachAutocomplete();
@@ -159,6 +162,7 @@ export default function CustomerGooglePlacesAutocomplete() {
     return () => {
       cancelled = true;
       observer?.disconnect();
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
   }, []);
 
