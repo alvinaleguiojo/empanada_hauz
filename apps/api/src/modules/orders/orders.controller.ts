@@ -4,6 +4,13 @@ import { DeliveryNetworkService } from "../delivery-network/delivery-network.ser
 import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, PublicOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
 import { OrdersService } from "./orders.service";
 
+// Same known shop coordinates used by the dispatcher board's "New Delivery
+// Job" form (apps/web/.../dispatcher-board.tsx: DEFAULT_PICKUP_COORDINATES).
+// Passing these explicitly instead of relying on Google to geocode the bare
+// string "Empanada Hauz" - a home-based business isn't reliably indexed by
+// name, which was causing every quote to silently return null/0.
+const SHOP_COORDINATES = { latitude: 10.2760457, longitude: 123.8466921 };
+
 @Controller("orders")
 export class OrdersController {
   constructor(
@@ -35,7 +42,12 @@ export class OrdersController {
     }
 
     const dropoffAddress = trimmedLandmark ? `${trimmedLandmark}, ${trimmedAddress}` : trimmedAddress;
-    return this.deliveryNetworkService.quoteJob({ pickupAddress: "Empanada Hauz", dropoffAddress });
+    return this.deliveryNetworkService.quoteJob({
+      pickupAddress: "Empanada Hauz",
+      pickupLatitude: SHOP_COORDINATES.latitude,
+      pickupLongitude: SHOP_COORDINATES.longitude,
+      dropoffAddress
+    });
   }
 
   @UseGuards(JwtAuthGuard)
