@@ -1,6 +1,7 @@
 import "./globals.css";
 import { ThemeScript } from "@/components/layout/theme-script";
 import SplashScreen from '@/components/SplashScreen';
+import CustomerGooglePlacesAutocomplete from '@/components/CustomerGooglePlacesAutocomplete';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -8,6 +9,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <SplashScreen>
         <ThemeScript />
+        <CustomerGooglePlacesAutocomplete />
         {children}
         </SplashScreen>
       </body>
