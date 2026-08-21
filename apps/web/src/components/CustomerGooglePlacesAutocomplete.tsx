@@ -52,14 +52,12 @@ const CUSTOMER_INPUTS = [
 export default function CustomerGooglePlacesAutocomplete() {
   useEffect(() => {
     let cancelled = false;
-    let observer: MutationObserver | null = null;
     let retryTimer: number | null = null;
     const attached = new WeakSet<HTMLInputElement>();
 
     const configureSuggestionContainer = () => {
       document.querySelectorAll<HTMLElement>(".pac-container").forEach((container) => {
         container.style.zIndex = "99999";
-        container.style.position = "fixed";
       });
     };
 
@@ -119,29 +117,31 @@ export default function CustomerGooglePlacesAutocomplete() {
       return true;
     };
 
-    const loadScript = (apiKey: string) => {
+    const loadMapsScript = (apiKey: string) => {
       if (attachAutocomplete()) return;
 
-      // Reuse any existing Maps JS script to avoid loading the API twice.
-      const existingScript = Array.from(document.scripts).find((script) =>
-        script.src.includes("maps.googleapis.com/maps/api/js")
+      // Do not reuse an unknown Maps JS script. It may have been loaded
+      // without the Places library, which prevents Autocomplete from existing.
+      const existingCustomerScript = document.querySelector<HTMLScriptElement>(
+        "script[data-google-places-customer]"
       );
 
-      if (existingScript) {
-        existingScript.addEventListener("load", () => attachAutocomplete(), { once: true });
-      } else {
+      if (!existingCustomerScript) {
         const script = document.createElement("script");
         script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=en&region=PH`;
         script.async = true;
         script.defer = true;
-        script.dataset.googlePlaces = "true";
+        script.dataset.googlePlacesCustomer = "true";
         script.addEventListener("load", () => attachAutocomplete(), { once: true });
+        script.addEventListener("error", () => {
+          console.error("Empanada Hauz: Google Maps Places script failed to load.");
+        }, { once: true });
         document.head.appendChild(script);
       }
 
       let attempts = 0;
       const retry = () => {
-        if (cancelled || attachAutocomplete() || attempts >= 80) return;
+        if (cancelled || attachAutocomplete() || attempts >= 120) return;
         attempts += 1;
         retryTimer = window.setTimeout(retry, 250);
       };
@@ -149,35 +149,42 @@ export default function CustomerGooglePlacesAutocomplete() {
     };
 
     const loadGooglePlaces = async () => {
-      let apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
+      // Always hit the config route first so a production deployment with
+      // only GOOGLE_MAPS_API_KEY still initializes the browser Places library.
+      let apiKey: string | undefined;
 
-      if (!apiKey) {
-        try {
-          const response = await fetch("/api/google-maps-key", { cache: "no-store" });
-          if (response.ok) {
-            const data = (await response.json()) as { apiKey?: string };
-            apiKey = data.apiKey?.trim();
-          }
-        } catch {
-          // Keep the form usable even if the fallback configuration endpoint fails.
+      try {
+        const response = await fetch("/api/google-maps-key", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Google Maps key endpoint returned ${response.status}`);
         }
+        const data = (await response.json()) as { apiKey?: string };
+        apiKey = data.apiKey?.trim();
+      } catch (error) {
+        console.error("Empanada Hauz: unable to load Google Maps API key.", error);
+        apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
       }
 
-      if (!apiKey || cancelled) return;
-      loadScript(apiKey);
+      if (!apiKey || cancelled) {
+        console.error("Empanada Hauz: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/GOOGLE_MAPS_API_KEY is not configured.");
+        return;
+      }
+
+      loadMapsScript(apiKey);
     };
 
     void loadGooglePlaces();
 
-    observer = new MutationObserver(() => {
+    const observer = new MutationObserver(() => {
       attachAutocomplete();
       configureSuggestionContainer();
     });
+
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
       cancelled = true;
-      observer?.disconnect();
+      observer.disconnect();
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
   }, []);
