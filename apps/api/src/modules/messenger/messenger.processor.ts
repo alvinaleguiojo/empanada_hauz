@@ -45,13 +45,16 @@ export class MessengerProcessor extends WorkerHost {
     });
 
     if (ai.details.quantity && ai.details.deliveryMethod && ai.details.missingFields.length === 0) {
-      await this.ordersService.createFromAi({
-        customerId: conversation.customerId,
-        conversationId: conversation.id,
+      await this.ordersService.createManual({
+        customerName: `Messenger ${senderId}`,
         quantity: ai.details.quantity,
-        location: ai.details.location,
-        preferredTime: ai.details.preferredTime,
+        unitPrice: 20,
+        deliveryFee: 0,
         deliveryMethod: ai.details.deliveryMethod,
+        paymentMethod: "cod",
+        address: ai.details.deliveryMethod === "maxim" ? ai.details.location : undefined,
+        location: ai.details.location,
+        preferredSchedule: ai.details.preferredTime,
         notes: text
       });
       this.notificationsService.notify("order.created_from_messenger", {
