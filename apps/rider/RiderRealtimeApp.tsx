@@ -11,10 +11,11 @@ const TOKEN_KEY = "empanada-rider-token";
 const SOCKET_URL = API_URL.replace(/\/api\/?$/, "");
 const MAX_ACCEPTABLE_ACCURACY_METERS = 50;
 const MAX_STORED_LOCATION_AGE_MS = 45_000;
+const ACTIVE_STATUSES = ["requested", "searching_rider", "assigned", "accepted", "pickup_started", "picked_up", "delivering"];
 
 type Coordinate = { latitude: number; longitude: number; createdAt?: string };
 type RiderProfile = { id: string; status?: string; locations?: Array<Coordinate & { accuracy?: number | null; createdAt?: string }> };
-type Job = { id: string; status: string; pickupLatitude?: number | null; pickupLongitude?: number | null; dropoffLatitude?: number | null; dropoffLongitude?: number | null; pickupAddress?: string; dropoffAddress?: string };
+type Job = { id: string; status: string; riderId?: string | null; pickupLatitude?: number | null; pickupLongitude?: number | null; dropoffLatitude?: number | null; dropoffLongitude?: number | null; pickupAddress?: string; dropoffAddress?: string; order?: unknown };
 
 async function getRider(token: string) { const response = await fetch(`${API_URL}/rider/me`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error("Unable to load rider profile"); return (await response.json()) as RiderProfile; }
 async function getJobs(token: string) { const response = await fetch(`${API_URL}/rider/jobs`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error("Unable to load rider deliveries"); return (await response.json()) as Job[]; }
@@ -28,10 +29,25 @@ function isFreshLocation(location?: Coordinate & { accuracy?: number | null } | 
 }
 
 export default function RiderRealtimeApp() {
-  const [, setRevision] = useState(0);
   const [mapOpen, setMapOpen] = useState(false);
   const [mapData, setMapData] = useState<{ riderLocation: Coordinate | null; job: Job | null }>({ riderLocation: null, job: null });
   const [liveLocation, setLiveLocation] = useState<Coordinate | null>(null);
+  const [activeJob, setActiveJob] = useState<Job | null>(null);
+
+  const applyJobs = useCallback((jobs: Job[]) => {
+    const active = jobs.find((job) => ACTIVE_STATUSES.includes(job.status)) ?? null;
+    setActiveJob(active);
+    setMapData((current) => ({ ...current, job: active }));
+  }, []);
+
+  const applyJobEvent = useCallback((job: Job | null | undefined) => {
+    if (!job?.id) return;
+    setActiveJob((current) => {
+      if (job.status === "delivered" || job.status === "cancelled") return current?.id === job.id ? null : current;
+      return job;
+    });
+    setMapData((current) => ({ ...current, job: job.status === "delivered" || job.status === "cancelled" ? (current.job?.id === job.id ? null : current.job) : job }));
+  }, []);
 
   const handleLocation = useCallback((coords: { latitude: number; longitude: number }) => setLiveLocation({ latitude: coords.latitude, longitude: coords.longitude, createdAt: new Date().toISOString() }), []);
 
@@ -48,10 +64,7 @@ export default function RiderRealtimeApp() {
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || accuracy == null || accuracy > MAX_ACCEPTABLE_ACCURACY_METERS) return;
         const payload = { latitude, longitude, accuracy, altitude: altitude ?? undefined, heading: heading ?? undefined, speed: speed ?? undefined, timestamp: position.timestamp };
         setLiveLocation({ latitude, longitude, createdAt: new Date(position.timestamp).toISOString() });
-        try {
-          const response = await fetch(`${API_URL}/rider/location`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
-          if (!response.ok) return;
-        } catch { /* next GPS fix will retry */ }
+        try { await fetch(`${API_URL}/rider/location`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) }); } catch { /* next GPS fix retries */ }
       });
     };
     void start();
@@ -62,17 +75,22 @@ export default function RiderRealtimeApp() {
     const token = await SecureStore.getItemAsync(TOKEN_KEY); if (!token) return;
     try {
       const [rider, jobs] = await Promise.all([getRider(token), getJobs(token)]);
-      const active = jobs.find((job) => ["assigned", "accepted", "pickup_started", "picked_up", "delivering"].includes(job.status)) ?? jobs[0] ?? null;
+      applyJobs(jobs);
+      const active = jobs.find((job) => ACTIVE_STATUSES.includes(job.status)) ?? null;
       const serverLocation = rider.locations?.[0];
       const freshServerLocation = isFreshLocation(serverLocation) ? serverLocation : null;
-      setMapData({ riderLocation: freshServerLocation ? { latitude: freshServerLocation.latitude, longitude: freshServerLocation.longitude, createdAt: freshServerLocation.createdAt } : null, job: active });
+      setMapData({ riderLocation: freshServerLocation ? { latitude: freshServerLocation.latitude, longitude: freshServerLocation.longitude, createdAt: freshServerLocation.createdAt } : liveLocation, job: active });
       setMapOpen(true);
     } catch { setMapOpen(false); }
   };
 
   useEffect(() => {
-    let socket: Socket | null = null; let connectedToken: string | null = null; let stopped = false; let timer: ReturnType<typeof setInterval> | null = null;
+    let socket: Socket | null = null;
+    let connectedToken: string | null = null;
+    let stopped = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
     const disconnect = () => { socket?.disconnect(); socket = null; connectedToken = null; };
+    const hydrate = async (token: string) => { try { applyJobs(await getJobs(token)); } catch { /* socket events remain active; next reconnect hydrates */ } };
     const syncConnection = async () => {
       if (stopped) return;
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
@@ -83,19 +101,23 @@ export default function RiderRealtimeApp() {
         const rider = await getRider(token); if (stopped) return;
         connectedToken = token;
         socket = io(`${SOCKET_URL}/ops`, { transports: ["websocket", "polling"], auth: { token }, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, timeout: 10000 });
-        socket.on("connect", () => socket?.emit("rider.presence", { riderId: rider.id }));
-        const refresh = () => setRevision((value) => value + 1);
-        socket.on("rider.delivery.assigned", refresh); socket.on("rider.delivery.updated", refresh); socket.on("rider.status.updated", refresh);
+        socket.on("connect", () => { socket?.emit("rider.presence", { riderId: rider.id }); void hydrate(token); });
+        socket.on("rider.delivery.assigned", (job: Job) => applyJobEvent(job));
+        socket.on("rider.delivery.updated", (job: Job) => applyJobEvent(job));
+        socket.on("delivery-network.jobs.updated", (payload: Job | Job[]) => { if (Array.isArray(payload)) applyJobs(payload); else if (payload?.riderId === rider.id) applyJobEvent(payload); });
+        socket.on("rider.status.updated", () => { void hydrate(token); });
+        socket.on("connect_error", () => { /* Socket.IO reconnects automatically; hydration runs on connect. */ });
       } catch { disconnect(); }
     };
-    void syncConnection(); timer = setInterval(() => void syncConnection(), 2000);
+    void syncConnection();
+    timer = setInterval(() => void syncConnection(), 5000);
     return () => { stopped = true; if (timer) clearInterval(timer); disconnect(); };
-  }, []);
+  }, [applyJobEvent, applyJobs]);
 
   return <View style={styles.root}>
     <RiderTabbedApp onLocation={handleLocation} />
     <Pressable onPress={() => void openMap()} style={styles.mapButton} accessibilityLabel="Open delivery map"><Text style={styles.mapIcon}>⌖</Text><Text style={styles.mapLabel}>Map</Text></Pressable>
-    <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)}><View style={styles.modal}><RiderMapView riderLocation={liveLocation ?? mapData.riderLocation} pickup={mapData.job?.pickupLatitude != null && mapData.job?.pickupLongitude != null ? { latitude: mapData.job.pickupLatitude, longitude: mapData.job.pickupLongitude } : null} dropoff={mapData.job?.dropoffLatitude != null && mapData.job?.dropoffLongitude != null ? { latitude: mapData.job.dropoffLatitude, longitude: mapData.job.dropoffLongitude } : null} pickupAddress={mapData.job?.pickupAddress} dropoffAddress={mapData.job?.dropoffAddress} onClose={() => setMapOpen(false)} /></View></Modal>
+    <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)}><View style={styles.modal}><RiderMapView riderLocation={liveLocation ?? mapData.riderLocation} status={activeJob?.status} pickup={mapData.job?.pickupLatitude != null && mapData.job?.pickupLongitude != null ? { latitude: mapData.job.pickupLatitude, longitude: mapData.job.pickupLongitude } : null} dropoff={mapData.job?.dropoffLatitude != null && mapData.job?.dropoffLongitude != null ? { latitude: mapData.job.dropoffLatitude, longitude: mapData.job.dropoffLongitude } : null} pickupAddress={mapData.job?.pickupAddress} dropoffAddress={mapData.job?.dropoffAddress} onClose={() => setMapOpen(false)} /></View></Modal>
   </View>;
 }
 
