@@ -120,8 +120,6 @@ export default function CustomerGooglePlacesAutocomplete() {
     const loadMapsScript = (apiKey: string) => {
       if (attachAutocomplete()) return;
 
-      // Do not reuse an unknown Maps JS script. It may have been loaded
-      // without the Places library, which prevents Autocomplete from existing.
       const existingCustomerScript = document.querySelector<HTMLScriptElement>(
         "script[data-google-places-customer]"
       );
@@ -149,8 +147,10 @@ export default function CustomerGooglePlacesAutocomplete() {
     };
 
     const loadGooglePlaces = async () => {
-      // Always hit the config route first so a production deployment with
-      // only GOOGLE_MAPS_API_KEY still initializes the browser Places library.
+      // The Google Maps browser key is intentionally delivered by the
+      // server route. Do not use NEXT_PUBLIC_GOOGLE_MAPS_API_KEY here:
+      // keeping the configuration server-side avoids baking the key into
+      // the Next.js client bundle.
       let apiKey: string | undefined;
 
       try {
@@ -162,11 +162,11 @@ export default function CustomerGooglePlacesAutocomplete() {
         apiKey = data.apiKey?.trim();
       } catch (error) {
         console.error("Empanada Hauz: unable to load Google Maps API key.", error);
-        apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
+        return;
       }
 
       if (!apiKey || cancelled) {
-        console.error("Empanada Hauz: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/GOOGLE_MAPS_API_KEY is not configured.");
+        console.error("Empanada Hauz: Google Maps API key is not configured on the server.");
         return;
       }
 
