@@ -11,6 +11,10 @@ export function getSelectedDeliveryCoordinates(): DeliveryPlaceCoordinates | nul
 
   for (const input of [addressInput, landmarkInput]) {
     if (!input) continue;
+
+    const selectedValue = input.dataset.placeValue?.trim();
+    if (!selectedValue || selectedValue !== input.value.trim()) continue;
+
     const latitude = Number(input.dataset.latitude);
     const longitude = Number(input.dataset.longitude);
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
