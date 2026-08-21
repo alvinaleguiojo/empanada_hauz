@@ -25,19 +25,16 @@ const MAX_ACCEPTABLE_ACCURACY_METERS = 100;
 
 const DARK_MAP_STYLES = [
   { elementType: "geometry", stylers: [{ color: "#151a21" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#9ca6b5" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#151a21" }] },
-  { featureType: "administrative", elementType: "geometry.stroke", stylers: [{ color: "#39424e" }] },
-  { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#151a21" }] },
-  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#1b222b" }] },
-  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#8f9baa" }] },
+  { elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "all", elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "poi", elementType: "all", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", elementType: "all", stylers: [{ visibility: "off" }] },
+  { featureType: "administrative", elementType: "all", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "labels", stylers: [{ visibility: "off" }] },
   { featureType: "road", elementType: "geometry", stylers: [{ color: "#303844" }] },
-  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#242b34" }] },
-  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#aab3bf" }] },
   { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3b4653" }] },
-  { featureType: "transit", elementType: "geometry", stylers: [{ color: "#242b34" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#242b34" }] },
   { featureType: "water", elementType: "geometry", stylers: [{ color: "#0c2534" }] },
-  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#6f8798" }] },
 ];
 
 function isFreshLocation(location?: Rider["locations"][number]) {
