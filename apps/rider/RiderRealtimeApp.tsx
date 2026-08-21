@@ -1,3 +1,4 @@
+import * as Location from "expo-location";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
@@ -8,9 +9,10 @@ import RiderMapView from "./RiderMapView";
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://empanadahauz.com/api";
 const TOKEN_KEY = "empanada-rider-token";
 const SOCKET_URL = API_URL.replace(/\/api\/?$/, "");
+const MAX_ACCEPTABLE_ACCURACY_METERS = 50;
 
 type Coordinate = { latitude: number; longitude: number };
-type RiderProfile = { id: string; locations?: Coordinate[] };
+type RiderProfile = { id: string; status?: string; locations?: Coordinate[] };
 type Job = { id: string; status: string; pickupLatitude?: number | null; pickupLongitude?: number | null; dropoffLatitude?: number | null; dropoffLongitude?: number | null; pickupAddress?: string; dropoffAddress?: string };
 
 async function getRider(token: string) { const response = await fetch(`${API_URL}/rider/me`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error("Unable to load rider profile"); return (await response.json()) as RiderProfile; }
@@ -23,6 +25,29 @@ export default function RiderRealtimeApp() {
   const [liveLocation, setLiveLocation] = useState<Coordinate | null>(null);
 
   const handleLocation = useCallback((coords: { latitude: number; longitude: number }) => setLiveLocation({ latitude: coords.latitude, longitude: coords.longitude }), []);
+
+  useEffect(() => {
+    let subscription: Location.LocationSubscription | null = null;
+    let stopped = false;
+    const start = async () => {
+      const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      if (!token || stopped) return;
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted" || stopped) return;
+      subscription = await Location.watchPositionAsync({ accuracy: Location.Accuracy.Highest, timeInterval: 5000, distanceInterval: 10 }, async (position) => {
+        const { latitude, longitude, accuracy, altitude, heading, speed } = position.coords;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || accuracy == null || accuracy > MAX_ACCEPTABLE_ACCURACY_METERS) return;
+        const payload = { latitude, longitude, accuracy, altitude: altitude ?? undefined, heading: heading ?? undefined, speed: speed ?? undefined, timestamp: position.timestamp };
+        setLiveLocation({ latitude, longitude });
+        try {
+          const response = await fetch(`${API_URL}/rider/location`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+          if (!response.ok) return;
+        } catch { /* next GPS fix will retry */ }
+      });
+    };
+    void start();
+    return () => { stopped = true; subscription?.remove(); };
+  }, []);
 
   const openMap = async () => {
     const token = await SecureStore.getItemAsync(TOKEN_KEY); if (!token) return;
