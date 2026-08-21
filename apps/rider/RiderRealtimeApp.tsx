@@ -5,6 +5,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { io, Socket } from "socket.io-client";
 import RiderTabbedApp from "./RiderTabbedApp";
 import RiderMapView from "./RiderMapView";
+import { startRiderBackgroundLocation, stopRiderBackgroundLocation } from "./backgroundLocation";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://empanadahauz.com/api";
 const TOKEN_KEY = "empanada-rider-token";
@@ -57,6 +58,7 @@ export default function RiderRealtimeApp() {
     const start = async () => {
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
       if (!token || stopped) return;
+      try { await startRiderBackgroundLocation(); } catch { /* Background permission can be granted later from the rider device settings. */ }
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== "granted" || stopped) return;
       subscription = await Location.watchPositionAsync({ accuracy: Location.Accuracy.Highest, timeInterval: 5000, distanceInterval: 10 }, async (position) => {
@@ -68,7 +70,7 @@ export default function RiderRealtimeApp() {
       });
     };
     void start();
-    return () => { stopped = true; subscription?.remove(); };
+    return () => { stopped = true; subscription?.remove(); void stopRiderBackgroundLocation(); };
   }, []);
 
   const openMap = async () => {
