@@ -51,15 +51,15 @@ const CUSTOMER_INPUTS = [
 
 export default function CustomerGooglePlacesAutocomplete() {
   useEffect(() => {
-    if (window.location.pathname !== "/customer") return;
-
     let cancelled = false;
     let observer: MutationObserver | null = null;
+    let retryTimer: number | null = null;
     const attached = new WeakSet<HTMLInputElement>();
 
     const configureSuggestionContainer = () => {
       document.querySelectorAll<HTMLElement>(".pac-container").forEach((container) => {
         container.style.zIndex = "99999";
+        container.style.position = "fixed";
       });
     };
 
@@ -68,11 +68,14 @@ export default function CustomerGooglePlacesAutocomplete() {
       if (cancelled || !Autocomplete) return false;
 
       for (const config of CUSTOMER_INPUTS) {
-        const inputs = document.querySelectorAll<HTMLInputElement>(`input[placeholder="${config.placeholder}"]`);
+        const inputs = document.querySelectorAll<HTMLInputElement>(
+          `input[placeholder="${config.placeholder}"]`
+        );
 
         for (const input of inputs) {
           if (attached.has(input)) continue;
           attached.add(input);
+
           input.setAttribute("autocomplete", "off");
           input.setAttribute("aria-autocomplete", "list");
 
@@ -88,8 +91,10 @@ export default function CustomerGooglePlacesAutocomplete() {
             const value = place.formatted_address ?? place.name ?? "";
             if (!value) return;
 
-            // Keep the selected suggestion in the controlled React input.
-            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+            const setter = Object.getOwnPropertyDescriptor(
+              HTMLInputElement.prototype,
+              "value"
+            )?.set;
             setter?.call(input, value);
             input.dispatchEvent(new Event("input", { bubbles: true }));
             input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -117,10 +122,13 @@ export default function CustomerGooglePlacesAutocomplete() {
     const loadScript = (apiKey: string) => {
       if (attachAutocomplete()) return;
 
-      const existingScript = document.querySelector<HTMLScriptElement>("script[data-google-places]");
+      // Reuse any existing Maps JS script to avoid loading the API twice.
+      const existingScript = Array.from(document.scripts).find((script) =>
+        script.src.includes("maps.googleapis.com/maps/api/js")
+      );
+
       if (existingScript) {
         existingScript.addEventListener("load", () => attachAutocomplete(), { once: true });
-        existingScript.addEventListener("error", () => undefined, { once: true });
       } else {
         const script = document.createElement("script");
         script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=en&region=PH`;
@@ -128,23 +136,19 @@ export default function CustomerGooglePlacesAutocomplete() {
         script.defer = true;
         script.dataset.googlePlaces = "true";
         script.addEventListener("load", () => attachAutocomplete(), { once: true });
-        script.addEventListener("error", () => undefined, { once: true });
         document.head.appendChild(script);
       }
 
       let attempts = 0;
       const retry = () => {
-        if (cancelled || attachAutocomplete() || attempts >= 40) return;
+        if (cancelled || attachAutocomplete() || attempts >= 80) return;
         attempts += 1;
-        window.setTimeout(retry, 250);
+        retryTimer = window.setTimeout(retry, 250);
       };
       retry();
     };
 
     const loadGooglePlaces = async () => {
-      // Use the public variable when it exists, matching the working
-      // Delivery Drop-off implementation. Fall back to a server route so
-      // Vercel deployments that only define GOOGLE_MAPS_API_KEY still work.
       let apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
 
       if (!apiKey) {
@@ -155,7 +159,7 @@ export default function CustomerGooglePlacesAutocomplete() {
             apiKey = data.apiKey?.trim();
           }
         } catch {
-          // Leave the page usable even when the config endpoint is unavailable.
+          // Keep the form usable even if the fallback configuration endpoint fails.
         }
       }
 
@@ -174,6 +178,7 @@ export default function CustomerGooglePlacesAutocomplete() {
     return () => {
       cancelled = true;
       observer?.disconnect();
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
   }, []);
 
