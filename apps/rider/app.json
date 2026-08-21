@@ -10,7 +10,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.empanadahauz.rider",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Empanada Hauz uses your location to update dispatch while you are delivering assigned orders."
+        "NSLocationWhenInUseUsageDescription": "Empanada Hauz uses your location to update dispatch while you are delivering assigned orders.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Empanada Hauz shares your live location with dispatch while you are online or delivering, including when the app is in the background."
       }
     },
     "android": {
@@ -23,7 +24,10 @@
       },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -31,7 +35,15 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Empanada Hauz shares your live location with dispatch while you are online or delivering, including when the app is in the background."
+        }
+      ]
     ]
   }
 }
