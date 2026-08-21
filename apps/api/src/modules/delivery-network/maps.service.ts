@@ -21,7 +21,7 @@ type GeocodingResponse = {
 
 type RoutesResponse = {
   routes?: Array<{ distanceMeters?: number; duration?: string }>;
-  error?: { message?: string };
+  error?: { message?: string; status?: string };
 };
 
 @Injectable()
@@ -34,24 +34,37 @@ export class MapsService {
     const apiKey = this.config.get<string>("GOOGLE_MAPS_API_KEY");
 
     try {
-      const [origin, destination] = await Promise.all([
-        this.resolveCoordinates(originPoint, apiKey),
-        this.resolveCoordinates(destinationPoint, apiKey)
-      ]);
-
+      let origin = await this.resolveCoordinates(originPoint, apiKey);
+      let destination = await this.resolveCoordinates(destinationPoint, apiKey);
       if (!origin || !destination) return null;
 
       if (apiKey) {
-        try {
-          const route = await this.computeRoute(origin, destination, apiKey);
-          if (route) return this.toRouteEstimate(origin, destination, route.distanceKm, route.durationMinutes);
-        } catch (error) {
-          this.logger.warn(`Routes API unavailable, using coordinate estimate: ${error instanceof Error ? error.message : String(error)}`);
+        const firstAttempt = await this.tryComputeRoute(origin, destination, apiKey, "supplied");
+        if (firstAttempt) return this.toRouteEstimate(origin, destination, firstAttempt.distanceKm, firstAttempt.durationMinutes);
+
+        // A valid coordinate can still be a stale/wrong pin. If routing fails,
+        // geocode the addresses and retry once using Google's address result.
+        // This protects the route pipeline without silently changing valid pins
+        // when the original coordinates are routable.
+        const [geocodedOrigin, geocodedDestination] = await Promise.all([
+          this.geocodeAddress(originPoint.address, apiKey),
+          this.geocodeAddress(destinationPoint.address, apiKey)
+        ]);
+        if (geocodedOrigin && geocodedDestination && (this.coordinatesDiffer(origin, geocodedOrigin) || this.coordinatesDiffer(destination, geocodedDestination))) {
+          this.logger.warn(`Retrying route with geocoded coordinates after no-route response: origin=${this.formatCoordinates(origin)} -> ${this.formatCoordinates(geocodedOrigin)}, destination=${this.formatCoordinates(destination)} -> ${this.formatCoordinates(geocodedDestination)}`);
+          const secondAttempt = await this.tryComputeRoute(geocodedOrigin, geocodedDestination, apiKey, "geocoded");
+          if (secondAttempt) {
+            origin = geocodedOrigin;
+            destination = geocodedDestination;
+            return this.toRouteEstimate(origin, destination, secondAttempt.distanceKm, secondAttempt.durationMinutes);
+          }
         }
       }
 
-      const route = this.estimateRouteFromCoordinates(origin, destination);
-      return this.toRouteEstimate(origin, destination, route.distanceKm, route.durationMinutes);
+      // Google routing is optional. Use a bounded straight-line estimate so a
+      // transient Routes API failure does not break delivery creation/quoting.
+      const fallback = this.estimateRouteFromCoordinates(origin, destination);
+      return this.toRouteEstimate(origin, destination, fallback.distanceKm, fallback.durationMinutes);
     } catch (error) {
       this.logger.warn(`Unable to estimate route: ${error instanceof Error ? error.message : String(error)}`);
       return null;
@@ -60,39 +73,35 @@ export class MapsService {
 
   private async resolveCoordinates(point: RoutePoint, apiKey?: string): Promise<Coordinates | null> {
     const supplied = this.hasValidCoordinates(point) ? { latitude: point.latitude!, longitude: point.longitude! } : null;
-
-    // Coordinates from an address picker are normally authoritative. However,
-    // do not trust a stale or obviously remote coordinate for a Philippine
-    // delivery address: that was the source of extreme quotes such as 16,443 km.
     if (supplied && this.isExpectedRegion(supplied)) return supplied;
-
     if (!apiKey) {
-      if (supplied) this.logger.warn(`Ignoring out-of-region coordinates for "${point.address}"`);
+      if (supplied) this.logger.warn(`Ignoring out-of-region coordinates for "${point.address}": ${this.formatCoordinates(supplied)}`);
       return null;
     }
+    return this.geocodeAddress(point.address, apiKey);
+  }
 
+  private async geocodeAddress(address: string, apiKey: string): Promise<Coordinates | null> {
     const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
-    url.searchParams.set("address", point.address);
+    url.searchParams.set("address", address);
     url.searchParams.set("region", this.config.get<string>("GOOGLE_MAPS_REGION", "ph"));
     url.searchParams.set("components", "country:PH");
     url.searchParams.set("key", apiKey);
 
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Geocoding request failed with ${response.status}`);
-
     const payload = (await response.json()) as GeocodingResponse;
     const result = payload.results?.[0];
     if (payload.status !== "OK" || !result) {
-      this.logger.warn(`Geocoding failed for "${point.address}": ${payload.error_message ?? payload.status}`);
+      this.logger.warn(`Geocoding failed for "${address}": ${payload.error_message ?? payload.status}`);
       return null;
     }
 
     const resolved = { latitude: result.geometry.location.lat, longitude: result.geometry.location.lng };
     if (!this.isExpectedRegion(resolved)) {
-      this.logger.warn(`Geocoding returned coordinates outside the configured delivery region for "${point.address}"`);
+      this.logger.warn(`Geocoding returned coordinates outside the configured delivery region for "${address}": ${this.formatCoordinates(resolved)}`);
       return null;
     }
-
     return resolved;
   }
 
@@ -103,12 +112,19 @@ export class MapsService {
   private isExpectedRegion(coordinates: Coordinates) {
     const region = this.config.get<string>("GOOGLE_MAPS_REGION", "ph").toLowerCase();
     if (region !== "ph") return true;
-    // Broad Philippines bounds. This prevents a partial name from resolving to
-    // another country while still allowing delivery coverage anywhere in PH.
     return coordinates.latitude >= 4 && coordinates.latitude <= 22 && coordinates.longitude >= 116 && coordinates.longitude <= 127;
   }
 
-  private async computeRoute(origin: Coordinates, destination: Coordinates, apiKey: string) {
+  private async tryComputeRoute(origin: Coordinates, destination: Coordinates, apiKey: string, source: "supplied" | "geocoded") {
+    try {
+      return await this.computeRoute(origin, destination, apiKey, source);
+    } catch (error) {
+      this.logger.warn(`Routes API request failed (${source}) origin=${this.formatCoordinates(origin)} destination=${this.formatCoordinates(destination)}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  private async computeRoute(origin: Coordinates, destination: Coordinates, apiKey: string, source: string) {
     const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
       method: "POST",
       headers: {
@@ -124,12 +140,17 @@ export class MapsService {
       })
     });
 
-    if (!response.ok) throw new Error(`Routes request failed with ${response.status}`);
+    const raw = await response.text();
+    let payload: RoutesResponse = {};
+    try { payload = raw ? JSON.parse(raw) as RoutesResponse : {}; } catch { /* keep empty payload for diagnostics */ }
 
-    const payload = (await response.json()) as RoutesResponse;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}${payload.error?.status ? ` ${payload.error.status}` : ""}: ${payload.error?.message ?? raw.slice(0, 300)}`);
+    }
+
     const route = payload.routes?.[0];
     if (!route?.distanceMeters || !route.duration) {
-      this.logger.warn(`Routes API returned no route: ${payload.error?.message ?? "missing route"}`);
+      this.logger.warn(`Routes API returned no route (${source}): ${payload.error?.message ?? "missing route"}; origin=${this.formatCoordinates(origin)} destination=${this.formatCoordinates(destination)}`);
       return null;
     }
 
@@ -139,11 +160,17 @@ export class MapsService {
     };
   }
 
+  private coordinatesDiffer(a: Coordinates, b: Coordinates) {
+    return this.haversineDistanceKm(a, b) > 0.25;
+  }
+
+  private formatCoordinates(coordinates: Coordinates) { return `${coordinates.latitude.toFixed(6)},${coordinates.longitude.toFixed(6)}`; }
+
   private estimateRouteFromCoordinates(origin: Coordinates, destination: Coordinates) {
     const straightLineKm = this.haversineDistanceKm(origin, destination);
     const multiplier = Number(this.config.get<string>("DELIVERY_DISTANCE_MULTIPLIER", "1.2"));
     const averageSpeedKmph = Number(this.config.get<string>("DELIVERY_AVG_SPEED_KMPH", "25"));
-    const distanceKm = Number((straightLineKm * multiplier).toFixed(2));
+    const distanceKm = Number((straightLineKm * Math.max(multiplier, 1)).toFixed(2));
     const durationMinutes = Math.max(1, Math.ceil((distanceKm / Math.max(averageSpeedKmph, 1)) * 60));
     return { distanceKm, durationMinutes };
   }
