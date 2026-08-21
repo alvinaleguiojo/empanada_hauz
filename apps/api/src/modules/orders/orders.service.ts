@@ -312,7 +312,20 @@ export class OrdersService {
   }
 
   async exportToGoogleDrive(orderIds: string[]) {
-    return this.googleDriveOrderExport.exportOrders(orderIds);
+    const ids = [...new Set(orderIds.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))];
+    if (!ids.length) throw new BadRequestException("No orders selected for export");
+
+    const orders = await this.prisma.order.findMany({
+      where: { id: { in: ids } },
+      include: {
+        customer: true,
+        orderNotes: { orderBy: { createdAt: "desc" } }
+      }
+    });
+
+    if (!orders.length) throw new NotFoundException("No selected orders were found");
+
+    return this.googleDriveOrderExport.uploadOrders(orders);
   }
 }
 
