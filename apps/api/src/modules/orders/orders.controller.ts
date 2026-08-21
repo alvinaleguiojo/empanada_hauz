@@ -24,9 +24,8 @@ export class OrdersController {
     return this.ordersService.track(id);
   }
 
-  // Public - lets the customer ordering page show an estimated delivery
-  // fee before checkout, using the same Google Maps + fee formula used by
-  // the delivery network. The store coordinates are fixed and authoritative.
+  // Public delivery-fee preview. The pickup point is always the Empanada Hauz
+  // store coordinates; the customer address/landmark determine the drop-off.
   @Get("delivery-quote")
   async deliveryQuote(
     @Query("address") address?: string,
@@ -36,7 +35,7 @@ export class OrdersController {
   ) {
     const trimmedAddress = (address ?? "").trim().slice(0, 300);
     const trimmedLandmark = (landmark ?? "").trim().slice(0, 200);
-    if (!trimmedAddress) {
+    if (!trimmedAddress && !trimmedLandmark) {
       return { distanceKm: null, estimatedDurationMinutes: null, estimatedArrivalAt: null, estimatedFare: 0 };
     }
 
@@ -44,14 +43,17 @@ export class OrdersController {
     const parsedLongitude = Number(longitude);
     const hasDropoffCoordinates = Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude);
 
-    // Prefer the actual selected delivery address for routing. A landmark is
-    // only an additional geocoding hint and should never turn a valid address
-    // into an invalid/ambiguous route request.
-    const quote = await this.deliveryNetworkService.quoteJob({
+    // When a landmark was selected from Places, it is usually the most precise
+    // description of the delivery point (for example, "Gaisano Capital").
+    // Combine it with the customer's address so geocoding can resolve the
+    // actual place instead of routing to the center of a whole city.
+    const dropoffAddress = [trimmedLandmark, trimmedAddress].filter(Boolean).join(", ");
+
+    return this.deliveryNetworkService.quoteJob({
       pickupAddress: "Empanada Hauz",
       pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
       pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
-      dropoffAddress: trimmedAddress,
+      dropoffAddress,
       ...(hasDropoffCoordinates
         ? {
             dropoffLatitude: parsedLatitude,
@@ -59,26 +61,6 @@ export class OrdersController {
           }
         : {})
     });
-
-    // If the address itself could not be geocoded, retry once with the
-    // landmark appended. This keeps the landmark useful without making it the
-    // primary route destination.
-    if (quote.estimatedFare === 0 && trimmedLandmark) {
-      return this.deliveryNetworkService.quoteJob({
-        pickupAddress: "Empanada Hauz",
-        pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
-        pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
-        dropoffAddress: `${trimmedLandmark}, ${trimmedAddress}`,
-        ...(hasDropoffCoordinates
-          ? {
-              dropoffLatitude: parsedLatitude,
-              dropoffLongitude: parsedLongitude
-            }
-          : {})
-      });
-    }
-
-    return quote;
   }
 
   @UseGuards(JwtAuthGuard)
