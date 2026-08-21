@@ -24,10 +24,10 @@ function decodePolyline(encoded: string): Coordinate[] {
   return points;
 }
 async function getRoute(origin: Coordinate, destination: Coordinate): Promise<RouteInfo> {
-  if (!DIRECTIONS_API_KEY) throw new Error("Google Maps API key is missing.");
+  if (!DIRECTIONS_API_KEY) throw new Error("Google Directions API key is not configured. The map is available, but road routing is disabled.");
   const params = new URLSearchParams({ origin: `${origin.latitude},${origin.longitude}`, destination: `${destination.latitude},${destination.longitude}`, mode: "driving", key: DIRECTIONS_API_KEY });
   const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`); const data = await response.json();
-  if (!response.ok || data.status !== "OK" || !data.routes?.[0]) { if (data.status === "REQUEST_DENIED") throw new Error(data.error_message || "Directions API request was denied."); if (data.status === "ZERO_RESULTS") throw new Error("No driving route was found between these locations."); throw new Error(data.error_message || data.status || "Unable to calculate route."); }
+  if (!response.ok || data.status !== "OK" || !data.routes?.[0]) { if (data.status === "REQUEST_DENIED") throw new Error(data.error_message || "Google Directions API request was denied."); if (data.status === "ZERO_RESULTS") throw new Error("No driving route was found between these locations."); throw new Error(data.error_message || data.status || "Unable to calculate route."); }
   const route = data.routes[0]; const legs = route.legs ?? []; const distance = legs.reduce((sum: number, leg: any) => sum + Number(leg.distance?.value ?? 0), 0) / 1000; const duration = legs.map((leg: any) => leg.duration?.text).filter(Boolean).join(" • "); const points = decodePolyline(route.overview_polyline?.points ?? "");
   if (points.length < 2) throw new Error("Google returned an empty route."); return { points, distance, duration };
 }
@@ -45,6 +45,7 @@ export default function RiderMapView({ riderLocation, status, pickup, dropoff, p
   useEffect(() => { requestAnimationFrame(fitRoute); }, [riderLocation?.latitude, riderLocation?.longitude, pickup?.latitude, pickup?.longitude, dropoff?.latitude, dropoff?.longitude, status]);
   useEffect(() => {
     if (!origin || !destination) { setPath([]); setInfo(null); setRouteError("Waiting for rider and destination coordinates."); return; }
+    if (!DIRECTIONS_API_KEY) { setPath([]); setInfo(null); setRouteError("Road routing is not configured. Map markers and locations are still available."); return; }
     let cancelled = false; setLoading(true); setRouteError(null);
     getRoute(origin, destination).then(result => { if (!cancelled) { setPath(result.points); setInfo(result); } }).catch(error => { if (!cancelled) { setPath([]); setInfo(null); setRouteError(error instanceof Error ? error.message : "Unable to calculate route."); } }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
