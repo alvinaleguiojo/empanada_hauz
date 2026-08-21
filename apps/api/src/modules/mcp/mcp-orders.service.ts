@@ -26,7 +26,6 @@ export class McpOrdersService {
   }) {
     const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const where = this.buildWhere(params);
-
     const orders = await this.prisma.order.findMany({
       where,
       include: this.orderInclude(),
@@ -34,28 +33,14 @@ export class McpOrdersService {
       take: limit + 1,
       ...(params.cursor ? { cursor: { id: params.cursor }, skip: 1 } : {})
     });
-
     const page = orders.slice(0, limit);
     const nextOrder = orders[limit];
-
-    return {
-      orders: page.map((order) => this.serializeOrder(order)),
-      count: page.length,
-      hasMore: Boolean(nextOrder),
-      nextCursor: nextOrder?.id ?? null
-    };
+    return { orders: page.map((order) => this.serializeOrder(order)), count: page.length, hasMore: Boolean(nextOrder), nextCursor: nextOrder?.id ?? null };
   }
 
   async getOrder(params: { id?: string; orderNumber?: string }) {
-    const order = await this.prisma.order.findFirst({
-      where: params.id ? { id: params.id } : { orderNumber: params.orderNumber },
-      include: this.orderInclude()
-    });
-
-    if (!order) {
-      throw new NotFoundException("Order not found");
-    }
-
+    const order = await this.prisma.order.findFirst({ where: params.id ? { id: params.id } : { orderNumber: params.orderNumber }, include: this.orderInclude() });
+    if (!order) throw new NotFoundException("Order not found");
     return this.serializeOrder(order);
   }
 
@@ -75,13 +60,8 @@ export class McpOrdersService {
     notes?: string;
   }) {
     const items = this.resolveMcpLineItems(params.items);
-    const quantity = items.length > 0
-      ? items.reduce((sum, item) => sum + item.quantity, 0)
-      : params.quantity;
-    const unitPrice = items.length > 0
-      ? items.reduce((sum, item) => sum + item.subtotal, 0) / quantity
-      : params.unitPrice ?? DEFAULT_UNIT_PRICE;
-
+    const quantity = items.length > 0 ? items.reduce((sum, item) => sum + item.quantity, 0) : params.quantity;
+    const unitPrice = items.length > 0 ? items.reduce((sum, item) => sum + item.subtotal, 0) / quantity : params.unitPrice ?? DEFAULT_UNIT_PRICE;
     const order = await this.ordersService.createManual({
       customerName: params.customerName,
       phoneNumber: params.phoneNumber,
@@ -97,7 +77,6 @@ export class McpOrdersService {
       items: items.length > 0 ? items : undefined,
       notes: params.notes
     });
-
     return this.serializeOrder(order);
   }
 
@@ -105,56 +84,26 @@ export class McpOrdersService {
     const id = await this.resolveOrderId(params);
     const updateDto = this.toUpdateOrderDto(params);
     const hasOrderChanges = Object.values(updateDto).some((value) => value !== undefined);
-
     let order = hasOrderChanges ? await this.ordersService.update(id, updateDto) : null;
-    if (params.status) {
-      order = await this.ordersService.updateStatus(id, params.status);
-    }
-
+    if (params.status) order = await this.ordersService.updateStatus(id, params.status);
     return order ? this.serializeOrder(order) : this.getOrder({ id });
   }
 
   async deleteOrder(params: { id?: string; orderNumber?: string }) {
     const id = await this.resolveOrderId(params);
-    const deleted = await this.ordersService.remove(id);
-
-    return {
-      deleted: true,
-      id: deleted.id,
-      orderNumber: deleted.orderNumber,
-      status: deleted.status
-    };
+    await this.ordersService.remove(id);
+    return { deleted: true, id };
   }
 
   async summarizeOrders(params: { fromDate?: string; toDate?: string }) {
     const where = this.buildWhere(params);
     const [totalOrders, totals, byStatus, byDeliveryMethod, byPaymentMethod] = await Promise.all([
       this.prisma.order.count({ where }),
-      this.prisma.order.aggregate({
-        where,
-        _sum: { quantity: true, totalAmount: true, deliveryFee: true },
-        _avg: { quantity: true, totalAmount: true }
-      }),
-      this.prisma.order.groupBy({
-        by: ["status"],
-        where,
-        _count: { _all: true },
-        _sum: { quantity: true, totalAmount: true }
-      }),
-      this.prisma.order.groupBy({
-        by: ["deliveryMethod"],
-        where,
-        _count: { _all: true },
-        _sum: { totalAmount: true }
-      }),
-      this.prisma.order.groupBy({
-        by: ["paymentMethod"],
-        where,
-        _count: { _all: true },
-        _sum: { totalAmount: true }
-      })
+      this.prisma.order.aggregate({ where, _sum: { quantity: true, totalAmount: true, deliveryFee: true }, _avg: { quantity: true, totalAmount: true } }),
+      this.prisma.order.groupBy({ by: ["status"], where, _count: { _all: true }, _sum: { quantity: true, totalAmount: true } }),
+      this.prisma.order.groupBy({ by: ["deliveryMethod"], where, _count: { _all: true }, _sum: { totalAmount: true } }),
+      this.prisma.order.groupBy({ by: ["paymentMethod"], where, _count: { _all: true }, _sum: { totalAmount: true } })
     ]);
-
     return {
       totalOrders,
       totalQuantity: totals._sum.quantity ?? 0,
@@ -162,74 +111,29 @@ export class McpOrdersService {
       totalDeliveryFees: totals._sum.deliveryFee ?? 0,
       averageQuantity: totals._avg.quantity ?? 0,
       averageOrderAmount: totals._avg.totalAmount ?? 0,
-      byStatus: byStatus.map((row) => ({
-        status: row.status,
-        orders: row._count._all,
-        quantity: row._sum.quantity ?? 0,
-        revenue: row._sum.totalAmount ?? 0
-      })),
-      byDeliveryMethod: byDeliveryMethod.map((row) => ({
-        deliveryMethod: row.deliveryMethod,
-        orders: row._count._all,
-        revenue: row._sum.totalAmount ?? 0
-      })),
-      byPaymentMethod: byPaymentMethod.map((row) => ({
-        paymentMethod: row.paymentMethod,
-        orders: row._count._all,
-        revenue: row._sum.totalAmount ?? 0
-      }))
+      byStatus: byStatus.map((row) => ({ status: row.status, orders: row._count._all, quantity: row._sum.quantity ?? 0, revenue: row._sum.totalAmount ?? 0 })),
+      byDeliveryMethod: byDeliveryMethod.map((row) => ({ deliveryMethod: row.deliveryMethod, orders: row._count._all, revenue: row._sum.totalAmount ?? 0 })),
+      byPaymentMethod: byPaymentMethod.map((row) => ({ paymentMethod: row.paymentMethod, orders: row._count._all, revenue: row._sum.totalAmount ?? 0 }))
     };
   }
 
-  private buildWhere(params: {
-    status?: string;
-    customerName?: string;
-    fromDate?: string;
-    toDate?: string;
-  }): Prisma.OrderWhereInput {
+  private buildWhere(params: { status?: string; customerName?: string; fromDate?: string; toDate?: string }): Prisma.OrderWhereInput {
     return {
       ...(params.status ? { status: params.status as OrderStatus } : {}),
-      ...(params.customerName
-        ? { customer: { name: { contains: params.customerName, mode: "insensitive" } } }
-        : {}),
-      ...(params.fromDate || params.toDate
-        ? {
-            createdAt: {
-              ...(params.fromDate ? { gte: new Date(params.fromDate) } : {}),
-              ...(params.toDate ? { lte: new Date(params.toDate) } : {})
-            }
-          }
-        : {})
+      ...(params.customerName ? { customer: { name: { contains: params.customerName, mode: "insensitive" } } } : {}),
+      ...(params.fromDate || params.toDate ? { createdAt: { ...(params.fromDate ? { gte: new Date(params.fromDate) } : {}), ...(params.toDate ? { lte: new Date(params.toDate) } : {}) } } : {})
     };
   }
 
   private orderInclude() {
-    return {
-      customer: true,
-      batch: true,
-      delivery: true,
-      orderNotes: { orderBy: { createdAt: "desc" as const } }
-    };
+    return { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" as const } } };
   }
 
   private async resolveOrderId(params: { id?: string; orderNumber?: string }) {
-    if (params.id) {
-      return params.id;
-    }
-
-    if (!params.orderNumber) {
-      throw new BadRequestException("Provide either id or orderNumber.");
-    }
-
-    const order = await this.prisma.order.findUnique({
-      where: { orderNumber: params.orderNumber },
-      select: { id: true }
-    });
-
-    if (!order) {
-      throw new NotFoundException("Order not found");
-    }
-
+    if (params.id) return params.id;
+    if (!params.orderNumber) throw new BadRequestException("Provide either id or orderNumber.");
+    const order = await this.prisma.order.findUnique({ where: { orderNumber: params.orderNumber }, select: { id: true } });
+    if (!order) throw new NotFoundException("Order not found");
     return order.id;
   }
 
@@ -251,27 +155,13 @@ export class McpOrdersService {
   }
 
   private resolveMcpLineItems(items: ManualOrderEntryDto["items"] | undefined) {
-    if (!items || items.length === 0) {
-      return [];
-    }
-
+    if (!items || items.length === 0) return [];
     return items.map((item) => {
       const quantity = Math.trunc(Number(item.quantity));
-      if (!Number.isFinite(quantity) || quantity < 1) {
-        throw new BadRequestException(`Invalid quantity for "${item.name}".`);
-      }
-
+      if (!Number.isFinite(quantity) || quantity < 1) throw new BadRequestException(`Invalid quantity for "${item.name}".`);
       const price = priceForFlavor(item.name) ?? Number(item.price);
-      if (!Number.isFinite(price) || price < 0) {
-        throw new BadRequestException(`Provide a valid price for unknown item "${item.name}".`);
-      }
-
-      return {
-        name: item.name,
-        quantity,
-        price,
-        subtotal: quantity * price
-      };
+      if (!Number.isFinite(price) || price < 0) throw new BadRequestException(`Provide a valid price for unknown item "${item.name}".`);
+      return { name: item.name, quantity, price, subtotal: quantity * price };
     });
   }
 
@@ -294,43 +184,10 @@ export class McpOrdersService {
       notes: order.notes,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
-      customer: {
-        id: order.customer.id,
-        name: order.customer.name,
-        phoneNumber: order.customer.phoneNumber,
-        defaultAddress: order.customer.defaultAddress,
-        notes: order.customer.notes,
-        totalOrders: order.customer.totalOrders,
-        totalSpent: order.customer.totalSpent,
-        isVip: order.customer.isVip
-      },
-      batch: order.batch
-        ? {
-            id: order.batch.id,
-            name: order.batch.name,
-            batchDate: order.batch.batchDate,
-            isClosed: order.batch.isClosed
-          }
-        : null,
-      delivery: order.delivery
-        ? {
-            id: order.delivery.id,
-            areaGroup: order.delivery.areaGroup,
-            status: order.delivery.status,
-            scheduledAt: order.delivery.scheduledAt,
-            eta: order.delivery.eta,
-            trackingLink: order.delivery.trackingLink,
-            riderName: order.delivery.riderName,
-            riderPlate: order.delivery.riderPlate,
-            bookingNotes: order.delivery.bookingNotes,
-            copyPayload: order.delivery.copyPayload
-          }
-        : null,
-      orderNotes: order.orderNotes.map((note) => ({
-        id: note.id,
-        body: note.body,
-        createdAt: note.createdAt
-      }))
+      customer: { id: order.customer.id, name: order.customer.name, phoneNumber: order.customer.phoneNumber, defaultAddress: order.customer.defaultAddress, notes: order.customer.notes, totalOrders: order.customer.totalOrders, totalSpent: order.customer.totalSpent, isVip: order.customer.isVip },
+      batch: order.batch ? { id: order.batch.id, name: order.batch.name, batchDate: order.batch.batchDate, isClosed: order.batch.isClosed } : null,
+      delivery: order.delivery ? { id: order.delivery.id, areaGroup: order.delivery.areaGroup, status: order.delivery.status, scheduledAt: order.delivery.scheduledAt, eta: order.delivery.eta, trackingLink: order.delivery.trackingLink, riderName: order.delivery.riderName, riderPlate: order.delivery.riderPlate, bookingNotes: order.delivery.bookingNotes, copyPayload: order.delivery.copyPayload } : null,
+      orderNotes: order.orderNotes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt }))
     };
   }
 }
