@@ -10,13 +10,22 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://empanadahauz.com/api
 const TOKEN_KEY = "empanada-rider-token";
 const SOCKET_URL = API_URL.replace(/\/api\/?$/, "");
 const MAX_ACCEPTABLE_ACCURACY_METERS = 50;
+const MAX_STORED_LOCATION_AGE_MS = 45_000;
 
-type Coordinate = { latitude: number; longitude: number };
-type RiderProfile = { id: string; status?: string; locations?: Coordinate[] };
+type Coordinate = { latitude: number; longitude: number; createdAt?: string };
+type RiderProfile = { id: string; status?: string; locations?: Array<Coordinate & { accuracy?: number | null; createdAt?: string }> };
 type Job = { id: string; status: string; pickupLatitude?: number | null; pickupLongitude?: number | null; dropoffLatitude?: number | null; dropoffLongitude?: number | null; pickupAddress?: string; dropoffAddress?: string };
 
 async function getRider(token: string) { const response = await fetch(`${API_URL}/rider/me`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error("Unable to load rider profile"); return (await response.json()) as RiderProfile; }
 async function getJobs(token: string) { const response = await fetch(`${API_URL}/rider/jobs`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error("Unable to load rider deliveries"); return (await response.json()) as Job[]; }
+
+function isFreshLocation(location?: Coordinate & { accuracy?: number | null } | null) {
+  if (!location || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) return false;
+  if (location.accuracy != null && location.accuracy > MAX_ACCEPTABLE_ACCURACY_METERS) return false;
+  if (!location.createdAt) return false;
+  const age = Date.now() - new Date(location.createdAt).getTime();
+  return Number.isFinite(age) && age >= 0 && age <= MAX_STORED_LOCATION_AGE_MS;
+}
 
 export default function RiderRealtimeApp() {
   const [, setRevision] = useState(0);
@@ -24,7 +33,7 @@ export default function RiderRealtimeApp() {
   const [mapData, setMapData] = useState<{ riderLocation: Coordinate | null; job: Job | null }>({ riderLocation: null, job: null });
   const [liveLocation, setLiveLocation] = useState<Coordinate | null>(null);
 
-  const handleLocation = useCallback((coords: { latitude: number; longitude: number }) => setLiveLocation({ latitude: coords.latitude, longitude: coords.longitude }), []);
+  const handleLocation = useCallback((coords: { latitude: number; longitude: number }) => setLiveLocation({ latitude: coords.latitude, longitude: coords.longitude, createdAt: new Date().toISOString() }), []);
 
   useEffect(() => {
     let subscription: Location.LocationSubscription | null = null;
@@ -38,7 +47,7 @@ export default function RiderRealtimeApp() {
         const { latitude, longitude, accuracy, altitude, heading, speed } = position.coords;
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || accuracy == null || accuracy > MAX_ACCEPTABLE_ACCURACY_METERS) return;
         const payload = { latitude, longitude, accuracy, altitude: altitude ?? undefined, heading: heading ?? undefined, speed: speed ?? undefined, timestamp: position.timestamp };
-        setLiveLocation({ latitude, longitude });
+        setLiveLocation({ latitude, longitude, createdAt: new Date(position.timestamp).toISOString() });
         try {
           const response = await fetch(`${API_URL}/rider/location`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
           if (!response.ok) return;
@@ -54,8 +63,9 @@ export default function RiderRealtimeApp() {
     try {
       const [rider, jobs] = await Promise.all([getRider(token), getJobs(token)]);
       const active = jobs.find((job) => ["assigned", "accepted", "pickup_started", "picked_up", "delivering"].includes(job.status)) ?? jobs[0] ?? null;
-      const lastLocation = rider.locations?.[0];
-      setMapData({ riderLocation: lastLocation ? { latitude: lastLocation.latitude, longitude: lastLocation.longitude } : null, job: active });
+      const serverLocation = rider.locations?.[0];
+      const freshServerLocation = isFreshLocation(serverLocation) ? serverLocation : null;
+      setMapData({ riderLocation: freshServerLocation ? { latitude: freshServerLocation.latitude, longitude: freshServerLocation.longitude, createdAt: freshServerLocation.createdAt } : null, job: active });
       setMapOpen(true);
     } catch { setMapOpen(false); }
   };
