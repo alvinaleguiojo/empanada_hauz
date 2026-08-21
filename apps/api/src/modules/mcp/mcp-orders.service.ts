@@ -4,16 +4,19 @@ import { PrismaService } from "../../database/prisma.service";
 import { DeliveryMethod, ManualOrderEntryDto, OrderStatus, PaymentMethod, UpdateOrderDto } from "../orders/dto";
 import { priceForFlavor } from "../orders/menu-prices";
 import { OrdersService } from "../orders/orders.service";
+import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 const DEFAULT_UNIT_PRICE = priceForFlavor("Pork Regular") ?? 20;
+const DEFAULT_PICKUP_ADDRESS = "Empanada Hauz";
 
 @Injectable()
 export class McpOrdersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly ordersService: OrdersService
+    private readonly ordersService: OrdersService,
+    private readonly deliveryNetwork: DeliveryNetworkService
   ) {}
 
   async listOrders(params: {
@@ -62,12 +65,30 @@ export class McpOrdersService {
     const items = this.resolveMcpLineItems(params.items);
     const quantity = items.length > 0 ? items.reduce((sum, item) => sum + item.quantity, 0) : params.quantity;
     const unitPrice = items.length > 0 ? items.reduce((sum, item) => sum + item.subtotal, 0) / quantity : params.unitPrice ?? DEFAULT_UNIT_PRICE;
+
+    let deliveryFee = params.deliveryFee;
+    if (params.deliveryMethod === "own_delivery" && deliveryFee === undefined) {
+      const dropoffAddress = params.address?.trim() || params.location?.trim();
+      if (!dropoffAddress) {
+        throw new BadRequestException("An address or location is required to calculate the own-delivery fee.");
+      }
+
+      const quote = await this.deliveryNetwork.quoteJob({
+        pickupAddress: DEFAULT_PICKUP_ADDRESS,
+        dropoffAddress
+      });
+      if (quote.estimatedFare === 0) {
+        throw new BadRequestException("Unable to calculate an own-delivery fee for the supplied address.");
+      }
+      deliveryFee = quote.estimatedFare;
+    }
+
     const order = await this.ordersService.createManual({
       customerName: params.customerName,
       phoneNumber: params.phoneNumber,
       quantity,
       unitPrice,
-      deliveryFee: params.deliveryFee ?? 0,
+      deliveryFee: deliveryFee ?? 0,
       deliveryMethod: params.deliveryMethod ?? "pickup",
       paymentMethod: params.paymentMethod ?? "cod",
       location: params.location,
