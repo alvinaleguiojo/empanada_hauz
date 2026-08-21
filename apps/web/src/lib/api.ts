@@ -1,4 +1,5 @@
 import { API_URL } from "./config";
+import { getSelectedDeliveryCoordinates } from "./delivery-place";
 
 export async function apiFetch<T>(path: string, options?: RequestInit, token?: string): Promise<T> {
   let resolvedToken = token;
@@ -11,7 +12,16 @@ export async function apiFetch<T>(path: string, options?: RequestInit, token?: s
     }
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  let resolvedPath = path;
+  if (typeof window !== "undefined" && path.startsWith("/orders/delivery-quote")) {
+    const coordinates = getSelectedDeliveryCoordinates();
+    if (coordinates) {
+      const separator = path.includes("?") ? "&" : "?";
+      resolvedPath = `${path}${separator}latitude=${encodeURIComponent(coordinates.latitude)}&longitude=${encodeURIComponent(coordinates.longitude)}`;
+    }
+  }
+
+  const response = await fetch(`${API_URL}${resolvedPath}`, {
     ...options,
     headers: {
       "content-type": "application/json",
