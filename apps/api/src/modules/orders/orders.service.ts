@@ -141,11 +141,15 @@ export class OrdersService {
     let deliveryFee = 0;
     if (dto.deliveryMethod === "maxim") {
       const dropoffAddress = [dto.landmark?.trim(), dto.address?.trim()].filter(Boolean).join(", ");
+      const hasDropoffCoordinates = Number.isFinite(dto.latitude) && Number.isFinite(dto.longitude);
       const quote = await this.deliveryNetworkService.quoteJob({
         pickupAddress: EMPANADA_HAUZ_PICKUP.address,
         pickupLatitude: EMPANADA_HAUZ_PICKUP.latitude,
         pickupLongitude: EMPANADA_HAUZ_PICKUP.longitude,
-        dropoffAddress
+        dropoffAddress,
+        ...(hasDropoffCoordinates
+          ? { dropoffLatitude: dto.latitude, dropoffLongitude: dto.longitude }
+          : {})
       });
       deliveryFee = quote.estimatedFare;
     }
