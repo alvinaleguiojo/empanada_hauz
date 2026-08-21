@@ -89,11 +89,25 @@ export default function CustomerGooglePlacesAutocomplete() {
             const value = place.formatted_address ?? place.name ?? "";
             if (!value) return;
 
+            const latitude = location?.lat();
+            const longitude = location?.lng();
+
             const setter = Object.getOwnPropertyDescriptor(
               HTMLInputElement.prototype,
               "value"
             )?.set;
             setter?.call(input, value);
+
+            if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+              input.dataset.latitude = String(latitude);
+              input.dataset.longitude = String(longitude);
+              input.dataset.placeValue = value;
+            } else {
+              delete input.dataset.latitude;
+              delete input.dataset.longitude;
+              delete input.dataset.placeValue;
+            }
+
             input.dispatchEvent(new Event("input", { bubbles: true }));
             input.dispatchEvent(new Event("change", { bubbles: true }));
 
@@ -104,8 +118,8 @@ export default function CustomerGooglePlacesAutocomplete() {
                   value,
                   formattedAddress: place.formatted_address,
                   name: place.name,
-                  latitude: location?.lat(),
-                  longitude: location?.lng()
+                  latitude,
+                  longitude
                 }
               })
             );
