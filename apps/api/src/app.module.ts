@@ -22,6 +22,7 @@ import { HealthModule } from "./modules/health/health.module";
 import { McpModule } from "./modules/mcp/mcp.module";
 import { DatabaseModule } from "./database/database.module";
 import { RealtimeModule } from "./common/realtime.module";
+import { GoogleMapsModule } from "./modules/google-maps/google-maps.module";
 
 @Module({
   imports: [
@@ -52,7 +53,8 @@ import { RealtimeModule } from "./common/realtime.module";
     ReferralChatModule,
     NotificationsModule,
     ChatModule,
-    McpModule
+    McpModule,
+    GoogleMapsModule
   ]
 })
 export class AppModule {}
