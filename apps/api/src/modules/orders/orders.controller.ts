@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
+import { PrismaService } from "../../database/prisma.service";
 import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, PublicOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
 import { OrdersService } from "./orders.service";
 
@@ -10,13 +11,37 @@ const DEFAULT_PICKUP_COORDINATES = { latitude: 10.2760457, longitude: 123.846692
 export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
-    private readonly deliveryNetworkService: DeliveryNetworkService
+    private readonly deliveryNetworkService: DeliveryNetworkService,
+    private readonly prisma: PrismaService
   ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get()
   list(@Query("date") date?: string, @Query("search") search?: string, @Query("upcoming") upcoming?: string) {
-    return this.ordersService.list({ date, search, upcoming: upcoming === "true" });
+    if (upcoming === "true") {
+      return this.prisma.order.findMany({
+        where: {
+          preferredSchedule: { gte: new Date() },
+          status: { notIn: ["completed", "cancelled"] }
+        },
+        include: {
+          customer: true,
+          batch: true,
+          delivery: true,
+          orderNotes: { orderBy: { createdAt: "desc" } },
+          deliveryJobs: {
+            where: { status: { notIn: ["cancelled"] } },
+            orderBy: { requestedAt: "desc" },
+            take: 1,
+            include: { rider: { include: { user: { select: { id: true, name: true, email: true } } } } }
+          }
+        },
+        orderBy: { preferredSchedule: "asc" },
+        take: 500
+      });
+    }
+
+    return this.ordersService.list({ date, search });
   }
 
   @Get("track/:id")
