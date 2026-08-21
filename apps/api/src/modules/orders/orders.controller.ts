@@ -67,6 +67,11 @@ export class OrdersController {
     const parsedLatitude = Number(latitude);
     const parsedLongitude = Number(longitude);
     const hasDropoffCoordinates = Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude);
+
+    // When a landmark was selected from Places, it is usually the most precise
+    // description of the delivery point (for example, "Gaisano Capital").
+    // Combine it with the customer's address so geocoding can resolve the
+    // actual place instead of routing to the center of a whole city.
     const dropoffAddress = [trimmedLandmark, trimmedAddress].filter(Boolean).join(", ");
 
     return this.deliveryNetworkService.quoteJob({
