@@ -13,20 +13,41 @@ export async function apiFetch<T>(path: string, options?: RequestInit, token?: s
   }
 
   let resolvedPath = path;
-  if (typeof window !== "undefined" && path.startsWith("/orders/delivery-quote")) {
+  let resolvedOptions = options;
+
+  if (typeof window !== "undefined") {
     const coordinates = getSelectedDeliveryCoordinates();
-    if (coordinates) {
+
+    if (coordinates && path.startsWith("/orders/delivery-quote")) {
       const separator = path.includes("?") ? "&" : "?";
       resolvedPath = `${path}${separator}latitude=${encodeURIComponent(coordinates.latitude)}&longitude=${encodeURIComponent(coordinates.longitude)}`;
+    }
+
+    if (coordinates && path === "/orders/public" && typeof options?.body === "string") {
+      try {
+        const body = JSON.parse(options.body) as Record<string, unknown>;
+        if (body.deliveryMethod === "maxim") {
+          resolvedOptions = {
+            ...options,
+            body: JSON.stringify({
+              ...body,
+              latitude: coordinates.latitude,
+              longitude: coordinates.longitude
+            })
+          };
+        }
+      } catch {
+        // Leave non-JSON requests unchanged.
+      }
     }
   }
 
   const response = await fetch(`${API_URL}${resolvedPath}`, {
-    ...options,
+    ...resolvedOptions,
     headers: {
       "content-type": "application/json",
       ...(resolvedToken ? { authorization: `Bearer ${resolvedToken}` } : {}),
-      ...(options?.headers ?? {})
+      ...(resolvedOptions?.headers ?? {})
     },
     cache: "no-store"
   });
