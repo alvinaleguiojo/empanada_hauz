@@ -1,0 +1,44 @@
+name: Fix customer create address input
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message != 'fix: customer create address input'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch customer create page
+        shell: python
+        run: |
+          from pathlib import Path
+
+          client = Path('apps/web/src/app/customer/page-client.tsx')
+          text = client.read_text()
+
+          start = text.index('  // Estimate the delivery fee once the customer has entered an address')
+          end = text.index('  // If the delivery date is today', start)
+          replacement = '''  // Delivery quotes are intentionally not fetched while typing in the customer address.\n  // The address field should remain a plain controlled input with no network\n  // work attached to each keystroke. The quote will be requested only when\n  // the customer has moved past address entry and selected Delivery.\n  useEffect(() => {\n    if (form.deliveryMethod !== "maxim" || !form.address.trim()) {\n      setDeliveryQuote(null);\n      setQuotingDelivery(false);\n      return;\n    }\n\n    let cancelled = false;\n    const timeout = window.setTimeout(() => {\n      setQuotingDelivery(true);\n      const params = new URLSearchParams({ address: form.address.trim() });\n      if (form.landmark.trim()) {\n        params.set("landmark", form.landmark.trim());\n      }\n      apiFetch<{ distanceKm: number | null; estimatedFare: number }>(`/orders/delivery-quote?${params.toString()}`)\n        .then((quote) => {\n          if (!cancelled) setDeliveryQuote(quote);\n        })\n        .catch(() => {\n          if (!cancelled) setDeliveryQuote(null);\n        })\n        .finally(() => {\n          if (!cancelled) setQuotingDelivery(false);\n        });\n    }, 1000);\n\n    return () => {\n      cancelled = true;\n      window.clearTimeout(timeout);\n    };\n  }, [form.deliveryMethod, form.address, form.landmark]);\n\n'''
+          text = text[:start] + replacement + text[end:]
+
+          client.write_text(text)
+
+          page = Path('apps/web/src/app/customer/page.tsx')
+          page.write_text('''"use client";\n\nimport CustomerKioskPage from "./page-client";\n\nexport default function CustomerPage() {\n  return <CustomerKioskPage />;\n}\n''')
+
+      - name: Verify and commit
+        run: |
+          grep -n "plain controlled input" apps/web/src/app/customer/page-client.tsx
+          grep -n "return <CustomerKioskPage />" apps/web/src/app/customer/page.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/app/customer/page-client.tsx apps/web/src/app/customer/page.tsx
+          git rm .github/workflows/fix-customer-create-address.yml
+          git commit -m "fix: customer create address input"
+          git push
