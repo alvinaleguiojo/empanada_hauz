@@ -18,7 +18,7 @@ export default async function OrdersPage() {
           <h1 className="text-2xl font-semibold sm:text-3xl">Orders</h1>
         </div>
         <Link href="/calendar">
-          <Button type="button" variant="outline" className="gap-2">
+          <Button type="button" variant="secondary" className="gap-2">
             <CalendarDays size={16} />
             Calendar
           </Button>
