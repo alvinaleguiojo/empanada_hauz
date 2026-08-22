@@ -28,12 +28,17 @@ function CustomerPageTotalFix() {
       const totalValue = totalRow?.children[1] as HTMLElement | undefined;
       if (!totalRow || !totalValue) return;
 
-      const currentTotalMatch = totalValue.textContent?.match(/([\d,.]+)/);
-      if (!currentTotalMatch) return;
+      const receipt = totalRow.parentElement;
+      const itemSubtotal = Array.from(receipt?.querySelectorAll("div") ?? [])
+        .filter((element) => {
+          if (element.children.length !== 2) return false;
+          const label = element.children[0]?.textContent?.trim() ?? "";
+          const amount = element.children[1]?.textContent?.trim() ?? "";
+          return /\d+x\s+/.test(label) && /^\d+(?:\.\d+)?$/.test(amount);
+        })
+        .reduce((sum, element) => sum + Number(element.children[1]?.textContent?.trim() ?? 0), 0);
 
-      const currentTotal = Number(currentTotalMatch[1].replace(/,/g, ""));
-      const subtotal = currentTotal - deliveryFee;
-      const correctedTotal = subtotal + deliveryFee;
+      const correctedTotal = itemSubtotal + deliveryFee;
       const formattedTotal = `Php ${Number.isInteger(correctedTotal) ? correctedTotal : correctedTotal.toFixed(2)}`;
 
       syncing = true;
@@ -41,7 +46,7 @@ function CustomerPageTotalFix() {
         totalValue.textContent = formattedTotal;
       }
 
-      const note = Array.from(totalRow.parentElement?.querySelectorAll("p") ?? []).find((element) =>
+      const note = Array.from(receipt?.querySelectorAll("p") ?? []).find((element) =>
         element.textContent?.includes("Delivery fee is separate and confirmed by our team.")
       );
       if (note) {
