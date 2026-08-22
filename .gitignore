@@ -4,13 +4,14 @@ dist
 .turbo
 .env
 .env.local
+.env*
+.expo/
 coverage
 apps/api/generated
 apps/api/prisma/dev.db
 loha-*.json
 
 .vercel
-.env*
 *.tsbuildinfo
 
 .expo/
