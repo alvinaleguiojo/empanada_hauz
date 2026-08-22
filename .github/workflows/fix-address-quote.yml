@@ -1,0 +1,49 @@
+name: Fix address quote typing
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message != 'fix: prevent address quote typing hang'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch manual order quote effect
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('apps/web/src/components/orders/manual-order-form.tsx')
+          text = path.read_text()
+
+          old = '''  useEffect(() => {\n    if (!form.address.trim()) {\n      setOwnDeliveryQuote(null);\n      return;\n    }\n\n    let cancelled = false;\n    setQuoting(true);\n    const timeout = window.setTimeout(() => {\n      const params = new URLSearchParams({\n        pickupAddress: \"Empanada Hauz\",\n        dropoffAddress: form.address\n      });\n      apiFetch<{ distanceKm: number | null; estimatedFare: number }>(`/delivery-network/quote?${params.toString()}`)\n        .then((quote) => {\n          if (!cancelled) setOwnDeliveryQuote(quote);\n        })\n        .catch(() => {\n          if (!cancelled) setOwnDeliveryQuote(null);\n        })\n        .finally(() => {\n          if (!cancelled) setQuoting(false);\n        });\n    }, 500);\n\n    return () => {\n      cancelled = true;\n      window.clearTimeout(timeout);\n      setQuoting(false);\n    };\n  }, [form.deliveryMethod, form.address]);'''
+
+          new = '''  useEffect(() => {\n    const address = form.address.trim();\n\n    // Do not geocode while the operator is merely typing. Only quote for\n    // Own Rider orders, and wait until the address is reasonably complete.\n    if (form.deliveryMethod !== \"own_delivery\" || address.length < 8) {\n      setOwnDeliveryQuote(null);\n      setQuoting(false);\n      return;\n    }\n\n    let cancelled = false;\n    const timeout = window.setTimeout(() => {\n      setQuoting(true);\n      const params = new URLSearchParams({\n        pickupAddress: \"Empanada Hauz\",\n        dropoffAddress: address\n      });\n\n      apiFetch<{ distanceKm: number | null; estimatedFare: number }>(`/delivery-network/quote?${params.toString()}`)\n        .then((quote) => {\n          if (!cancelled) {\n            setOwnDeliveryQuote(quote);\n          }\n        })\n        .catch(() => {\n          if (!cancelled) {\n            setOwnDeliveryQuote(null);\n          }\n        })\n        .finally(() => {\n          if (!cancelled) {\n            setQuoting(false);\n          }\n        });\n    }, 700);\n\n    return () => {\n      cancelled = true;\n      window.clearTimeout(timeout);\n    };\n  }, [form.deliveryMethod, form.address]);'''
+
+          if old not in text:
+              raise SystemExit('Expected address quote effect was not found')
+
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+      - name: Verify patch
+        run: |
+          grep -n "Do not geocode while the operator is merely typing" apps/web/src/components/orders/manual-order-form.tsx
+          grep -n "form.deliveryMethod !== \"own_delivery\"" apps/web/src/components/orders/manual-order-form.tsx
+
+      - name: Commit and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/components/orders/manual-order-form.tsx
+          git rm .github/workflows/fix-address-quote.yml
+          git commit -m "fix: prevent address quote typing hang"
+          git push
