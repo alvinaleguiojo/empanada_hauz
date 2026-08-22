@@ -12,3 +12,5 @@ loha-*.json
 .vercel
 .env*
 *.tsbuildinfo
+
+.expo/
