@@ -5,6 +5,12 @@ module.exports = ({ config }) => {
     process.env.GOOGLE_MAPS_API_KEY ||
     "";
 
+  if (!googleMapsApiKey) {
+    throw new Error(
+      "Empanada Hauz Rider: Google Maps Android API key is missing. Set GOOGLE_MAPS_ANDROID_API_KEY (or EXPO_PUBLIC_GOOGLE_MAPS_API_KEY) before running expo prebuild/run:android."
+    );
+  }
+
   const plugins = (config.plugins || []).filter((plugin) => {
     const name = Array.isArray(plugin) ? plugin[0] : plugin;
     return name !== "react-native-maps";
