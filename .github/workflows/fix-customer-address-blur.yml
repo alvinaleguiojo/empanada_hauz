@@ -1,0 +1,61 @@
+name: Finalize customer address input fix
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message != 'fix: customer address quote on blur'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch customer page to quote on blur only
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('apps/web/src/app/customer/page-client.tsx')
+          text = path.read_text()
+
+          start = text.index('  // Delivery quotes are intentionally not fetched while typing')
+          end = text.index('  // If the delivery date is today', start)
+          replacement = '''  const quoteDelivery = () => {\n    if (form.deliveryMethod !== "maxim" || !form.address.trim()) {\n      setDeliveryQuote(null);\n      setQuotingDelivery(false);\n      return;\n    }\n\n    setQuotingDelivery(true);\n    const params = new URLSearchParams({ address: form.address.trim() });\n    if (form.landmark.trim()) {\n      params.set("landmark", form.landmark.trim());\n    }\n\n    apiFetch<{ distanceKm: number | null; estimatedFare: number }>(`/orders/delivery-quote?${params.toString()}`)\n      .then((quote) => setDeliveryQuote(quote))\n      .catch(() => setDeliveryQuote(null))\n      .finally(() => setQuotingDelivery(false));\n  };\n\n'''
+          text = text[:start] + replacement + text[end:]
+
+          old_address = '''                      onChange={(event) => handleChange("address", event.target.value)}\n                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"'''
+          new_address = '''                      onChange={(event) => handleChange("address", event.target.value)}\n                      onBlur={quoteDelivery}\n                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"'''
+          if old_address not in text:
+              raise SystemExit('Customer address input not found')
+          text = text.replace(old_address, new_address, 1)
+
+          old_landmark = '''                      onChange={(event) => handleChange("landmark", event.target.value)}\n                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"'''
+          new_landmark = '''                      onChange={(event) => handleChange("landmark", event.target.value)}\n                      onBlur={quoteDelivery}\n                      className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35"'''
+          if old_landmark not in text:
+              raise SystemExit('Customer landmark input not found')
+          text = text.replace(old_landmark, new_landmark, 1)
+
+          path.write_text(text)
+
+          page = Path('apps/web/src/app/customer/page.tsx')
+          page.write_text('''"use client";\n\nimport CustomerKioskPage from "./page-client";\n\nexport default function CustomerPage() {\n  return <CustomerKioskPage />;\n}\n''')
+
+      - name: Verify
+        run: |
+          grep -n "const quoteDelivery" apps/web/src/app/customer/page-client.tsx
+          grep -n 'onBlur={quoteDelivery}' apps/web/src/app/customer/page-client.tsx
+          grep -n 'return <CustomerKioskPage />' apps/web/src/app/customer/page.tsx
+
+      - name: Commit and remove this workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/app/customer/page-client.tsx apps/web/src/app/customer/page.tsx
+          git rm .github/workflows/fix-customer-address-blur.yml
+          git commit -m "fix: customer address quote on blur"
+          git push
