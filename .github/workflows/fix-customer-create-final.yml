@@ -1,0 +1,40 @@
+name: Final customer create fix
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'fix: customer create final patch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch customer page
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('apps/web/src/app/customer/page-client.tsx')
+          text = p.read_text()
+          text = text.replace('  useState(() => {', '  useEffect(() => {', 1)
+          text = text.replace('sm:px-6]} ', 'sm:px-6} ', 1)
+          p.write_text(text)
+          page = Path('apps/web/src/app/customer/page.tsx')
+          page.write_text('"use client";\n\nimport CustomerKioskPage from "./page-client";\n\nexport default CustomerKioskPage;\n')
+      - name: Verify
+        run: |
+          grep -n 'useEffect(() => {' apps/web/src/app/customer/page-client.tsx | head -5
+          grep -n 'Php {summary.total}' apps/web/src/app/customer/page-client.tsx
+          grep -n 'onBlur={quoteDelivery}' apps/web/src/app/customer/page-client.tsx
+      - name: Commit and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/app/customer/page-client.tsx apps/web/src/app/customer/page.tsx
+          git rm .github/workflows/fix-customer-create-final.yml
+          git commit -m "fix: customer create final patch"
+          git push
