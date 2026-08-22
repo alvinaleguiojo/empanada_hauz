@@ -1,5 +1,10 @@
 {
   "android": {
     "package": "com.alvinaleguiojo.empanadahauzops"
+  },
+  "extra": {
+    "eas": {
+      "projectId": "31788e70-bfd5-4575-8993-8631a359ebf2"
+    }
   }
 }
