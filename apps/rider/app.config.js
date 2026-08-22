@@ -24,7 +24,6 @@ module.exports = ({ config }) => {
         process.env.GOOGLE_MAPS_IOS_API_KEY || googleMapsApiKey,
     },
   ]);
-  plugins.push("./plugins/withCxxSharedLinkerFlags");
 
   return {
     ...config,
