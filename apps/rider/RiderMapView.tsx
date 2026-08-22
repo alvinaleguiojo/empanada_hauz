@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
-const DIRECTIONS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_DIRECTIONS_API_KEY ?? process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
+const ROUTES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY ?? process.env.EXPO_PUBLIC_GOOGLE_DIRECTIONS_API_KEY ?? process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
 const REROUTE_DISTANCE_METERS = 80;
 const ARRIVAL_DISTANCE_METERS = 45;
 const FOLLOW_DELTA = 0.012;
@@ -35,78 +35,54 @@ function distanceKm(a: Coordinate, b: Coordinate) {
 }
 function distanceMeters(a: Coordinate, b: Coordinate) { return distanceKm(a, b) * 1000; }
 function formatDistance(meters: number) { return meters < 1000 ? `${Math.max(1, Math.round(meters))} m` : `${(meters / 1000).toFixed(1)} km`; }
-function stripHtml(text: string) { return text.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').trim(); }
-function maneuverLabel(maneuver?: string) {
-  switch (maneuver) {
-    case "turn-left": return "Turn left";
-    case "turn-right": return "Turn right";
-    case "uturn-left": case "uturn-right": return "Make a U-turn";
-    case "roundabout-left": case "roundabout-right": return "Enter roundabout";
-    case "merge": return "Merge";
-    case "ramp-left": case "ramp-right": return "Take the ramp";
-    case "fork-left": case "fork-right": return "Keep at the fork";
-    default: return "Continue";
-  }
-}
+function maneuverLabel(maneuver?: string) { const value = String(maneuver ?? ""); if (value.includes("LEFT")) return "Turn left"; if (value.includes("RIGHT")) return "Turn right"; if (value.includes("UTURN")) return "Make a U-turn"; if (value.includes("ROUNDABOUT")) return "Enter roundabout"; if (value.includes("MERGE")) return "Merge"; if (value.includes("RAMP")) return "Take the ramp"; if (value.includes("FORK")) return "Keep at the fork"; return "Continue"; }
+
 async function getRoute(origin: Coordinate, destination: Coordinate): Promise<RouteInfo> {
-  if (!DIRECTIONS_API_KEY) throw new Error("Road routing is not configured. The map and markers remain available.");
-  const params = new URLSearchParams({ origin: `${origin.latitude},${origin.longitude}`, destination: `${destination.latitude},${destination.longitude}`, mode: "driving", key: DIRECTIONS_API_KEY });
-  const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`); const data = await response.json();
-  if (!response.ok || data.status !== "OK" || !data.routes?.[0]) { const error = new Error(data.error_message || data.status || "Unable to calculate route."); (error as Error & { code?: string }).code = data.status; throw error; }
-  const route = data.routes[0]; const legs = route.legs ?? [];
-  const distance = legs.reduce((sum: number, leg: any) => sum + Number(leg.distance?.value ?? 0), 0) / 1000;
-  const duration = legs.map((leg: any) => leg.duration?.text).filter(Boolean).join(" • ");
-  const points = decodePolyline(route.overview_polyline?.points ?? "");
-  const steps: NavigationStep[] = legs.flatMap((leg: any) => (leg.steps ?? []).map((step: any) => ({ instruction: stripHtml(String(step.html_instructions ?? "Continue")), distanceMeters: Number(step.distance?.value ?? 0), endLocation: { latitude: Number(step.end_location?.lat), longitude: Number(step.end_location?.lng) }, maneuver: step.maneuver }))).filter((step: NavigationStep) => valid(step.endLocation));
+  if (!ROUTES_API_KEY) throw new Error("Google Routes API key is not configured.");
+  const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": ROUTES_API_KEY, "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration,routes.legs.steps.distanceMeters,routes.legs.steps.endLocation,routes.legs.steps.navigationInstruction" },
+    body: JSON.stringify({
+      origin: { location: { latLng: { latitude: origin.latitude, longitude: origin.longitude } } },
+      destination: { location: { latLng: { latitude: destination.latitude, longitude: destination.longitude } } },
+      travelMode: "DRIVE",
+      routingPreference: "TRAFFIC_AWARE",
+      languageCode: "en",
+      units: "METRIC",
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.routes?.[0]) throw new Error(data.error?.message || "Unable to calculate route.");
+  const route = data.routes[0]; const distance = Number(route.distanceMeters ?? 0) / 1000; const duration = String(route.duration ?? "").replace(/s$/, "s"); const points = decodePolyline(String(route.polyline?.encodedPolyline ?? ""));
+  const steps: NavigationStep[] = (route.legs ?? []).flatMap((leg: any) => (leg.steps ?? []).map((step: any) => ({
+    instruction: String(step.navigationInstruction?.instructions ?? "Continue"),
+    distanceMeters: Number(step.distanceMeters ?? 0),
+    endLocation: { latitude: Number(step.endLocation?.latLng?.latitude), longitude: Number(step.endLocation?.latLng?.longitude) },
+    maneuver: step.navigationInstruction?.maneuver,
+  }))).filter((step: NavigationStep) => valid(step.endLocation));
   if (points.length < 2) throw new Error("Google returned an empty route.");
-  return { points, distance, duration, steps };
+  const durationText = duration ? `${Math.max(1, Math.round(parseFloat(duration) / 60))} min` : "ETA unavailable";
+  return { points, distance, duration: durationText, steps };
 }
 
 export default function RiderMapView({ riderLocation, status, pickup, dropoff, pickupAddress, dropoffAddress, onClose, simulateNavigation = false }: Props) {
-  const map = useRef<MapView>(null);
-  const [path, setPath] = useState<Coordinate[]>([]); const [info, setInfo] = useState<RouteInfo | null>(null); const [loading, setLoading] = useState(false); const [following, setFollowing] = useState(true); const [navigationActive, setNavigationActive] = useState(false); const [routeError, setRouteError] = useState<string | null>(null); const [mapError, setMapError] = useState(false); const [simulatedLocation, setSimulatedLocation] = useState<Coordinate | null>(null); const [stepIndex, setStepIndex] = useState(0); const [arrived, setArrived] = useState(false);
+  const map = useRef<MapView>(null); const [path, setPath] = useState<Coordinate[]>([]); const [info, setInfo] = useState<RouteInfo | null>(null); const [loading, setLoading] = useState(false); const [following, setFollowing] = useState(true); const [navigationActive, setNavigationActive] = useState(false); const [routeError, setRouteError] = useState<string | null>(null); const [mapError, setMapError] = useState(false); const [simulatedLocation, setSimulatedLocation] = useState<Coordinate | null>(null); const [stepIndex, setStepIndex] = useState(0); const [arrived, setArrived] = useState(false);
   const lastRouteOrigin = useRef<Coordinate | null>(null); const lastRouteDestination = useRef<Coordinate | null>(null); const lastRerouteAt = useRef(0);
   const goingToDropoff = ["picked_up", "delivering"].includes(status ?? ""); const origin = valid(riderLocation) ? riderLocation : null; const displayRiderLocation = simulateNavigation && valid(simulatedLocation) ? simulatedLocation : riderLocation; const destination = goingToDropoff ? (valid(dropoff) ? dropoff : null) : (valid(pickup) ? pickup : valid(dropoff) ? dropoff : null); const mapPoints = useMemo(() => [riderLocation, pickup, dropoff].filter(valid), [riderLocation, pickup, dropoff]); const activeAddress = goingToDropoff ? dropoffAddress : pickupAddress; const activeLabel = goingToDropoff ? "Drop-off" : valid(pickup) ? "Pickup" : "Delivery"; const currentStep = info?.steps?.[stepIndex] ?? null;
-
   const fitRoute = () => { if (mapPoints.length) map.current?.fitToCoordinates(mapPoints, { edgePadding: { top: 180, right: 50, bottom: navigationActive ? 360 : 290, left: 50 }, animated: true }); };
   const centerOnRider = () => { if (!valid(displayRiderLocation)) return; setFollowing(true); map.current?.animateToRegion({ latitude: displayRiderLocation.latitude, longitude: displayRiderLocation.longitude, latitudeDelta: FOLLOW_DELTA, longitudeDelta: FOLLOW_DELTA }, 450); };
   useEffect(() => { requestAnimationFrame(fitRoute); }, [riderLocation?.latitude, riderLocation?.longitude, pickup?.latitude, pickup?.longitude, dropoff?.latitude, dropoff?.longitude, status, navigationActive]);
-
   useEffect(() => {
     if (!destination) { setPath([]); setInfo(null); setRouteError("Waiting for destination coordinates."); lastRouteOrigin.current = null; lastRouteDestination.current = null; return; }
-    if (!DIRECTIONS_API_KEY) { setPath([]); setInfo(null); setRouteError("Road routing is not configured. Map markers and locations are still available."); return; }
-    if (origin && lastRouteOrigin.current && lastRouteDestination.current && Math.abs(lastRouteDestination.current.latitude - destination.latitude) < 0.00001 && Math.abs(lastRouteDestination.current.longitude - destination.longitude) < 0.00001 && distanceMeters(lastRouteOrigin.current, origin) < 80 && path.length > 1) return;
-    if (Date.now() - lastRerouteAt.current < 1500) return;
-    lastRerouteAt.current = Date.now(); let cancelled = false; setLoading(true); setRouteError(null);
-    const loadRoute = async () => {
-      try {
-        if (!origin) throw new Error("RIDER_LOCATION_MISSING");
-        const result = await getRoute(origin, destination); if (!cancelled) { setPath(result.points); setInfo(result); setStepIndex(0); setArrived(false); lastRouteOrigin.current = origin; lastRouteDestination.current = destination; }
-      } catch (error) {
-        if (!goingToDropoff && valid(pickup) && valid(dropoff)) {
-          try { const fallback = await getRoute(pickup, dropoff); if (!cancelled) { setPath(fallback.points); setInfo(fallback); setStepIndex(0); lastRouteOrigin.current = pickup; lastRouteDestination.current = dropoff; setRouteError("Rider GPS is unavailable. Showing pickup → drop-off route."); } return; } catch { /* continue */ }
-        }
-        if (!cancelled) { setPath([]); setInfo(null); const code = (error as Error & { code?: string })?.code; setRouteError(code === "REQUEST_DENIED" ? "Google Directions rejected the request. Check the Directions API key and restrictions." : code === "ZERO_RESULTS" ? "No road route is available from the current GPS position." : error instanceof Error ? error.message : "Unable to calculate route."); }
-      } finally { if (!cancelled) setLoading(false); }
-    };
+    if (!ROUTES_API_KEY) { setPath([]); setInfo(null); setRouteError("Google Routes API key is not configured. The map and markers can still load."); return; }
+    if (origin && lastRouteOrigin.current && lastRouteDestination.current && Math.abs(lastRouteDestination.current.latitude - destination.latitude) < 0.00001 && Math.abs(lastRouteDestination.current.longitude - destination.longitude) < 0.00001 && distanceMeters(lastRouteOrigin.current, origin) < REROUTE_DISTANCE_METERS && path.length > 1) return;
+    if (Date.now() - lastRerouteAt.current < 1500) return; lastRerouteAt.current = Date.now(); let cancelled = false; setLoading(true); setRouteError(null);
+    const loadRoute = async () => { try { if (!origin) throw new Error("RIDER_LOCATION_MISSING"); const result = await getRoute(origin, destination); if (!cancelled) { setPath(result.points); setInfo(result); setStepIndex(0); setArrived(false); lastRouteOrigin.current = origin; lastRouteDestination.current = destination; } } catch (error) { if (!cancelled) { setPath([]); setInfo(null); setRouteError(error instanceof Error ? error.message : "Unable to calculate route."); } } finally { if (!cancelled) setLoading(false); } };
     void loadRoute(); return () => { cancelled = true; };
-  }, [riderLocation?.latitude, riderLocation?.longitude, destination?.latitude, destination?.longitude, status, pickup?.latitude, pickup?.longitude, dropoff?.latitude, dropoff?.longitude, goingToDropoff, path.length]);
-
-  useEffect(() => {
-    if (!navigationActive || !valid(displayRiderLocation) || !info?.steps?.length) return;
-    let next = stepIndex; while (next < info.steps.length - 1 && distanceMeters(displayRiderLocation, info.steps[next].endLocation) <= 45) next += 1; if (next !== stepIndex) setStepIndex(next);
-    if (valid(destination) && distanceMeters(displayRiderLocation, destination) <= 45) { setArrived(true); setFollowing(false); }
-  }, [displayRiderLocation?.latitude, displayRiderLocation?.longitude, navigationActive, stepIndex, info?.steps?.length, destination?.latitude, destination?.longitude]);
-
+  }, [riderLocation?.latitude, riderLocation?.longitude, destination?.latitude, destination?.longitude, status, goingToDropoff, path.length]);
+  useEffect(() => { if (!navigationActive || !valid(displayRiderLocation) || !info?.steps?.length) return; let next = stepIndex; while (next < info.steps.length - 1 && distanceMeters(displayRiderLocation, info.steps[next].endLocation) <= ARRIVAL_DISTANCE_METERS) next += 1; if (next !== stepIndex) setStepIndex(next); if (valid(destination) && distanceMeters(displayRiderLocation, destination) <= ARRIVAL_DISTANCE_METERS) { setArrived(true); setFollowing(false); } }, [displayRiderLocation?.latitude, displayRiderLocation?.longitude, navigationActive, stepIndex, info?.steps?.length, destination?.latitude, destination?.longitude]);
   useEffect(() => { if (following && valid(displayRiderLocation)) centerOnRider(); }, [following, displayRiderLocation?.latitude, displayRiderLocation?.longitude]);
-
-  useEffect(() => {
-    if (!simulateNavigation || path.length < 2 || !destination) { setSimulatedLocation(null); return; }
-    const startedAt = Date.now(); const routeKm = info?.distance ?? path.slice(0, -1).reduce((sum, point, index) => sum + distanceKm(point, path[index + 1]), 0); const durationMs = Math.min(90000, Math.max(30000, routeKm * 1000 / 4 * 1000)); setNavigationActive(true); setFollowing(true); setSimulatedLocation(path[0]);
-    const timer = setInterval(() => { const progress = Math.min(1, (Date.now() - startedAt) / durationMs); const target = routeKm * progress; let travelled = 0; let next = path[path.length - 1]; for (let i = 0; i < path.length - 1; i += 1) { const segment = distanceKm(path[i], path[i + 1]); if (travelled + segment >= target) { const ratio = segment ? (target - travelled) / segment : 0; next = { latitude: path[i].latitude + (path[i + 1].latitude - path[i].latitude) * ratio, longitude: path[i].longitude + (path[i + 1].longitude - path[i].longitude) * ratio }; break; } travelled += segment; } setSimulatedLocation(next); if (progress >= 1) clearInterval(timer); }, 700);
-    return () => clearInterval(timer);
-  }, [simulateNavigation, path, destination?.latitude, destination?.longitude, info?.distance]);
-
+  useEffect(() => { if (!simulateNavigation || path.length < 2 || !destination) { setSimulatedLocation(null); return; } const startedAt = Date.now(); const routeKm = info?.distance ?? path.slice(0, -1).reduce((sum, point, index) => sum + distanceKm(point, path[index + 1]), 0); const durationMs = Math.min(90000, Math.max(30000, routeKm * 1000 / 4 * 1000)); setNavigationActive(true); setFollowing(true); const timer = setInterval(() => { const progress = Math.min(1, (Date.now() - startedAt) / durationMs); const target = routeKm * progress; let travelled = 0; let next = path[path.length - 1]; for (let i = 0; i < path.length - 1; i += 1) { const segment = distanceKm(path[i], path[i + 1]); if (travelled + segment >= target) { const ratio = segment ? (target - travelled) / segment : 0; next = { latitude: path[i].latitude + (path[i + 1].latitude - path[i].latitude) * ratio, longitude: path[i].longitude + (path[i + 1].longitude - path[i].longitude) * ratio }; break; } travelled += segment; } setSimulatedLocation(next); if (progress >= 1) clearInterval(timer); }, 700); return () => clearInterval(timer); }, [simulateNavigation, path, destination?.latitude, destination?.longitude, info?.distance]);
   return <View style={s.container}>
     <MapView ref={map} style={StyleSheet.absoluteFill} provider={PROVIDER_GOOGLE} mapType="standard" initialRegion={initialRegion(mapPoints)} showsUserLocation={false} showsMyLocationButton={false} onMapReady={() => { setMapError(false); requestAnimationFrame(fitRoute); }} onMapLoaded={() => setMapError(false)} onError={() => setMapError(true)} onPanDrag={() => setFollowing(false)}>
       {valid(displayRiderLocation) ? <Marker coordinate={displayRiderLocation} title="You"><View style={s.riderDot}><View style={s.riderArrow} /></View></Marker> : null}
