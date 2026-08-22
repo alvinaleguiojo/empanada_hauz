@@ -28,8 +28,8 @@ module.exports = ({ config }) => ({
   extra: {
     ...(config.extra || {}),
     googleMapsDirectionsApiKey:
-      process.env.EXPO_PUBLIC_GOOGLE_DIRECTIONS_API_KEY ||
       process.env.EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY ||
+      process.env.EXPO_PUBLIC_GOOGLE_DIRECTIONS_API_KEY ||
       process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
       process.env.GOOGLE_MAPS_API_KEY ||
       "",
