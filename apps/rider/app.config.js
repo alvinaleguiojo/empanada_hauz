@@ -13,7 +13,7 @@ module.exports = ({ config }) => {
 
   const plugins = (config.plugins || []).filter((plugin) => {
     const name = Array.isArray(plugin) ? plugin[0] : plugin;
-    return name !== "react-native-maps";
+    return name !== "react-native-maps" && name !== "./plugins/withCxxSharedLinkerFlags";
   });
 
   plugins.push([
@@ -24,6 +24,7 @@ module.exports = ({ config }) => {
         process.env.GOOGLE_MAPS_IOS_API_KEY || googleMapsApiKey,
     },
   ]);
+  plugins.push("./plugins/withCxxSharedLinkerFlags");
 
   return {
     ...config,
