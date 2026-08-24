@@ -1,7 +1,5 @@
-import { apiFetch } from "@/lib/api";
-import { RiderApp } from "@/components/rider/rider-app";
+import { RiderMapApp } from "@/components/rider/rider-map-app";
 
-export default async function RiderPage() {
-  const items = await apiFetch<any[]>("/deliveries/queue").catch(() => []);
-  return <RiderApp initialItems={items} />;
+export default function RiderPage() {
+  return <RiderMapApp />;
 }
