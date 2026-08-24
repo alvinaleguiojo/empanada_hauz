@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const privateRoutes = [
-  "/analytics", "/batches", "/dashboard", "/deliveries", "/inbox", "/inventory", "/kitchen", "/orders", "/referrals", "/referral-chat"
+  "/analytics", "/batches", "/dashboard", "/deliveries", "/inbox", "/inventory", "/kitchen", "/orders", "/rider", "/referrals", "/referral-chat"
 ];
 const publicRoutes = ["/", "/customer"];
 const referralPublicRoutes = ["/referrals/signup", "/referrals/login"];
@@ -33,7 +33,7 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*", "/referrals/:path*", "/referrals", "/referral-chat/:path*"] };
+export const config = { matcher: ["/", "/login", "/customer", "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*", "/rider/:path*", "/referrals/:path*", "/referrals", "/referral-chat/:path*"] };
 
 function isJwtExpired(token: string) {
   const [, payload] = token.split(".");
