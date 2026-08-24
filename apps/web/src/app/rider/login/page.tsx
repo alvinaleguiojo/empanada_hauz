@@ -4,7 +4,11 @@ import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { API_URL } from "@/lib/config";
 import { apiFetch } from "@/lib/api";
+
+type LoginResponse = { accessToken: string };
+type RiderProfile = { user: { role: string } };
 
 export default function RiderLoginPage() {
   const router = useRouter();
@@ -24,12 +28,21 @@ export default function RiderLoginPage() {
     setError(null);
 
     try {
-      const result = await apiFetch<{ accessToken: string; user: { role: string } }>("/auth/login", {
+      const response = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: email.trim().toLowerCase(), password })
-      }, undefined, "empanada-token");
+      });
 
-      if (result.user.role !== "rider") {
+      if (!response.ok) {
+        throw new Error((await response.text()) || "Invalid email or password.");
+      }
+
+      const result = (await response.json()) as LoginResponse;
+
+      // Verify the credentials belong to an actual rider before creating the rider session.
+      const rider = await apiFetch<RiderProfile>("/rider/me", undefined, result.accessToken);
+      if (rider.user.role !== "rider") {
         throw new Error("This login is for rider accounts only.");
       }
 
@@ -37,7 +50,9 @@ export default function RiderLoginPage() {
       document.cookie = "empanada-token=; path=/; max-age=0";
       localStorage.setItem("empanada-rider-token", result.accessToken);
       document.cookie = `empanada-rider-token=${result.accessToken}; path=/; max-age=86400; samesite=lax`;
-      router.replace("/rider" as Route);
+
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.replace((next?.startsWith("/rider") ? next : "/rider") as Route);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign in");
     } finally {
