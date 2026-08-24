@@ -1,14 +1,14 @@
 import { API_URL } from "./config";
 import { getSelectedDeliveryCoordinates } from "./delivery-place";
 
-export async function apiFetch<T>(path: string, options?: RequestInit, token?: string): Promise<T> {
+export async function apiFetch<T>(path: string, options?: RequestInit, token?: string, tokenCookie = "empanada-token"): Promise<T> {
   let resolvedToken = token;
   if (!resolvedToken) {
     if (typeof window !== "undefined") {
-      resolvedToken = localStorage.getItem("empanada-token") ?? undefined;
+      resolvedToken = localStorage.getItem(tokenCookie) ?? undefined;
     } else {
       const { cookies } = await import("next/headers");
-      resolvedToken = (await cookies()).get("empanada-token")?.value;
+      resolvedToken = (await cookies()).get(tokenCookie)?.value;
     }
   }
 
