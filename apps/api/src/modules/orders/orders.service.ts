@@ -287,13 +287,30 @@ export class OrdersService {
     const order = await this.prisma.order.update({
       where: { id },
       data: {
-        ...(dto.quantity !== undefined ? { quantity } : {}), ...(dto.unitPrice !== undefined ? { unitPrice } : {}),
-        ...(dto.deliveryFee !== undefined ? { deliveryFee } : {}), ...(dto.discountAmount !== undefined ? { discountAmount } : {}),
-        ...(dto.deliveryMethod !== undefined ? { deliveryMethod: dto.deliveryMethod } : {}), ...(dto.paymentMethod !== undefined ? { paymentMethod: dto.paymentMethod } : {}),
-        ...(dto.location !== undefined ? { location: dto.location } : {}), ...(dto.address !== undefined ? { address: dto.address } : {}),
+        ...(dto.quantity !== undefined ? { quantity } : {}),
+        ...(dto.unitPrice !== undefined ? { unitPrice } : {}),
+        ...(dto.deliveryFee !== undefined ? { deliveryFee } : {}),
+        ...(dto.discountAmount !== undefined ? { discountAmount } : {}),
+        ...(dto.deliveryMethod !== undefined ? { deliveryMethod: dto.deliveryMethod } : {}),
+        ...(dto.paymentMethod !== undefined ? { paymentMethod: dto.paymentMethod } : {}),
+        ...(dto.location !== undefined ? { location: dto.location } : {}),
+        ...(dto.address !== undefined ? { address: dto.address } : {}),
         ...(dto.preferredSchedule !== undefined ? { preferredSchedule: new Date(dto.preferredSchedule) } : {}),
-        ...(dto.items !== undefined ? { items: dto.items } : {}), ...(dto.notes !== undefined ? { notes: dto.notes } : {}), totalAmount
-      }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } }
+        ...(dto.items !== undefined ? { items: dto.items } : {}),
+        ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        ...(dto.customerName !== undefined || dto.phoneNumber !== undefined
+          ? {
+              customer: {
+                update: {
+                  ...(dto.customerName !== undefined ? { name: dto.customerName } : {}),
+                  ...(dto.phoneNumber !== undefined ? { phoneNumber: dto.phoneNumber || null } : {})
+                }
+              }
+            }
+          : {}),
+        totalAmount
+      },
+      include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } }
     });
     this.realtime.emit("orders.updated", order);
     return order;
