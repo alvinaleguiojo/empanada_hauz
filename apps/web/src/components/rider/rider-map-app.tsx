@@ -46,7 +46,7 @@ export function RiderMapApp() {
     const sync = () => void hydrate().catch(() => undefined);
     socket.on("connect", () => { socket.emit("rider.presence", { riderId: profile.id }); sync(); });
     ["rider.delivery.assigned", "rider.delivery.updated", "rider.status.updated", "delivery-network.jobs.updated"].forEach((event) => socket.on(event, sync));
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [hydrate, profile?.id]);
 
   useEffect(() => {
