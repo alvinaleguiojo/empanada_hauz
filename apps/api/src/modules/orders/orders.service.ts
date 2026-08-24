@@ -125,7 +125,7 @@ export class OrdersService {
         batchId: batch?.id, status: batch ? "queued" : "awaiting_confirmation"
       }, include: { customer: true, batch: true, orderNotes: { orderBy: { createdAt: "desc" } } }
     });
-    this.realtime.emit("orders.updated", order);
+    this.realtime.emit("orders.created", order);
     this.notifyOrderCreated(order);
     await this.googleSheetsOrderSync.appendOrder(order);
     return order;
@@ -232,7 +232,7 @@ export class OrdersService {
         batchId: batch?.id, status: dto.status ?? (batch ? "queued" : "awaiting_confirmation")
       }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } }
     });
-    this.realtime.emit("orders.updated", order);
+    this.realtime.emit("orders.created", order);
     this.notifyOrderCreated(order);
     await this.googleSheetsOrderSync.appendOrder(order);
     if (order.status === "ready_for_booking" || order.status === "booked") this.realtime.emit("deliveries.updated", { orderId: order.id, orderNumber: order.orderNumber, customerName: order.customer?.name, status: order.status });
