@@ -22,8 +22,8 @@ export function middleware(request: NextRequest) {
   }
 
   if (pathname === "/login") {
-    if (hasAdminToken) return NextResponse.redirect(new URL("/dashboard", request.url));
     if (hasRiderToken) return NextResponse.redirect(new URL("/rider", request.url));
+    if (hasAdminToken) return NextResponse.redirect(new URL("/dashboard", request.url));
     return NextResponse.next();
   }
 
@@ -40,14 +40,14 @@ export function middleware(request: NextRequest) {
   }
   if (referralProtectedRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`))) {
     if (hasReferralToken) return NextResponse.next();
-    if (pathname.startsWith("/referrals/chat") && hasAdminToken) return NextResponse.next();
+    if (pathname.startsWith("/referrals/chat") && hasAdminToken && !hasRiderToken) return NextResponse.next();
     return NextResponse.redirect(new URL("/referrals/login", request.url));
   }
 
   if (publicRoutes.includes(pathname)) return NextResponse.next();
 
   if (adminRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`))) {
-    if (hasRiderToken && !hasAdminToken) return NextResponse.redirect(new URL("/rider", request.url));
+    if (hasRiderToken) return NextResponse.redirect(new URL("/rider", request.url));
     if (!hasAdminToken) {
       const url = new URL("/login", request.url);
       url.searchParams.set("next", pathname);
