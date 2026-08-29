@@ -10,19 +10,21 @@ type RiderProfile = {
 };
 
 export default async function RiderPage() {
-  const token = (await cookies()).get("empanada-token")?.value;
+  // Rider sessions use their own cookie so an operations/admin session can never
+  // accidentally satisfy the rider page authentication check.
+  const token = (await cookies()).get("empanada-rider-token")?.value;
 
   if (!token) {
-    redirect("/login?next=/rider");
+    redirect("/rider/login");
   }
 
   try {
     const profile = await apiFetch<RiderProfile>("/rider/me", undefined, token);
     if (profile.user.role !== "rider") {
-      redirect("/dashboard");
+      redirect("/rider/login");
     }
   } catch {
-    redirect("/dashboard");
+    redirect("/rider/login");
   }
 
   return <RiderMapApp />;
