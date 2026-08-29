@@ -44,7 +44,6 @@ body {
 
 body::before,
 body::after { display: none; }
-
 * { border-color: rgb(var(--line)); }
 ::selection { background: rgb(var(--accent) / .16); }
 
@@ -57,67 +56,120 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator,
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator { filter: none; opacity: .65; cursor: pointer; }
 
-/* --------------------------------------------------------------------------
-   Empanada Hauz operations UI
-   The customer kiosk keeps its existing dark, food-forward visual language.
-   The authenticated operations area gets a calmer, information-dense system.
-   -------------------------------------------------------------------------- */
+/* ========================================================================== 
+   EMPANADA HAUZ — OPERATIONS DESIGN SYSTEM
+   Clean, premium, information-dense admin UI. Customer kiosk stays isolated.
+   ========================================================================== */
 
-body:has(aside) {
-  background: #f7f8fa;
-}
-
+body:has(aside) { background: #f7f8fa; }
 body:has(aside) > div,
-body:has(aside) main {
-  color: #181d24;
+body:has(aside) main { color: #181d24; }
+
+/* App frame */
+body:has(aside) > div.relative.min-h-screen { overflow: visible !important; }
+body:has(aside) > div.relative.min-h-screen > div.relative.z-10 {
+  max-width: 1760px !important;
+  gap: 20px !important;
+  padding: 20px !important;
 }
 
 body:has(aside) aside {
   border: 1px solid #e3e6ea !important;
-  border-radius: 18px !important;
-  background: rgba(255,255,255,.92) !important;
+  border-radius: 20px !important;
+  background: rgba(255,255,255,.94) !important;
   box-shadow: 0 14px 40px rgba(24,29,36,.06) !important;
   backdrop-filter: blur(18px) !important;
+  padding: 16px !important;
 }
 
 body:has(aside) aside > div:first-child {
   border-bottom-color: #eceef1 !important;
+  margin-bottom: 18px !important;
+  padding-bottom: 16px !important;
 }
 
 body:has(aside) aside img {
-  border-radius: 12px !important;
+  border-radius: 13px !important;
 }
 
+/* Navigation */
+body:has(aside) aside nav { gap: 4px; }
 body:has(aside) aside nav a {
-  color: #66707d !important;
-  border-radius: 11px !important;
-  transition: background .18s ease, color .18s ease, transform .18s ease;
+  min-height: 44px;
+  color: #68727f !important;
+  border-radius: 12px !important;
+  transition: background .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease;
 }
-
 body:has(aside) aside nav a:hover {
   color: #242a33 !important;
-  background: #f3f4f6 !important;
+  background: #f3f5f7 !important;
   transform: translateX(2px);
 }
-
 body:has(aside) aside nav a[class*="bg-[linear-gradient"] {
   color: #fff !important;
   background: linear-gradient(135deg, #c64228, #dc7546) !important;
   box-shadow: 0 10px 24px rgba(198,66,40,.20) !important;
 }
 
+/* Main canvas */
 body:has(aside) main {
+  min-width: 0;
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
+  padding: 0 0 28px !important;
 }
 
-/* Common dashboard surfaces */
+/* Utility header */
+body:has(aside) main > .mb-4 {
+  min-height: 52px;
+  align-items: center;
+  margin-bottom: 18px !important;
+}
+body:has(aside) main > .mb-4 > div { gap: 8px; }
+body:has(aside) main > .mb-4 button {
+  border-color: #e0e4e8 !important;
+  background: rgba(255,255,255,.92) !important;
+  color: #596370 !important;
+  box-shadow: 0 4px 12px rgba(24,29,36,.04) !important;
+  transition: all .18s ease;
+}
+body:has(aside) main > .mb-4 button:hover {
+  border-color: #d5a06b !important;
+  color: #c64228 !important;
+  background: #fffaf6 !important;
+  transform: translateY(-1px);
+}
+
+/* Page titles and hierarchy */
+body:has(aside) main h1 {
+  color: #171c24 !important;
+  font-size: clamp(1.45rem, 2vw, 2rem);
+  line-height: 1.15;
+  font-weight: 760;
+  letter-spacing: -.035em;
+}
+body:has(aside) main h2 {
+  color: #202630 !important;
+  font-weight: 720;
+  letter-spacing: -.025em;
+}
+body:has(aside) main h3,
+body:has(aside) main h4 { color: #2b323c !important; }
+
+/* Generic surfaces — catches cards built with Tailwind utilities */
 body:has(aside) main section,
 body:has(aside) main article,
 body:has(aside) main [role="region"] {
-  border-color: #e4e7eb;
+  border-color: #e3e6ea;
+}
+
+body:has(aside) main .rounded-lg.border,
+body:has(aside) main .rounded-xl.border,
+body:has(aside) main .rounded-2xl.border {
+  border-color: #e2e6ea;
+  box-shadow: 0 5px 18px rgba(24,29,36,.035);
 }
 
 body:has(aside) main .bg-panel,
@@ -125,6 +177,7 @@ body:has(aside) main [class*="bg-panel"] {
   background: #fff !important;
 }
 
+/* Convert legacy dark dashboard surfaces into premium light surfaces */
 body:has(aside) main [class*="bg-[#101827]"],
 body:has(aside) main [class*="bg-[#111827]"],
 body:has(aside) main [class*="bg-[#0e1524]"],
@@ -133,100 +186,138 @@ body:has(aside) main [class*="bg-[#101827]/"] {
   background: #fff !important;
   color: #181d24 !important;
 }
-
 body:has(aside) main [class*="text-white"] { color: #242a33 !important; }
 body:has(aside) main [class*="text-white/"] { color: #68717d !important; }
 body:has(aside) main [class*="border-white/"] { border-color: #e5e8ec !important; }
 body:has(aside) main [class*="bg-white/[0.0"],
-body:has(aside) main [class*="bg-white/[0.1"],
-body:has(aside) main [class*="bg-white/[0.0" ] { background: #f8f9fb !important; }
+body:has(aside) main [class*="bg-white/[0.1"] { background: #f8f9fb !important; }
 
+/* KPI / stat cards */
+body:has(aside) main [class*="text-3xl"],
+body:has(aside) main [class*="text-4xl"] { letter-spacing: -.045em; }
+body:has(aside) main [class*="text-accent"] { color: #c64228 !important; }
+
+/* Forms */
 body:has(aside) main input,
 body:has(aside) main textarea,
 body:has(aside) main select {
+  min-height: 40px;
   color: #202630 !important;
   background: #fff !important;
-  border-color: #dfe3e8 !important;
+  border: 1px solid #dfe3e8 !important;
+  border-radius: 10px !important;
+  box-shadow: inset 0 1px 2px rgba(24,29,36,.02);
+  transition: border-color .18s ease, box-shadow .18s ease;
 }
-
+body:has(aside) main input:focus,
+body:has(aside) main textarea:focus,
+body:has(aside) main select:focus {
+  border-color: #d47a5f !important;
+  box-shadow: 0 0 0 3px rgba(198,66,40,.10) !important;
+}
 body:has(aside) main input::placeholder,
 body:has(aside) main textarea::placeholder { color: #9aa2ad !important; }
+body:has(aside) main label { color: #5f6874; font-weight: 600; }
 
+/* Buttons */
+body:has(aside) main button,
+body:has(aside) main a[class*="rounded"] { transition: transform .16s ease, box-shadow .16s ease, background .16s ease, border-color .16s ease; }
 body:has(aside) main button[class*="bg-accent"],
 body:has(aside) main button[class*="bg-[linear-gradient"],
 body:has(aside) main a[class*="bg-accent"] {
   box-shadow: 0 8px 18px rgba(198,66,40,.14);
 }
+body:has(aside) main button[class*="bg-accent"]:hover,
+body:has(aside) main a[class*="bg-accent"]:hover { transform: translateY(-1px); }
 
-/* Header / utility controls */
-body:has(aside) main > .mb-4 {
-  min-height: 48px;
-  align-items: center;
+/* Tables */
+body:has(aside) main table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid #e5e8ec;
+  border-radius: 14px;
+  background: #fff;
 }
-
-body:has(aside) main > .mb-4 button {
-  border-color: #e0e4e8 !important;
-  background: #fff !important;
-  color: #596370 !important;
-  box-shadow: 0 4px 12px rgba(24,29,36,.04) !important;
-}
-
-body:has(aside) main > .mb-4 button:hover {
-  border-color: #d5a06b !important;
-  color: #c64228 !important;
-  background: #fffaf6 !important;
-}
-
-/* Tables and dense operational lists */
-body:has(aside) table { border-collapse: separate; border-spacing: 0; }
-body:has(aside) th {
-  background: #f8f9fb !important;
-  color: #737c88 !important;
+body:has(aside) main thead th {
+  background: #f7f8fa !important;
+  color: #747d89 !important;
   border-bottom: 1px solid #e5e8ec !important;
-  font-size: .72rem !important;
-  letter-spacing: .08em;
+  font-size: .69rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .09em;
   text-transform: uppercase;
 }
-body:has(aside) td { border-bottom-color: #eef0f3 !important; color: #3e4651; }
-body:has(aside) tr:hover td { background: #fcfcfd; }
+body:has(aside) main tbody td { border-bottom-color: #eef0f3 !important; color: #3e4651; }
+body:has(aside) main tbody tr:last-child td { border-bottom: 0 !important; }
+body:has(aside) main tbody tr:hover td { background: #fcfcfd; }
+
+/* Tabs / filters */
+body:has(aside) main [role="tablist"] {
+  border-color: #e3e6ea !important;
+  background: #eef0f3 !important;
+  padding: 4px !important;
+  border-radius: 11px !important;
+}
+body:has(aside) main [role="tab"] { border-radius: 8px !important; }
 
 /* Status chips */
-body:has(aside) [class*="bg-emerald-400"],
-body:has(aside) [class*="bg-emerald-500"] { background: #e9f7ef !important; color: #287a4e !important; border-color: #bde4cc !important; }
-body:has(aside) [class*="bg-rose-400"],
-body:has(aside) [class*="bg-rose-500"] { background: #fff0ef !important; color: #b23b36 !important; border-color: #f1c4c1 !important; }
-body:has(aside) [class*="bg-sky-400"],
-body:has(aside) [class*="bg-sky-500"] { background: #edf5ff !important; color: #2869a7 !important; border-color: #c7def7 !important; }
+body:has(aside) main [class*="bg-emerald-400"],
+body:has(aside) main [class*="bg-emerald-500"] { background: #e9f7ef !important; color: #287a4e !important; border-color: #bde4cc !important; }
+body:has(aside) main [class*="bg-rose-400"],
+body:has(aside) main [class*="bg-rose-500"] { background: #fff0ef !important; color: #b23b36 !important; border-color: #f1c4c1 !important; }
+body:has(aside) main [class*="bg-sky-400"],
+body:has(aside) main [class*="bg-sky-500"] { background: #edf5ff !important; color: #2869a7 !important; border-color: #c7def7 !important; }
+body:has(aside) main [class*="bg-amber-400"],
+body:has(aside) main [class*="bg-amber-500"] { background: #fff7e8 !important; color: #9a671d !important; border-color: #efd7a9 !important; }
+body:has(aside) main [class*="bg-violet-400"],
+body:has(aside) main [class*="bg-violet-500"] { background: #f3efff !important; color: #6846a5 !important; border-color: #d9cef4 !important; }
 
-/* Calls, chat and notifications are intentionally still dark utility overlays. */
+/* Calendar / timeline grids */
+body:has(aside) main [class*="grid-cols-7"] > * { min-width: 0; }
+body:has(aside) main [class*="grid-cols-7"] [class*="border"] { border-color: #e5e8ec !important; }
+
+/* Charts and SVG containers */
+body:has(aside) main svg { max-width: 100%; }
+body:has(aside) main [class*="overflow-hidden"] canvas { max-width: 100%; }
+
+/* Empty states */
+body:has(aside) main p[class*="text-center"] { line-height: 1.6; }
+
+/* Keep communications overlays intentionally dark */
 body:has(aside) [class*="fixed"][class*="z-[100]"],
 body:has(aside) [class*="fixed"][class*="z-[95]"] + div {
   color-scheme: dark;
 }
 
-/* Typography rhythm */
-body:has(aside) h1,
-body:has(aside) h2,
-body:has(aside) h3,
-body:has(aside) h4 { letter-spacing: -.02em; }
+/* Floating communications button */
+body:has(aside) > div > button.fixed {
+  border-color: rgba(255,255,255,.18) !important;
+  background: #fff !important;
+  color: #c64228 !important;
+  box-shadow: 0 14px 34px rgba(24,29,36,.15) !important;
+}
 
-body:has(aside) h1 { font-weight: 750; }
-
-/* Responsive: make the operations area feel native on phones. */
+/* Responsive */
 @media (max-width: 1023px) {
+  body:has(aside) > div.relative.min-h-screen > div.relative.z-10 {
+    gap: 10px !important;
+    padding: 10px !important;
+  }
   body:has(aside) aside {
     border-radius: 14px !important;
     box-shadow: 0 8px 24px rgba(24,29,36,.05) !important;
   }
-
-  body:has(aside) aside nav {
-    scrollbar-width: none;
-  }
-
+  body:has(aside) aside nav { scrollbar-width: none; }
   body:has(aside) aside nav::-webkit-scrollbar { display: none; }
+  body:has(aside) main { padding-bottom: 18px !important; }
 }
 
 @media (max-width: 640px) {
-  body:has(aside) main { padding: 10px !important; }
+  body:has(aside) aside { padding: 10px !important; }
+  body:has(aside) main { padding: 0 2px 14px !important; }
   body:has(aside) main > .mb-4 { margin-bottom: 10px !important; }
+  body:has(aside) main h1 { font-size: 1.4rem; }
+  body:has(aside) main table { min-width: 640px; }
 }
