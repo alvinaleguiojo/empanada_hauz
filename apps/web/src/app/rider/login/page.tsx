@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
-import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { API_URL } from "@/lib/config";
 import { apiFetch } from "@/lib/api";
@@ -51,8 +50,12 @@ export default function RiderLoginPage() {
       localStorage.setItem("empanada-rider-token", result.accessToken);
       document.cookie = `empanada-rider-token=${result.accessToken}; path=/; max-age=86400; samesite=lax`;
 
+      // Use a real browser navigation so Next.js middleware/server components receive the
+      // newly-created cookie immediately. router.replace() can otherwise reuse a stale
+      // client-router state during the auth transition.
       const next = new URLSearchParams(window.location.search).get("next");
-      router.replace((next?.startsWith("/rider") ? next : "/rider") as Route);
+      const destination = next?.startsWith("/rider") ? next : "/rider";
+      window.location.assign(destination);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign in");
     } finally {
