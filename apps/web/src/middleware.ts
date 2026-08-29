@@ -22,6 +22,13 @@ export function middleware(request: NextRequest) {
   }
 
   if (pathname === "/login") {
+    // Rider destinations must use the dedicated rider authentication flow.
+    const next = request.nextUrl.searchParams.get("next");
+    if (next === "/rider" || next?.startsWith("/rider/")) {
+      const url = new URL("/rider/login", request.url);
+      url.searchParams.set("next", next);
+      return NextResponse.redirect(url);
+    }
     if (hasRiderToken) return NextResponse.redirect(new URL("/rider", request.url));
     if (hasAdminToken) return NextResponse.redirect(new URL("/dashboard", request.url));
     return NextResponse.next();
