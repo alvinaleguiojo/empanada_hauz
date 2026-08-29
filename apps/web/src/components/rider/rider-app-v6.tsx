@@ -16,6 +16,23 @@ const ACTIVE = ["requested", "searching_rider", "assigned", "accepted", "pickup_
 const NEXT: Record<string, string> = { assigned: "accepted", accepted: "pickup_started", pickup_started: "picked_up", picked_up: "delivering", delivering: "delivered" };
 const LABEL: Record<string, string> = { assigned: "Go to Pickup", accepted: "Confirm Pickup", pickup_started: "Confirm Pickup", picked_up: "Start Delivery", delivering: "Complete Delivery" };
 
+function stepText(step?: RouteStep) {
+  if (!step) return "Continue to destination";
+  const modifier = step.maneuver?.modifier?.replace(/-/g, " ");
+  const type = step.maneuver?.type;
+  const road = step.name ? ` onto ${step.name}` : "";
+  if (type === "arrive") return "Arrive at destination";
+  if (type === "depart") return `Head ${modifier ?? "forward"}${road}`;
+  if (type === "roundabout" || type === "rotary") return `Enter roundabout${modifier ? `, ${modifier}` : ""}${road}`;
+  if (type === "merge") return `Merge ${modifier ?? "ahead"}${road}`;
+  if (type === "fork") return `Keep ${modifier ?? "ahead"}${road}`;
+  if (type === "on ramp" || type === "off ramp") return `${type === "on ramp" ? "Take" : "Take the"} ramp${modifier ? ` ${modifier}` : ""}${road}`;
+  if (type === "new name") return `Continue${road}`;
+  if (type === "continue") return `Continue ${modifier ?? "ahead"}${road}`;
+  if (type === "turn") return `Turn ${modifier ?? "ahead"}${road}`;
+  return `${type ? type.replace(/_/g, " ") : "Continue"}${modifier ? ` ${modifier}` : ""}${road}`;
+}
+
 function useLeaflet() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
