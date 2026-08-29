@@ -3,99 +3,230 @@
 @tailwind utilities;
 
 :root {
-  --background: 16 22 36;
-  --foreground: 244 247 251;
-  --panel: 22 29 47;
-  --line: 66 77 105;
-  --accent: 239 102 55;
-  --muted: 147 158 184;
-  --danger: 245 82 96;
-  --success: 48 209 142;
+  --background: 247 248 250;
+  --foreground: 24 29 36;
+  --panel: 255 255 255;
+  --line: 224 227 232;
+  --accent: 198 66 40;
+  --muted: 103 112 125;
+  --danger: 194 55 55;
+  --success: 42 133 88;
+  --cream: #fffaf2;
+  --ink: #181d24;
+  --brand: #c64228;
+  --brand-dark: #9f321f;
+  --gold: #d99a38;
+  --sage: #6d8a58;
 }
 
 .dark {
-  --background: 16 22 36;
-  --foreground: 244 247 251;
-  --panel: 22 29 47;
-  --line: 66 77 105;
-  --accent: 239 102 55;
-  --muted: 147 158 184;
-  --danger: 245 82 96;
-  --success: 48 209 142;
+  --background: 247 248 250;
+  --foreground: 24 29 36;
+  --panel: 255 255 255;
+  --line: 224 227 232;
+  --accent: 198 66 40;
+  --muted: 103 112 125;
 }
 
+html { background: #f7f8fa; }
 body {
   min-height: 100vh;
+  margin: 0;
   background:
-    radial-gradient(circle at 8% 2%, rgba(239, 102, 55, 0.24), transparent 30rem),
-    radial-gradient(circle at 94% 22%, rgba(23, 198, 214, 0.17), transparent 28rem),
-    linear-gradient(135deg, #111827 0%, #151b30 48%, #1b2539 100%);
+    radial-gradient(circle at 0% 0%, rgba(217,154,56,.10), transparent 28rem),
+    radial-gradient(circle at 100% 12%, rgba(198,66,40,.07), transparent 32rem),
+    #f7f8fa;
   color: rgb(var(--foreground));
-  color-scheme: dark;
+  color-scheme: light;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   text-rendering: geometricPrecision;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 72%);
-}
+body::before,
+body::after { display: none; }
 
-body::after {
-  content: "";
-  position: fixed;
-  inset: auto -8rem -12rem auto;
-  width: 34rem;
-  height: 34rem;
-  pointer-events: none;
-  background: radial-gradient(circle, rgba(48, 209, 142, 0.12), transparent 68%);
-}
+* { border-color: rgb(var(--line)); }
+::selection { background: rgb(var(--accent) / .16); }
 
-* {
-  border-color: rgb(var(--line));
-}
-
-::selection {
-  background: rgb(var(--accent) / 0.28);
-}
-
-::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgba(8, 12, 22, 0.5);
-}
-
-::-webkit-scrollbar-thumb {
-  border: 3px solid rgba(8, 12, 22, 0.5);
-  border-radius: 999px;
-  background: rgba(147, 158, 184, 0.45);
-}
-
-:focus-visible {
-  outline: 2px solid rgb(var(--accent) / 0.75);
-  outline-offset: 2px;
-}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #eef0f3; }
+::-webkit-scrollbar-thumb { border: 2px solid #eef0f3; border-radius: 999px; background: #c7ccd3; }
+:focus-visible { outline: 2px solid rgb(var(--accent) / .5); outline-offset: 2px; }
 
 input[type="datetime-local"]::-webkit-calendar-picker-indicator,
 input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator {
-  filter: invert(1) brightness(0.9);
-  cursor: pointer;
-  opacity: 0.85;
+input[type="time"]::-webkit-calendar-picker-indicator { filter: none; opacity: .65; cursor: pointer; }
+
+/* --------------------------------------------------------------------------
+   Empanada Hauz operations UI
+   The customer kiosk keeps its existing dark, food-forward visual language.
+   The authenticated operations area gets a calmer, information-dense system.
+   -------------------------------------------------------------------------- */
+
+body:has(aside) {
+  background: #f7f8fa;
 }
 
-input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
-input[type="date"]::-webkit-calendar-picker-indicator:hover,
-input[type="time"]::-webkit-calendar-picker-indicator:hover {
-  opacity: 1;
+body:has(aside) > div,
+body:has(aside) main {
+  color: #181d24;
+}
+
+body:has(aside) aside {
+  border: 1px solid #e3e6ea !important;
+  border-radius: 18px !important;
+  background: rgba(255,255,255,.92) !important;
+  box-shadow: 0 14px 40px rgba(24,29,36,.06) !important;
+  backdrop-filter: blur(18px) !important;
+}
+
+body:has(aside) aside > div:first-child {
+  border-bottom-color: #eceef1 !important;
+}
+
+body:has(aside) aside img {
+  border-radius: 12px !important;
+}
+
+body:has(aside) aside nav a {
+  color: #66707d !important;
+  border-radius: 11px !important;
+  transition: background .18s ease, color .18s ease, transform .18s ease;
+}
+
+body:has(aside) aside nav a:hover {
+  color: #242a33 !important;
+  background: #f3f4f6 !important;
+  transform: translateX(2px);
+}
+
+body:has(aside) aside nav a[class*="bg-[linear-gradient"] {
+  color: #fff !important;
+  background: linear-gradient(135deg, #c64228, #dc7546) !important;
+  box-shadow: 0 10px 24px rgba(198,66,40,.20) !important;
+}
+
+body:has(aside) main {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Common dashboard surfaces */
+body:has(aside) main section,
+body:has(aside) main article,
+body:has(aside) main [role="region"] {
+  border-color: #e4e7eb;
+}
+
+body:has(aside) main .bg-panel,
+body:has(aside) main [class*="bg-panel"] {
+  background: #fff !important;
+}
+
+body:has(aside) main [class*="bg-[#101827]"],
+body:has(aside) main [class*="bg-[#111827]"],
+body:has(aside) main [class*="bg-[#0e1524]"],
+body:has(aside) main [class*="bg-[#0b1220]"],
+body:has(aside) main [class*="bg-[#101827]/"] {
+  background: #fff !important;
+  color: #181d24 !important;
+}
+
+body:has(aside) main [class*="text-white"] { color: #242a33 !important; }
+body:has(aside) main [class*="text-white/"] { color: #68717d !important; }
+body:has(aside) main [class*="border-white/"] { border-color: #e5e8ec !important; }
+body:has(aside) main [class*="bg-white/[0.0"],
+body:has(aside) main [class*="bg-white/[0.1"],
+body:has(aside) main [class*="bg-white/[0.0" ] { background: #f8f9fb !important; }
+
+body:has(aside) main input,
+body:has(aside) main textarea,
+body:has(aside) main select {
+  color: #202630 !important;
+  background: #fff !important;
+  border-color: #dfe3e8 !important;
+}
+
+body:has(aside) main input::placeholder,
+body:has(aside) main textarea::placeholder { color: #9aa2ad !important; }
+
+body:has(aside) main button[class*="bg-accent"],
+body:has(aside) main button[class*="bg-[linear-gradient"],
+body:has(aside) main a[class*="bg-accent"] {
+  box-shadow: 0 8px 18px rgba(198,66,40,.14);
+}
+
+/* Header / utility controls */
+body:has(aside) main > .mb-4 {
+  min-height: 48px;
+  align-items: center;
+}
+
+body:has(aside) main > .mb-4 button {
+  border-color: #e0e4e8 !important;
+  background: #fff !important;
+  color: #596370 !important;
+  box-shadow: 0 4px 12px rgba(24,29,36,.04) !important;
+}
+
+body:has(aside) main > .mb-4 button:hover {
+  border-color: #d5a06b !important;
+  color: #c64228 !important;
+  background: #fffaf6 !important;
+}
+
+/* Tables and dense operational lists */
+body:has(aside) table { border-collapse: separate; border-spacing: 0; }
+body:has(aside) th {
+  background: #f8f9fb !important;
+  color: #737c88 !important;
+  border-bottom: 1px solid #e5e8ec !important;
+  font-size: .72rem !important;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+body:has(aside) td { border-bottom-color: #eef0f3 !important; color: #3e4651; }
+body:has(aside) tr:hover td { background: #fcfcfd; }
+
+/* Status chips */
+body:has(aside) [class*="bg-emerald-400"],
+body:has(aside) [class*="bg-emerald-500"] { background: #e9f7ef !important; color: #287a4e !important; border-color: #bde4cc !important; }
+body:has(aside) [class*="bg-rose-400"],
+body:has(aside) [class*="bg-rose-500"] { background: #fff0ef !important; color: #b23b36 !important; border-color: #f1c4c1 !important; }
+body:has(aside) [class*="bg-sky-400"],
+body:has(aside) [class*="bg-sky-500"] { background: #edf5ff !important; color: #2869a7 !important; border-color: #c7def7 !important; }
+
+/* Calls, chat and notifications are intentionally still dark utility overlays. */
+body:has(aside) [class*="fixed"][class*="z-[100]"],
+body:has(aside) [class*="fixed"][class*="z-[95]"] + div {
+  color-scheme: dark;
+}
+
+/* Typography rhythm */
+body:has(aside) h1,
+body:has(aside) h2,
+body:has(aside) h3,
+body:has(aside) h4 { letter-spacing: -.02em; }
+
+body:has(aside) h1 { font-weight: 750; }
+
+/* Responsive: make the operations area feel native on phones. */
+@media (max-width: 1023px) {
+  body:has(aside) aside {
+    border-radius: 14px !important;
+    box-shadow: 0 8px 24px rgba(24,29,36,.05) !important;
+  }
+
+  body:has(aside) aside nav {
+    scrollbar-width: none;
+  }
+
+  body:has(aside) aside nav::-webkit-scrollbar { display: none; }
+}
+
+@media (max-width: 640px) {
+  body:has(aside) main { padding: 10px !important; }
+  body:has(aside) main > .mb-4 { margin-bottom: 10px !important; }
 }
