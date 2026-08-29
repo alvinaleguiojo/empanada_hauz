@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { RiderAppV3 } from "@/components/rider/rider-app-v3";
+import { RiderAppV4 } from "@/components/rider/rider-app-v4";
 import { apiFetch } from "@/lib/api";
 
 type RiderProfile = {
@@ -11,15 +11,12 @@ type RiderProfile = {
 
 export default async function RiderPage() {
   const token = (await cookies()).get("empanada-rider-token")?.value;
-
   if (!token) redirect("/rider/login");
-
   try {
     const profile = await apiFetch<RiderProfile>("/rider/me", undefined, token);
     if (profile.user.role !== "rider") redirect("/rider/login");
   } catch {
     redirect("/rider/login");
   }
-
-  return <RiderAppV3 />;
+  return <RiderAppV4 />;
 }
