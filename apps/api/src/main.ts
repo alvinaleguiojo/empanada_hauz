@@ -5,6 +5,7 @@ import { resolveCorsOrigin } from "./common/cors";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
+    rawBody: true,
     cors: {
       origin: resolveCorsOrigin,
       credentials: true
