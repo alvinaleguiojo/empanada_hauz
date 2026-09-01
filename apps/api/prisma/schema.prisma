@@ -4,23 +4,92 @@ generator client {
 
 datasource db {
   provider = "mongodb"
-  url      = env("DATABASE_URL")
+  url = env("DATABASE_URL")
 }
 
-enum UserRole { admin operations kitchen dispatcher rider }
-enum DeliveryMethod { pickup maxim own_delivery }
-enum PaymentMethod { cod gcash }
-enum OrderStatus { inquiry awaiting_confirmation confirmed queued preparing frying packed ready_for_pickup ready_for_booking booked completed cancelled }
-enum BatchName { morning afternoon }
-enum MessageDirection { inbound outbound }
-enum MessageType { text quick_reply button attachment system }
-enum ConversationStatus { open waiting_customer waiting_staff resolved }
-enum InventoryItemType { flour pork butter oil raisins cheese gas }
-enum DeliveryStatus { pending grouped ready_for_booking booked completed cancelled }
-enum RiderStatus { offline online busy suspended }
-enum VehicleType { motorcycle bicycle car }
-enum DeliveryJobStatus { requested searching_rider assigned accepted pickup_started picked_up delivering delivered cancelled }
-enum DeliveryOfferStatus { pending accepted rejected expired cancelled }
+enum UserRole { admin
+  operations
+  kitchen
+  dispatcher
+  rider
+}
+enum DeliveryMethod { pickup
+  maxim
+  own_delivery
+}
+enum PaymentMethod { cod
+  gcash
+}
+enum OrderStatus { inquiry
+  awaiting_confirmation
+  confirmed
+  queued
+  preparing
+  frying
+  packed
+  ready_for_pickup
+  ready_for_booking
+  booked
+  completed
+  cancelled
+}
+enum BatchName { morning
+  afternoon
+}
+enum MessageDirection { inbound
+  outbound
+}
+enum MessageType { text
+  quick_reply
+  button
+  attachment
+  system
+}
+enum ConversationStatus { open
+  waiting_customer
+  waiting_staff
+  resolved
+}
+enum InventoryItemType { flour
+  pork
+  butter
+  oil
+  raisins
+  cheese
+  gas
+}
+enum DeliveryStatus { pending
+  grouped
+  ready_for_booking
+  booked
+  completed
+  cancelled
+}
+enum RiderStatus { offline
+  online
+  busy
+  suspended
+}
+enum VehicleType { motorcycle
+  bicycle
+  car
+}
+enum DeliveryJobStatus { requested
+  searching_rider
+  assigned
+  accepted
+  pickup_started
+  picked_up
+  delivering
+  delivered
+  cancelled
+}
+enum DeliveryOfferStatus { pending
+  accepted
+  rejected
+  expired
+  cancelled
+}
 
 model User {
   id String @id @default(auto()) @map("_id") @db.ObjectId
