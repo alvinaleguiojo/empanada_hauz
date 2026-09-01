@@ -20,27 +20,42 @@ export class MessengerService {
     return null;
   }
 
+  // Conversation.id is a Mongo ObjectId, so it can never be set to a
+  // hand-rolled string like `psid_<senderId>`. Instead we look conversations
+  // up by their owning customer's messengerPsid and let Mongo generate the id.
+  private async getOrCreateConversationByPsid(psid: string, lastMessage?: string) {
+    const customer = await this.customersService.findOrCreateByMessenger(psid);
+
+    const existing = await this.prisma.conversation.findFirst({
+      where: { customerId: customer.id, channel: "messenger" }
+    });
+
+    if (existing) {
+      if (lastMessage !== undefined) {
+        return this.prisma.conversation.update({
+          where: { id: existing.id },
+          data: { lastMessage, updatedAt: new Date() }
+        });
+      }
+      return existing;
+    }
+
+    return this.prisma.conversation.create({
+      data: {
+        customerId: customer.id,
+        channel: "messenger",
+        lastMessage
+      }
+    });
+  }
+
   async persistInbound(payload: {
     senderId: string;
     messageId?: string;
     text: string;
     rawPayload: unknown;
   }) {
-    const customer = await this.customersService.findOrCreateByMessenger(payload.senderId);
-    const conversation = await this.prisma.conversation.upsert({
-      where: {
-        id: `psid_${payload.senderId}`
-      },
-      update: {
-        lastMessage: payload.text,
-        updatedAt: new Date()
-      },
-      create: {
-        id: `psid_${payload.senderId}`,
-        customerId: customer.id,
-        lastMessage: payload.text
-      }
-    });
+    const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text);
 
     return this.prisma.message.create({
       data: {
@@ -77,14 +92,32 @@ export class MessengerService {
       throw new Error(`Meta send failed: ${response.status} ${await response.text()}`);
     }
 
+    const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
+
     await this.prisma.message.create({
       data: {
-        conversationId: `psid_${recipientPsid}`,
+        conversationId: conversation.id,
         direction: "outbound",
         content: text
       }
     });
 
     return response.json();
+  }
+
+  listConversations() {
+    return this.prisma.conversation.findMany({
+      where: { channel: "messenger" },
+      orderBy: { updatedAt: "desc" },
+      include: { customer: true },
+      take: 100
+    });
+  }
+
+  getConversationMessages(conversationId: string) {
+    return this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: "asc" }
+    });
   }
 }

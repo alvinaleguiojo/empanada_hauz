@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { MESSENGER_QUEUE } from "../../common/enums";
@@ -58,5 +58,17 @@ export class MessengerController {
   @Post("send")
   sendManual(@Body() dto: SendMessageDto) {
     return this.messengerService.sendText(dto.recipientPsid, dto.text);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get("conversations")
+  listConversations() {
+    return this.messengerService.listConversations();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get("conversations/:id/messages")
+  getConversationMessages(@Param("id") id: string) {
+    return this.messengerService.getConversationMessages(id);
   }
 }
