@@ -39,6 +39,15 @@ export class MetaAuthService {
     if (!response.ok) throw new BadRequestException(`Meta Graph API failed: ${response.status} ${body}`);
     return JSON.parse(body) as T;
   }
+  private async graphPost<T>(path: string, token: string, params: Record<string, string>) {
+    const url = new URL(`https://graph.facebook.com/${this.graphVersion()}${path}`);
+    url.searchParams.set("access_token", token);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    const response = await fetch(url, { method: "POST", headers: { accept: "application/json" } });
+    const body = await response.text();
+    if (!response.ok) throw new BadRequestException(`Meta Graph API POST failed: ${response.status} ${body}`);
+    return JSON.parse(body) as T;
+  }
   private async exchangeCode(code: string) {
     if (!this.appId() || !this.appSecret()) throw new Error("META_APP_ID and META_APP_SECRET are required");
     const url = new URL(`https://graph.facebook.com/${this.graphVersion()}/oauth/access_token`);
@@ -70,7 +79,13 @@ export class MetaAuthService {
       create: { id: "meta", pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : undefined, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : undefined, connectedAt: new Date() },
       update: { pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : null, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : null, connectedAt: new Date(), oauthState: null, oauthStateExpiresAt: null }
     });
+    await this.subscribePageToMessenger(page.id, page.access_token);
     return { pageId: page.id, pageName: page.name, expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : null };
+  }
+  private async subscribePageToMessenger(pageId: string, pageAccessToken: string) {
+    await this.graphPost<{ success?: boolean }>(`/${encodeURIComponent(pageId)}/subscribed_apps`, pageAccessToken, {
+      subscribed_fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers"
+    });
   }
   async getPageToken() {
     const connection = await this.prisma.metaConnection.findUnique({ where: { id: "meta" } });
