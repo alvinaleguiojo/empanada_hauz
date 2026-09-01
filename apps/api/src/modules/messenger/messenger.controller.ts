@@ -47,6 +47,12 @@ export class MessengerController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get("auth")
+  validateMetaPage() {
+    return this.messengerService.validateMetaPage();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post("send")
   sendManual(@Body() dto: SendMessageDto) {
     return this.messengerService.sendText(dto.recipientPsid, dto.text);
