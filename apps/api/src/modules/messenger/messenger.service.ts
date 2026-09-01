@@ -22,6 +22,20 @@ interface MetaConversation {
   participants?: { data?: MetaParticipant[] };
 }
 interface MetaPage<T> { data?: T[]; paging?: { next?: string } }
+interface MetaTokenDebug {
+  data?: {
+    app_id?: string;
+    type?: string;
+    application?: string;
+    is_valid?: boolean;
+    expires_at?: number;
+    data_access_expires_at?: number;
+    profile_id?: string;
+    user_id?: string;
+    scopes?: string[];
+  };
+}
+interface MetaPageProfile { id?: string; name?: string }
 
 @Injectable()
 export class MessengerService {
@@ -83,8 +97,58 @@ export class MessengerService {
     return JSON.parse(body) as T;
   }
 
+  /** Validate that the configured token is a live Page Access Token for the configured Page. */
+  async validateMetaPage() {
+    const pageId = this.pageId();
+    const token = this.pageToken();
+    if (!pageId) return { authenticated: false, status: "missing_page_id", message: "META_PAGE_ID is not configured" };
+    if (!token) return { authenticated: false, status: "missing_token", message: "META_PAGE_ACCESS_TOKEN is not configured" };
+
+    try {
+      const profile = await this.metaGet<MetaPageProfile>(
+        `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(pageId)}?fields=id,name`
+      );
+      const debug = await this.metaGet<MetaTokenDebug>(
+        `https://graph.facebook.com/${this.graphVersion()}/debug_token?input_token=${encodeURIComponent(token)}`
+      );
+      const tokenData = debug.data;
+      const isPageToken = tokenData?.type === "PAGE";
+      const matchesPage = profile.id === pageId && tokenData?.profile_id === pageId;
+      const isValid = tokenData?.is_valid === true;
+      const authenticated = isValid && isPageToken && matchesPage;
+
+      return {
+        authenticated,
+        status: authenticated ? "authenticated" : "invalid_token",
+        page: { id: profile.id, name: profile.name },
+        token: {
+          valid: isValid,
+          type: tokenData?.type,
+          profileId: tokenData?.profile_id,
+          expiresAt: tokenData?.expires_at,
+          dataAccessExpiresAt: tokenData?.data_access_expires_at,
+          scopes: tokenData?.scopes ?? []
+        },
+        message: authenticated
+          ? `Meta Page ${profile.name ?? pageId} is authenticated`
+          : "Configured token is not a valid Page Access Token for META_PAGE_ID"
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Meta authentication failed";
+      this.logger.warn(`Meta Page authentication failed: ${message}`);
+      return {
+        authenticated: false,
+        status: message.includes("190") || message.toLowerCase().includes("expired") ? "token_expired" : "authentication_error",
+        message: "Meta Page authentication failed. Check META_PAGE_ACCESS_TOKEN and META_PAGE_ID."
+      };
+    }
+  }
+
   /** Import existing Messenger history without triggering AI/order automation. */
   async syncFromMeta(options: { maxConversations?: number; maxMessagesPerConversation?: number } = {}) {
+    const auth = await this.validateMetaPage();
+    if (!auth.authenticated) throw new Error(`Meta Page is not authenticated: ${auth.message}`);
+
     const maxConversations = Math.max(1, options.maxConversations ?? 100);
     const maxMessagesPerConversation = Math.max(1, options.maxMessagesPerConversation ?? 1000);
     const pageId = this.pageId();
