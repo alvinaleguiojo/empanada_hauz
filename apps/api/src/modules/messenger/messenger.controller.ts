@@ -27,8 +27,11 @@ export class MessengerController {
     @Req() request: RawBodyRequest
   ) {
     const rawBody = request.rawBody;
+    const entries = Array.isArray(payload?.entry) ? payload.entry : [];
+    const messagingCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.messaging) ? entry.messaging.length : 0), 0);
+    const standbyCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.standby) ? entry.standby.length : 0), 0);
     this.logger.log(
-      `Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0}`
+      `Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0} object=${payload?.object ?? "unknown"} entries=${entries.length} messaging=${messagingCount} standby=${standbyCount}`
     );
 
     if (!this.verifySignature(rawBody, signature)) {
@@ -38,8 +41,8 @@ export class MessengerController {
       return { received: false };
     }
 
-    const entries = payload.entry ?? [];
-    this.logger.log(`Meta webhook signature verified: entries=${entries.length}`);
+    this.logger.log(`Meta webhook signature verified: entries=${entries.length} messaging=${messagingCount} standby=${standbyCount}`);
+    if (standbyCount > 0) this.logger.warn(`Meta delivered ${standbyCount} standby event(s): another receiver may control the conversation thread`);
 
     // Acknowledge Meta immediately after authentication. Do not make Meta wait
     // for database, AI, notifications, or outbound Messenger API calls.
