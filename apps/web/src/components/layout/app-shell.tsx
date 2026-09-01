@@ -16,6 +16,7 @@ import { VOICE_ICE_SERVERS } from "@/lib/config";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/inbox", label: "Inbox", icon: MessageCircle },
   { href: "/orders", label: "Orders", icon: ClipboardList },
   { href: "/expenses", label: "Expenses", icon: ReceiptText },
   { href: "/referrals", label: "Referrals", icon: Share2 },
