@@ -25,7 +25,12 @@ export class MessengerController {
   @Get("auth/callback")
   async callback(@Query("code") code: string, @Query("state") state: string, @Query("error") error: string | undefined, @Res() response: Response) {
     if (error) return response.status(400).send(`Meta authorization failed: ${error}`);
-    try { await this.metaAuthService.handleOAuthCallback(code, state); return response.redirect(`${process.env.WEB_APP_URL ?? "http://localhost:3001"}/messenger?meta=connected`); }
+    try {
+      await this.metaAuthService.handleOAuthCallback(code, state);
+      // Messenger is part of the authenticated dashboard. Redirect to the
+      // actual Next.js route instead of the removed /messenger page.
+      return response.redirect(`${process.env.WEB_APP_URL ?? "http://localhost:3001"}/inbox?meta=connected`);
+    }
     catch (err) { this.logger.error("Meta OAuth callback failed", err); return response.status(400).send(err instanceof Error ? err.message : "Meta authorization failed"); }
   }
   @UseGuards(JwtAuthGuard)
