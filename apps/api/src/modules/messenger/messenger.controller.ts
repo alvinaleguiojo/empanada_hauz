@@ -30,8 +30,9 @@ export class MessengerController {
     const entries = Array.isArray(payload?.entry) ? payload.entry : [];
     const messagingCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.messaging) ? entry.messaging.length : 0), 0);
     const standbyCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.standby) ? entry.standby.length : 0), 0);
+    const handoverCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.messaging_handovers) ? entry.messaging_handovers.length : 0), 0);
     this.logger.log(
-      `Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0} object=${payload?.object ?? "unknown"} entries=${entries.length} messaging=${messagingCount} standby=${standbyCount}`
+      `Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0} object=${payload?.object ?? "unknown"} entries=${entries.length} messaging=${messagingCount} standby=${standbyCount} handovers=${handoverCount}`
     );
 
     if (!this.verifySignature(rawBody, signature)) {
@@ -41,13 +42,19 @@ export class MessengerController {
       return { received: false };
     }
 
-    this.logger.log(`Meta webhook signature verified: entries=${entries.length} messaging=${messagingCount} standby=${standbyCount}`);
+    const pageId = this.metaAuthService.getConfiguredPageId();
+    const unexpectedEntries = entries.filter((entry: any) => pageId && entry?.id && entry.id !== pageId);
+    if (unexpectedEntries.length > 0) {
+      this.logger.warn(`Ignoring ${unexpectedEntries.length} webhook entr${unexpectedEntries.length === 1 ? "y" : "ies"} for unexpected Page ID`);
+    }
+
+    this.logger.log(`Meta webhook signature verified: entries=${entries.length} messaging=${messagingCount} standby=${standbyCount} handovers=${handoverCount}`);
     if (standbyCount > 0) this.logger.warn(`Meta delivered ${standbyCount} standby event(s): another receiver may control the conversation thread`);
 
     // Acknowledge Meta immediately after authentication. Do not make Meta wait
     // for database, AI, notifications, or outbound Messenger API calls.
     setImmediate(() => {
-      void this.processWebhookEntries(entries);
+      void this.processWebhookEntries(entries.filter((entry: any) => !pageId || !entry?.id || entry.id === pageId));
     });
 
     return { received: true };
@@ -55,26 +62,50 @@ export class MessengerController {
 
   private async processWebhookEntries(entries: any[]) {
     for (const entry of entries) {
-      for (const event of entry.messaging ?? []) {
-        const text = event.message?.text;
-        if (!text || !event.sender?.id) {
-          this.logger.debug(
-            `Ignoring Messenger event without text/sender: sender=${Boolean(event.sender?.id)} text=${Boolean(text)}`
-          );
-          continue;
-        }
+      await this.processEvents(entry.messaging ?? [], "messaging");
+      await this.processEvents(entry.standby ?? [], "standby");
+      for (const handover of entry.messaging_handovers ?? []) {
+        this.logger.log(`Messenger handover event: sender=${handover.sender?.id ?? "unknown"} appRoles=${JSON.stringify(handover.app_roles ?? handover.appRoles ?? null)}`);
+      }
+    }
+  }
+
+  private async processEvents(events: any[], channel: "messaging" | "standby") {
+    for (const event of events) {
+      const text = event.message?.text;
+      const senderId = event.sender?.id;
+      if (!senderId) {
+        this.logger.debug(`Ignoring Messenger ${channel} event without sender`);
+        continue;
+      }
+
+      if (channel === "standby") {
+        this.logger.warn(`Messenger standby event received: sender=${senderId} messageId=${event.message?.mid ?? "unknown"} text=${Boolean(text)}`);
         try {
-          this.logger.log(`Processing Messenger message: sender=${event.sender.id} messageId=${event.message?.mid ?? "unknown"}`);
-          await this.messengerService.processIncoming({
-            senderId: event.sender.id,
-            messageId: event.message.mid,
-            text,
-            rawPayload: event
-          });
-          this.logger.log(`Processed Messenger message: sender=${event.sender.id} messageId=${event.message?.mid ?? "unknown"}`);
+          const result = await this.messengerService.handleStandbyEvent({ senderId, messageId: event.message?.mid, text, rawPayload: event });
+          this.logger.log(`Messenger standby event handled: sender=${senderId} action=${result.action}`);
         } catch (err) {
-          this.logger.error(`Failed to process message from ${event.sender.id}`, err instanceof Error ? err.stack : String(err));
+          this.logger.error(`Failed to handle Messenger standby event from ${senderId}`, err instanceof Error ? err.stack : String(err));
         }
+        continue;
+      }
+
+      if (!text) {
+        this.logger.debug(`Ignoring Messenger event without text: sender=${senderId}`);
+        continue;
+      }
+
+      try {
+        this.logger.log(`Processing Messenger message: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`);
+        await this.messengerService.processIncoming({
+          senderId,
+          messageId: event.message?.mid,
+          text,
+          rawPayload: event
+        });
+        this.logger.log(`Processed Messenger message: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`);
+      } catch (err) {
+        this.logger.error(`Failed to process message from ${senderId}`, err instanceof Error ? err.stack : String(err));
       }
     }
   }
