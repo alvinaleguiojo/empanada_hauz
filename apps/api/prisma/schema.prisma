@@ -14,18 +14,15 @@ enum UserRole {
   dispatcher
   rider
 }
-
 enum DeliveryMethod {
   pickup
   maxim
   own_delivery
 }
-
 enum PaymentMethod {
   cod
   gcash
 }
-
 enum OrderStatus {
   inquiry
   awaiting_confirmation
@@ -40,17 +37,14 @@ enum OrderStatus {
   completed
   cancelled
 }
-
 enum BatchName {
   morning
   afternoon
 }
-
 enum MessageDirection {
   inbound
   outbound
 }
-
 enum MessageType {
   text
   quick_reply
@@ -58,14 +52,12 @@ enum MessageType {
   attachment
   system
 }
-
 enum ConversationStatus {
   open
   waiting_customer
   waiting_staff
   resolved
 }
-
 enum InventoryItemType {
   flour
   pork
@@ -75,7 +67,6 @@ enum InventoryItemType {
   cheese
   gas
 }
-
 enum DeliveryStatus {
   pending
   grouped
@@ -84,20 +75,17 @@ enum DeliveryStatus {
   completed
   cancelled
 }
-
 enum RiderStatus {
   offline
   online
   busy
   suspended
 }
-
 enum VehicleType {
   motorcycle
   bicycle
   car
 }
-
 enum DeliveryJobStatus {
   requested
   searching_rider
@@ -109,7 +97,6 @@ enum DeliveryJobStatus {
   delivered
   cancelled
 }
-
 enum DeliveryOfferStatus {
   pending
   accepted
@@ -134,3 +121,354 @@ model ReferralPartner {
   id                String    @id @default(auto()) @map("_id") @db.ObjectId
   email             String    @unique
   passwordHash      String
+  name              String
+  phoneNumber       String?
+  referralCode      String    @unique
+  approvalStatus    String    @default("pending")
+  approvedAt        DateTime?
+  approvedById      String?   @db.ObjectId
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model ReferralChatConversation {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  referralUserId    String?   @db.ObjectId
+  referralPartnerId String?   @db.ObjectId
+  adminUserId       String?   @db.ObjectId
+  status            String    @default("open")
+  lastMessage       String?
+  lastMessageAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  @@index([referralUserId, updatedAt])
+  @@index([referralPartnerId, updatedAt])
+  @@index([adminUserId, updatedAt])
+}
+
+model ReferralChatMessage {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String   @db.ObjectId
+  senderType     String
+  senderId       String   @db.ObjectId
+  senderName     String
+  content        String
+  readAt         DateTime?
+  createdAt      DateTime @default(now())
+  @@index([conversationId, createdAt])
+  @@index([conversationId, readAt])
+}
+
+model Customer {
+  id                      String         @id @default(auto()) @map("_id") @db.ObjectId
+  messengerPsid           String?
+  phoneNumber             String?
+  name                    String
+  defaultAddress          String?
+  notes                   String?
+  totalOrders             Int            @default(0)
+  repeatCustomerCount     Int            @default(0)
+  totalSpent              Float          @default(0)
+  favoriteOrderQuantity   Int?
+  preferredDeliveryMethod DeliveryMethod?
+  lastOrderDate           DateTime?
+  isVip                   Boolean        @default(false)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  conversations           Conversation[]
+  orders                  Order[]
+  @@index([name])
+  @@index([phoneNumber])
+}
+
+model Conversation {
+  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
+  customerId         String             @db.ObjectId
+  channel            String             @default("messenger")
+  metaConversationId String?
+  status             ConversationStatus @default(open)
+  lastMessage        String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  customer           Customer           @relation(fields: [customerId], references: [id])
+  messages           Message[]
+  @@index([customerId, updatedAt])
+  @@index([metaConversationId])
+}
+
+model Message {
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId   String           @db.ObjectId
+  metaMessageId    String?
+  direction        MessageDirection
+  type             MessageType      @default(text)
+  content          String
+  rawPayload       Json?
+  aiIntent         String?
+  aiConfidence     Float?
+  extractedOrder   Json?
+  processedAt      DateTime?
+  createdAt        DateTime         @default(now())
+  conversation     Conversation     @relation(fields: [conversationId], references: [id])
+  @@index([conversationId, createdAt])
+  @@index([metaMessageId])
+}
+
+model Batch {
+  id                        String    @id @default(auto()) @map("_id") @db.ObjectId
+  name                      BatchName
+  batchDate                 DateTime
+  maxCapacity               Int
+  currentCapacity           Int       @default(0)
+  remainingCapacity         Int
+  cutoffTime                DateTime
+  estimatedCompletionTime   DateTime
+  isClosed                  Boolean   @default(false)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  orders                    Order[]
+  productionLogs            ProductionLog[]
+  @@unique([name, batchDate])
+  @@index([batchDate, isClosed])
+}
+
+model Order {
+  id                String          @id @default(auto()) @map("_id") @db.ObjectId
+  customerId        String          @db.ObjectId
+  batchId           String?         @db.ObjectId
+  deliveryId        String?         @db.ObjectId
+  conversationId    String?
+  orderNumber       String          @unique
+  quantity          Int
+  unitPrice         Float
+  totalAmount       Float
+  deliveryFee       Float           @default(0)
+  discountAmount    Float           @default(0)
+  location          String?
+  address           String?
+  deliveryMethod    DeliveryMethod
+  paymentMethod     PaymentMethod   @default(cod)
+  preferredSchedule DateTime?
+  scheduleReminderSentAt DateTime?
+  status            OrderStatus     @default(inquiry)
+  items             Json?
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  customer          Customer        @relation(fields: [customerId], references: [id])
+  batch             Batch?          @relation(fields: [batchId], references: [id])
+  delivery          Delivery?       @relation(fields: [deliveryId], references: [id])
+  orderNotes        OrderNote[]
+  deliveryJobs      DeliveryJob[]
+  @@index([status, createdAt])
+  @@index([batchId, status])
+  @@index([customerId, createdAt])
+}
+
+model OrderNote {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId   String   @db.ObjectId
+  body      String
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([orderId, createdAt])
+}
+
+model Delivery {
+  id                String         @id @default(auto()) @map("_id") @db.ObjectId
+  areaGroup         String?
+  status            DeliveryStatus @default(pending)
+  scheduledAt       DateTime?
+  eta               DateTime?
+  trackingLink      String?
+  riderName         String?
+  riderPlate        String?
+  bookingNotes      String?
+  copyPayload       String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  orders            Order[]
+  @@index([status, scheduledAt])
+  @@index([areaGroup])
+}
+
+model Rider {
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String          @unique @db.ObjectId
+  phoneNumber    String?
+  status         RiderStatus     @default(offline)
+  serviceArea    String?
+  rating         Float           @default(5)
+  completedJobs  Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  user           User            @relation(fields: [userId], references: [id])
+  vehicles       Vehicle[]
+  locations      RiderLocation[]
+  jobs           DeliveryJob[]
+  offers         DeliveryOffer[]
+  @@index([status, serviceArea])
+}
+
+model Vehicle {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  riderId     String      @db.ObjectId
+  type        VehicleType @default(motorcycle)
+  plateNumber String?
+  model       String?
+  color       String?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  rider       Rider       @relation(fields: [riderId], references: [id])
+  @@index([riderId, isActive])
+}
+
+model RiderLocation {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  riderId   String   @db.ObjectId
+  latitude  Float
+  longitude Float
+  heading   Float?
+  speed     Float?
+  createdAt DateTime @default(now())
+  rider     Rider    @relation(fields: [riderId], references: [id])
+  @@index([riderId, createdAt])
+}
+
+model DeliveryJob {
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  orderId          String?           @db.ObjectId
+  riderId          String?           @db.ObjectId
+  status           DeliveryJobStatus @default(requested)
+  pickupAddress    String
+  pickupLatitude   Float?
+  pickupLongitude  Float?
+  dropoffAddress   String
+  dropoffLatitude  Float?
+  dropoffLongitude Float?
+  distanceKm       Float?
+  estimatedDurationMinutes Int?
+  estimatedArrivalAt DateTime?
+  estimatedFare    Float            @default(0)
+  finalFare        Float?
+  notes            String?
+  requestedAt      DateTime          @default(now())
+  acceptedAt       DateTime?
+  pickedUpAt       DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  order            Order?            @relation(fields: [orderId], references: [id])
+  rider            Rider?            @relation(fields: [riderId], references: [id])
+  offers           DeliveryOffer[]
+  @@index([status, requestedAt])
+  @@index([riderId, status])
+  @@index([orderId])
+}
+
+model DeliveryOffer {
+  id        String              @id @default(auto()) @map("_id") @db.ObjectId
+  jobId     String              @db.ObjectId
+  riderId   String              @db.ObjectId
+  status    DeliveryOfferStatus @default(pending)
+  expiresAt DateTime?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  job       DeliveryJob         @relation(fields: [jobId], references: [id])
+  rider     Rider               @relation(fields: [riderId], references: [id])
+  @@unique([jobId, riderId])
+  @@index([riderId, status])
+}
+
+model InventoryItem {
+  id                 String            @id @default(auto()) @map("_id") @db.ObjectId
+  itemType           InventoryItemType @unique
+  displayName        String
+  unit               String
+  currentStock       Float
+  reorderLevel       Float
+  estimatedDaysLeft  Int?
+  costPerUnit        Float
+  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime          @default(now())
+  logs               InventoryLog[]
+}
+
+model InventoryLog {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  inventoryItemId String        @db.ObjectId
+  changeAmount    Float
+  reason          String
+  createdAt       DateTime      @default(now())
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  @@index([inventoryItemId, createdAt])
+}
+
+model ProductionLog {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  batchId      String   @db.ObjectId
+  stage        String
+  quantity     Int
+  notes        String?
+  createdAt    DateTime @default(now())
+  batch        Batch    @relation(fields: [batchId], references: [id])
+  @@index([batchId, createdAt])
+}
+
+model Expense {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  category    String
+  description String
+  amount      Float
+  expenseDate DateTime
+  createdAt   DateTime @default(now())
+  @@index([expenseDate, category])
+}
+
+model Referral {
+  id                   String    @id @default(auto()) @map("_id") @db.ObjectId
+  referrerUserId       String?   @db.ObjectId
+  referralPartnerId    String?   @db.ObjectId
+  referralCode         String
+  customerId           String?   @db.ObjectId
+  orderId              String?   @db.ObjectId
+  customerName         String
+  phoneNumber          String?
+  orderNumber          String?
+  orderTotal           Float     @default(0)
+  status               String    @default("created")
+  commissionPercentage Float     @default(0)
+  commissionAmount     Float     @default(0)
+  commissionPaidAt     DateTime?
+  commissionPaidById   String?   @db.ObjectId
+  createdAt            DateTime  @default(now())
+  @@unique([orderId])
+  @@index([referrerUserId, createdAt])
+  @@index([referralPartnerId, createdAt])
+  @@index([referralCode, createdAt])
+}
+
+model AnalyticsSnapshot {
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  snapshotDate         DateTime @unique
+  revenue              Float
+  pcsSold              Int
+  averageOrderSize     Float
+  repeatCustomerRate   Float
+  busiestHours         Json
+  topLocations         Json
+  cancelledOrders      Int
+  productionEfficiency Float
+  createdAt             DateTime @default(now())
+}
+
+model OperatorChatMessage {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  fromId    String
+  name      String
+  text      String
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
