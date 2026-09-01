@@ -7,116 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  admin
-  operations
-  kitchen
-  dispatcher
-  rider
-}
-
-enum DeliveryMethod {
-  pickup
-  maxim
-  own_delivery
-}
-
-enum PaymentMethod {
-  cod
-  gcash
-}
-
-enum OrderStatus {
-  inquiry
-  awaiting_confirmation
-  confirmed
-  queued
-  preparing
-  frying
-  packed
-  ready_for_pickup
-  ready_for_booking
-  booked
-  completed
-  cancelled
-}
-
-enum BatchName {
-  morning
-  afternoon
-}
-
-enum MessageDirection {
-  inbound
-  outbound
-}
-
-enum MessageType {
-  text
-  quick_reply
-  button
-  attachment
-  system
-}
-
-enum ConversationStatus {
-  open
-  waiting_customer
-  waiting_staff
-  resolved
-}
-
-enum InventoryItemType {
-  flour
-  pork
-  butter
-  oil
-  raisins
-  cheese
-  gas
-}
-
-enum DeliveryStatus {
-  pending
-  grouped
-  ready_for_booking
-  booked
-  completed
-  cancelled
-}
-
-enum RiderStatus {
-  offline
-  online
-  busy
-  suspended
-}
-
-enum VehicleType {
-  motorcycle
-  bicycle
-  car
-}
-
-enum DeliveryJobStatus {
-  requested
-  searching_rider
-  assigned
-  accepted
-  pickup_started
-  picked_up
-  delivering
-  delivered
-  cancelled
-}
-
-enum DeliveryOfferStatus {
-  pending
-  accepted
-  rejected
-  expired
-  cancelled
-}
+enum UserRole { admin operations kitchen dispatcher rider }
+enum DeliveryMethod { pickup maxim own_delivery }
+enum PaymentMethod { cod gcash }
+enum OrderStatus { inquiry awaiting_confirmation confirmed queued preparing frying packed ready_for_pickup ready_for_booking booked completed cancelled }
+enum BatchName { morning afternoon }
+enum MessageDirection { inbound outbound }
+enum MessageType { text quick_reply button attachment system }
+enum ConversationStatus { open waiting_customer waiting_staff resolved }
+enum InventoryItemType { flour pork butter oil raisins cheese gas }
+enum DeliveryStatus { pending grouped ready_for_booking booked completed cancelled }
+enum RiderStatus { offline online busy suspended }
+enum VehicleType { motorcycle bicycle car }
+enum DeliveryJobStatus { requested searching_rider assigned accepted pickup_started picked_up delivering delivered cancelled }
+enum DeliveryOfferStatus { pending accepted rejected expired cancelled }
 
 model User {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -131,30 +35,29 @@ model User {
 }
 
 model ReferralPartner {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  email        String   @unique
-  passwordHash String
-  name         String
-  phoneNumber  String?
-  referralCode String   @unique
-  approvalStatus String @default("pending")
-  approvedAt   DateTime?
-  approvedById String?  @db.ObjectId
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  email             String    @unique
+  passwordHash      String
+  name              String
+  phoneNumber       String?
+  referralCode      String    @unique
+  approvalStatus    String    @default("pending")
+  approvedAt        DateTime?
+  approvedById      String?   @db.ObjectId
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 model ReferralChatConversation {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  referralUserId    String?  @db.ObjectId
-  referralPartnerId String?  @db.ObjectId
-  adminUserId       String?  @db.ObjectId
-  status            String   @default("open")
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  referralUserId    String?   @db.ObjectId
+  referralPartnerId String?   @db.ObjectId
+  adminUserId       String?   @db.ObjectId
+  status            String    @default("open")
   lastMessage       String?
   lastMessageAt     DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   @@index([referralUserId, updatedAt])
   @@index([referralPartnerId, updatedAt])
   @@index([adminUserId, updatedAt])
@@ -169,7 +72,6 @@ model ReferralChatMessage {
   content        String
   readAt         DateTime?
   createdAt      DateTime @default(now())
-
   @@index([conversationId, createdAt])
   @@index([conversationId, readAt])
 }
@@ -192,23 +94,23 @@ model Customer {
   updatedAt               DateTime       @updatedAt
   conversations           Conversation[]
   orders                  Order[]
-
   @@index([name])
   @@index([phoneNumber])
 }
 
 model Conversation {
-  id          String             @id @default(auto()) @map("_id") @db.ObjectId
-  customerId  String             @db.ObjectId
-  channel     String             @default("messenger")
-  status      ConversationStatus @default(open)
-  lastMessage String?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  customer    Customer           @relation(fields: [customerId], references: [id])
-  messages    Message[]
-
+  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
+  customerId         String             @db.ObjectId
+  channel            String             @default("messenger")
+  metaConversationId String?
+  status             ConversationStatus @default(open)
+  lastMessage        String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  customer           Customer           @relation(fields: [customerId], references: [id])
+  messages           Message[]
   @@index([customerId, updatedAt])
+  @@index([metaConversationId])
 }
 
 model Message {
@@ -225,7 +127,6 @@ model Message {
   processedAt      DateTime?
   createdAt        DateTime         @default(now())
   conversation     Conversation     @relation(fields: [conversationId], references: [id])
-
   @@index([conversationId, createdAt])
   @@index([metaMessageId])
 }
@@ -244,7 +145,6 @@ model Batch {
   updatedAt                 DateTime  @updatedAt
   orders                    Order[]
   productionLogs            ProductionLog[]
-
   @@unique([name, batchDate])
   @@index([batchDate, isClosed])
 }
@@ -264,7 +164,7 @@ model Order {
   location          String?
   address           String?
   deliveryMethod    DeliveryMethod
-  paymentMethod     PaymentMethod    @default(cod)
+  paymentMethod     PaymentMethod   @default(cod)
   preferredSchedule DateTime?
   scheduleReminderSentAt DateTime?
   status            OrderStatus     @default(inquiry)
@@ -277,7 +177,6 @@ model Order {
   delivery          Delivery?       @relation(fields: [deliveryId], references: [id])
   orderNotes        OrderNote[]
   deliveryJobs      DeliveryJob[]
-
   @@index([status, createdAt])
   @@index([batchId, status])
   @@index([customerId, createdAt])
@@ -289,7 +188,6 @@ model OrderNote {
   body      String
   createdAt DateTime @default(now())
   order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
   @@index([orderId, createdAt])
 }
 
@@ -307,7 +205,6 @@ model Delivery {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   orders            Order[]
-
   @@index([status, scheduledAt])
   @@index([areaGroup])
 }
@@ -327,7 +224,6 @@ model Rider {
   locations      RiderLocation[]
   jobs           DeliveryJob[]
   offers         DeliveryOffer[]
-
   @@index([status, serviceArea])
 }
 
@@ -342,7 +238,6 @@ model Vehicle {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   rider       Rider       @relation(fields: [riderId], references: [id])
-
   @@index([riderId, isActive])
 }
 
@@ -355,7 +250,6 @@ model RiderLocation {
   speed     Float?
   createdAt DateTime @default(now())
   rider     Rider    @relation(fields: [riderId], references: [id])
-
   @@index([riderId, createdAt])
 }
 
@@ -386,7 +280,6 @@ model DeliveryJob {
   order            Order?            @relation(fields: [orderId], references: [id])
   rider            Rider?            @relation(fields: [riderId], references: [id])
   offers           DeliveryOffer[]
-
   @@index([status, requestedAt])
   @@index([riderId, status])
   @@index([orderId])
@@ -402,7 +295,6 @@ model DeliveryOffer {
   updatedAt DateTime            @updatedAt
   job       DeliveryJob         @relation(fields: [jobId], references: [id])
   rider     Rider               @relation(fields: [riderId], references: [id])
-
   @@unique([jobId, riderId])
   @@index([riderId, status])
 }
@@ -428,7 +320,6 @@ model InventoryLog {
   reason          String
   createdAt       DateTime      @default(now())
   inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
-
   @@index([inventoryItemId, createdAt])
 }
 
@@ -440,7 +331,6 @@ model ProductionLog {
   notes        String?
   createdAt    DateTime @default(now())
   batch        Batch    @relation(fields: [batchId], references: [id])
-
   @@index([batchId, createdAt])
 }
 
@@ -451,7 +341,6 @@ model Expense {
   amount      Float
   expenseDate DateTime
   createdAt   DateTime @default(now())
-
   @@index([expenseDate, category])
 }
 
@@ -472,7 +361,6 @@ model Referral {
   commissionPaidAt     DateTime?
   commissionPaidById   String?   @db.ObjectId
   createdAt            DateTime  @default(now())
-
   @@unique([orderId])
   @@index([referrerUserId, createdAt])
   @@index([referralPartnerId, createdAt])
@@ -480,17 +368,17 @@ model Referral {
 }
 
 model AnalyticsSnapshot {
-  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
-  snapshotDate        DateTime @unique
-  revenue             Float
-  pcsSold             Int
-  averageOrderSize    Float
-  repeatCustomerRate  Float
-  busiestHours        Json
-  topLocations        Json
-  cancelledOrders     Int
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  snapshotDate         DateTime @unique
+  revenue              Float
+  pcsSold              Int
+  averageOrderSize     Float
+  repeatCustomerRate   Float
+  busiestHours         Json
+  topLocations         Json
+  cancelledOrders      Int
   productionEfficiency Float
-  createdAt            DateTime @default(now())
+  createdAt             DateTime @default(now())
 }
 
 model OperatorChatMessage {
@@ -499,6 +387,5 @@ model OperatorChatMessage {
   name      String
   text      String
   createdAt DateTime @default(now())
-
   @@index([createdAt])
 }
