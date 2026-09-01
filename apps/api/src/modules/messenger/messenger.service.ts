@@ -96,7 +96,7 @@ export class MessengerService {
     let messagesImported = 0;
 
     while (nextUrl && conversationsSeen < maxConversations) {
-      const page = await this.metaGet<MetaPage<MetaConversation>>(nextUrl);
+      const page: MetaPage<MetaConversation> = await this.metaGet<MetaPage<MetaConversation>>(nextUrl);
       for (const metaConversation of page.data ?? []) {
         if (conversationsSeen >= maxConversations) break;
         conversationsSeen += 1;
@@ -136,7 +136,7 @@ export class MessengerService {
         let newestMessage: MetaMessage | undefined;
 
         while (messageUrl && conversationMessageCount < maxMessagesPerConversation) {
-          const messagesPage = await this.metaGet<MetaPage<MetaMessage>>(messageUrl);
+          const messagesPage: MetaPage<MetaMessage> = await this.metaGet<MetaPage<MetaMessage>>(messageUrl);
           for (const metaMessage of messagesPage.data ?? []) {
             if (conversationMessageCount >= maxMessagesPerConversation || !metaMessage.id) break;
             conversationMessageCount += 1;
