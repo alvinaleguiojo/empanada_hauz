@@ -19,11 +19,6 @@ export class MessengerController {
     return verified ?? "Verification failed";
   }
 
-  // No queue here on purpose: this project doesn't run Redis, and
-  // queue.add() would otherwise hang indefinitely trying to connect,
-  // producing a Cloudflare 524 on every real webhook call. Meta only waits
-  // ~20s for a 200 response, and inline AI classification + a DB write
-  // comfortably fits inside that.
   @Post("webhook")
   @HttpCode(200)
   async handleWebhook(@Body() payload: any, @Headers("x-hub-signature-256") _signature?: string) {
@@ -55,6 +50,18 @@ export class MessengerController {
   @Post("send")
   sendManual(@Body() dto: SendMessageDto) {
     return this.messengerService.sendText(dto.recipientPsid, dto.text);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("sync")
+  syncHistory(
+    @Query("maxConversations") maxConversations?: string,
+    @Query("maxMessagesPerConversation") maxMessagesPerConversation?: string
+  ) {
+    return this.messengerService.syncFromMeta({
+      maxConversations: maxConversations ? Number(maxConversations) : undefined,
+      maxMessagesPerConversation: maxMessagesPerConversation ? Number(maxMessagesPerConversation) : undefined
+    });
   }
 
   @UseGuards(JwtAuthGuard)
