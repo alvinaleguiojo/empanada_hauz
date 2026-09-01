@@ -131,29 +131,29 @@ model User {
 }
 
 model ReferralPartner {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  email        String   @unique
-  passwordHash String
-  name         String
-  phoneNumber  String?
-  referralCode String   @unique
-  approvalStatus String @default("pending")
-  approvedAt   DateTime?
-  approvedById String?  @db.ObjectId
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  email             String    @unique
+  passwordHash      String
+  name              String
+  phoneNumber       String?
+  referralCode      String    @unique
+  approvalStatus    String    @default("pending")
+  approvedAt        DateTime?
+  approvedById      String?   @db.ObjectId
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 model ReferralChatConversation {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  referralUserId    String?  @db.ObjectId
-  referralPartnerId String?  @db.ObjectId
-  adminUserId       String?  @db.ObjectId
-  status            String   @default("open")
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  referralUserId    String?   @db.ObjectId
+  referralPartnerId String?   @db.ObjectId
+  adminUserId       String?   @db.ObjectId
+  status            String    @default("open")
   lastMessage       String?
   lastMessageAt     DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([referralUserId, updatedAt])
   @@index([referralPartnerId, updatedAt])
@@ -198,21 +198,22 @@ model Customer {
 }
 
 model Conversation {
-  id          String             @id @default(auto()) @map("_id") @db.ObjectId
-  customerId  String             @db.ObjectId
-  channel     String             @default("messenger")
-  status      ConversationStatus @default(open)
-  lastMessage String?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  customer    Customer           @relation(fields: [customerId], references: [id])
-  messages    Message[]
+  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
+  customerId         String             @db.ObjectId
+  channel            String             @default("messenger")
+  metaConversationId String?            @unique
+  status             ConversationStatus @default(open)
+  lastMessage        String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  customer           Customer           @relation(fields: [customerId], references: [id])
+  messages           Message[]
 
   @@index([customerId, updatedAt])
 }
 
 model Message {
-  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  id               String           @id @default(auto()) @map("_id")
   conversationId   String           @db.ObjectId
   metaMessageId    String?
   direction        MessageDirection
@@ -264,7 +265,7 @@ model Order {
   location          String?
   address           String?
   deliveryMethod    DeliveryMethod
-  paymentMethod     PaymentMethod    @default(cod)
+  paymentMethod     PaymentMethod   @default(cod)
   preferredSchedule DateTime?
   scheduleReminderSentAt DateTime?
   status            OrderStatus     @default(inquiry)
