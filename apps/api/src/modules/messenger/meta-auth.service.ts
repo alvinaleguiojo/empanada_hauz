@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../database/prisma.service";
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 interface MetaTokenDebug { data?: { type?: string; profile_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number; scopes?: string[] } }
 interface MetaPageAccount { id: string; name?: string; access_token?: string }
@@ -56,17 +56,50 @@ export class MetaAuthService {
     if (!response.ok) throw new BadRequestException(`Meta OAuth code exchange failed: ${response.status} ${body}`);
     return JSON.parse(body) as { access_token: string };
   }
+
+  // OAuth state is signed with the Meta app secret instead of relying on one shared
+  // database row. This is important when Cloudflare can route the OAuth start and
+  // callback to different local instances/processes. The Meta authorization code is
+  // still one-time, while the state is short-lived (10 minutes).
+  private createOAuthState() {
+    if (!this.appSecret()) throw new Error("META_APP_SECRET is not configured");
+    const issuedAt = Math.floor(Date.now() / 1000).toString();
+    const nonce = randomBytes(32).toString("hex");
+    const payload = `${issuedAt}.${nonce}`;
+    const signature = createHmac("sha256", this.appSecret()).update(payload).digest("hex");
+    return `${Buffer.from(payload).toString("base64url")}.${signature}`;
+  }
+
+  private verifyOAuthState(state: string) {
+    if (!this.appSecret() || !state) return false;
+    const [encodedPayload, signature] = state.split(".");
+    if (!encodedPayload || !signature || !/^[a-f0-9]{64}$/i.test(signature)) return false;
+    let payload: string;
+    try { payload = Buffer.from(encodedPayload, "base64url").toString("utf8"); } catch { return false; }
+    const [issuedAt, nonce] = payload.split(".");
+    if (!/^\d+$/.test(issuedAt) || !/^[a-f0-9]{64}$/i.test(nonce)) return false;
+    const age = Math.floor(Date.now() / 1000) - Number(issuedAt);
+    if (age < 0 || age > 10 * 60) return false;
+    const expected = createHmac("sha256", this.appSecret()).update(payload).digest("hex");
+    const expectedBuffer = Buffer.from(expected, "hex");
+    const receivedBuffer = Buffer.from(signature, "hex");
+    return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);
+  }
+
   async beginOAuth() {
     if (!this.appId()) throw new Error("META_APP_ID is not configured");
-    const state = randomBytes(32).toString("hex"); const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const state = this.createOAuthState();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    // Keep the legacy DB fields for observability/backward compatibility, but do not
+    // use this single-row value to validate the callback.
     await this.prisma.metaConnection.upsert({ where: { id: "meta" }, create: { id: "meta", oauthState: state, oauthStateExpiresAt: expiresAt }, update: { oauthState: state, oauthStateExpiresAt: expiresAt } });
     const url = new URL(`https://www.facebook.com/${this.graphVersion()}/dialog/oauth`);
     url.searchParams.set("client_id", this.appId()); url.searchParams.set("redirect_uri", this.redirectUri()); url.searchParams.set("state", state); url.searchParams.set("response_type", "code"); url.searchParams.set("scope", "pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata");
     return url.toString();
   }
+
   async handleOAuthCallback(code: string, state: string) {
-    const connection = await this.prisma.metaConnection.findUnique({ where: { id: "meta" } });
-    if (!connection?.oauthState || connection.oauthState !== state || !connection.oauthStateExpiresAt || connection.oauthStateExpiresAt < new Date()) throw new UnauthorizedException("Invalid or expired Meta OAuth state");
+    if (!code || !this.verifyOAuthState(state)) throw new UnauthorizedException("Invalid or expired Meta OAuth state");
     const userToken = await this.exchangeCode(code);
     const accounts = await this.graphGet<{ data?: MetaPageAccount[] }>("/me/accounts?fields=id,name,access_token", userToken.access_token);
     const page = (accounts.data ?? []).find((item) => item.id === this.pageId());
@@ -76,7 +109,7 @@ export class MetaAuthService {
     if (!data?.is_valid || data.type !== "PAGE" || data.profile_id !== this.pageId()) throw new BadRequestException("Meta returned an invalid Page Access Token for the configured Page");
     await this.prisma.metaConnection.upsert({
       where: { id: "meta" },
-      create: { id: "meta", pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : undefined, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : undefined, connectedAt: new Date() },
+      create: { id: "meta", pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : undefined, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : undefined, connectedAt: new Date(), oauthState: null, oauthStateExpiresAt: null },
       update: { pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : null, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : null, connectedAt: new Date(), oauthState: null, oauthStateExpiresAt: null }
     });
     await this.subscribePageToMessenger(page.id, page.access_token);
