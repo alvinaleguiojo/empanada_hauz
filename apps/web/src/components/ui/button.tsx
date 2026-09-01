@@ -4,13 +4,18 @@ import { cn } from "@/lib/utils";
 export function Button({
   className,
   variant = "default",
+  size = "default",
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "secondary" | "outline" | "ghost" | "danger" }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "default" | "secondary" | "outline" | "ghost" | "danger";
+  size?: "default" | "sm";
+}) {
   return (
     <button
       suppressHydrationWarning
       className={cn(
         "inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55",
+        size === "sm" && "h-8 px-3 text-xs",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent/75",
         variant === "default" &&
           "bg-[linear-gradient(135deg,rgb(var(--accent)),#ff8a4d)] text-white shadow-[0_14px_34px_rgb(var(--accent)/0.24)] hover:brightness-110",
