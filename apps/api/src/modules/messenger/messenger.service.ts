@@ -6,6 +6,33 @@ import { AiService } from "../ai/ai.service";
 import { OrdersService } from "../orders/orders.service";
 import { NotificationsService } from "../notifications/notifications.service";
 
+interface MetaParticipant {
+  id?: string;
+  name?: string;
+}
+
+interface MetaMessage {
+  id?: string;
+  message?: string;
+  created_time?: string;
+  from?: MetaParticipant;
+  to?: { data?: MetaParticipant[] };
+  attachments?: unknown;
+  tags?: unknown;
+}
+
+interface MetaConversation {
+  id: string;
+  updated_time?: string;
+  participants?: { data?: MetaParticipant[] };
+  messages?: { data?: MetaMessage[]; paging?: { next?: string } };
+}
+
+interface MetaPage<T> {
+  data?: T[];
+  paging?: { next?: string };
+}
+
 @Injectable()
 export class MessengerService {
   private readonly logger = new Logger(MessengerService.name);
@@ -19,11 +46,6 @@ export class MessengerService {
     private readonly notificationsService: NotificationsService
   ) {}
 
-  // Runs synchronously inside the webhook request instead of going through a
-  // Redis-backed queue. No Redis is provisioned for this project, so
-  // BullMQ's queue.add() would hang indefinitely trying to connect,
-  // producing a Cloudflare 524 on every real webhook POST. This does the
-  // same work the old MessengerProcessor did, just inline.
   async processIncoming(event: { senderId: string; messageId?: string; text: string; rawPayload: unknown }) {
     const stored = await this.persistInbound(event);
 
@@ -71,9 +93,180 @@ export class MessengerService {
     return null;
   }
 
-  // Conversation.id is a Mongo ObjectId, so it can never be set to a
-  // hand-rolled string like `psid_<senderId>`. Instead we look conversations
-  // up by their owning customer's messengerPsid and let Mongo generate the id.
+  private graphVersion() {
+    return this.config.get<string>("META_GRAPH_API_VERSION") ?? "v26.0";
+  }
+
+  private pageId() {
+    return this.config.get<string>("META_PAGE_ID") ?? "";
+  }
+
+  private pageToken() {
+    return this.config.get<string>("META_PAGE_ACCESS_TOKEN") ?? "";
+  }
+
+  private async metaGet<T>(url: string): Promise<T> {
+    const token = this.pageToken();
+    if (!token) {
+      throw new Error("META_PAGE_ACCESS_TOKEN is not configured");
+    }
+
+    const requestUrl = new URL(url);
+    requestUrl.searchParams.set("access_token", token);
+
+    const response = await fetch(requestUrl, { headers: { accept: "application/json" } });
+    const body = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
+    }
+
+    return JSON.parse(body) as T;
+  }
+
+  /**
+   * Imports existing Messenger conversations and their historical messages.
+   * This is intentionally separate from the webhook path so importing history
+   * never triggers AI classification or creates orders from old messages.
+   */
+  async syncFromMeta(options: { maxConversations?: number; maxMessagesPerConversation?: number } = {}) {
+    const maxConversations = Math.max(1, options.maxConversations ?? 100);
+    const maxMessagesPerConversation = Math.max(1, options.maxMessagesPerConversation ?? 1000);
+
+    const pageId = this.pageId();
+    if (!pageId) {
+      throw new Error("META_PAGE_ID is not configured");
+    }
+
+    let nextUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(pageId)}/conversations?fields=id,participants,updated_time&limit=100`;
+    let conversationsSeen = 0;
+    let messagesImported = 0;
+    let conversationsImported = 0;
+
+    while (nextUrl && conversationsSeen < maxConversations) {
+      const page = await this.metaGet<MetaPage<MetaConversation>>(nextUrl);
+      for (const metaConversation of page.data ?? []) {
+        if (conversationsSeen >= maxConversations) break;
+        conversationsSeen += 1;
+
+        const participant = this.findCustomerParticipant(metaConversation.participants?.data ?? [], pageId);
+        if (!participant?.id) {
+          this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`);
+          continue;
+        }
+
+        const customer = await this.customersService.findOrCreateByMessenger(
+          participant.id,
+          participant.name || "Messenger Customer"
+        );
+
+        const conversation = await this.prisma.conversation.upsert({
+          where: { metaConversationId: metaConversation.id },
+          create: {
+            customerId: customer.id,
+            channel: "messenger",
+            metaConversationId: metaConversation.id,
+            lastMessage: undefined,
+            ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {})
+          },
+          update: {
+            customerId: customer.id,
+            channel: "messenger",
+            ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {})
+          }
+        });
+
+        conversationsImported += 1;
+
+        let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
+        let conversationMessageCount = 0;
+        let newestMessage: MetaMessage | undefined;
+
+        while (messageUrl && conversationMessageCount < maxMessagesPerConversation) {
+          const messagesPage = await this.metaGet<MetaPage<MetaMessage>>(messageUrl);
+          for (const metaMessage of messagesPage.data ?? []) {
+            if (conversationMessageCount >= maxMessagesPerConversation) break;
+            if (!metaMessage.id) continue;
+
+            conversationMessageCount += 1;
+            messagesImported += 1;
+            if (!newestMessage || this.messageTime(metaMessage) > this.messageTime(newestMessage)) {
+              newestMessage = metaMessage;
+            }
+
+            const content = this.messageContent(metaMessage);
+            const direction = metaMessage.from?.id === pageId ? "outbound" : "inbound";
+
+            await this.prisma.message.upsert({
+              where: { id: await this.existingMessageId(metaMessage.id) ?? "000000000000000000000000" },
+              create: {
+                conversationId: conversation.id,
+                metaMessageId: metaMessage.id,
+                direction,
+                type: metaMessage.attachments ? "attachment" : "text",
+                content,
+                rawPayload: metaMessage as never,
+                ...(metaMessage.created_time ? { createdAt: new Date(metaMessage.created_time) } : {})
+              },
+              update: {
+                conversationId: conversation.id,
+                direction,
+                type: metaMessage.attachments ? "attachment" : "text",
+                content,
+                rawPayload: metaMessage as never
+              }
+            });
+          }
+
+          if (conversationMessageCount >= maxMessagesPerConversation) break;
+          messageUrl = messagesPage.paging?.next;
+        }
+
+        if (newestMessage) {
+          await this.prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              lastMessage: this.messageContent(newestMessage),
+              ...(newestMessage.created_time ? { updatedAt: new Date(newestMessage.created_time) } : {})
+            }
+          });
+        }
+      }
+
+      nextUrl = page.paging?.next;
+    }
+
+    return {
+      conversationsSeen,
+      conversationsImported,
+      messagesImported,
+      maxConversations,
+      maxMessagesPerConversation
+    };
+  }
+
+  private async existingMessageId(metaMessageId: string) {
+    const existing = await this.prisma.message.findFirst({
+      where: { metaMessageId },
+      select: { id: true }
+    });
+    return existing?.id;
+  }
+
+  private findCustomerParticipant(participants: MetaParticipant[], pageId: string) {
+    return participants.find((participant) => participant.id && participant.id !== pageId);
+  }
+
+  private messageTime(message: MetaMessage) {
+    return message.created_time ? Date.parse(message.created_time) : 0;
+  }
+
+  private messageContent(message: MetaMessage) {
+    if (message.message) return message.message;
+    if (message.attachments) return "[Attachment]";
+    return "[Messenger message]";
+  }
+
   private async getOrCreateConversationByPsid(psid: string, lastMessage?: string) {
     const customer = await this.customersService.findOrCreateByMessenger(psid);
 
@@ -108,6 +301,11 @@ export class MessengerService {
   }) {
     const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text);
 
+    if (payload.messageId) {
+      const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } });
+      if (existing) return existing;
+    }
+
     return this.prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -120,8 +318,8 @@ export class MessengerService {
   }
 
   async sendText(recipientPsid: string, text: string) {
-    const pageToken = this.config.get<string>("META_PAGE_ACCESS_TOKEN");
-    const endpoint = "https://graph.facebook.com/v19.0/me/messages";
+    const pageToken = this.pageToken();
+    const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`;
     const payload = {
       recipient: { id: recipientPsid },
       messaging_type: "RESPONSE",
@@ -133,7 +331,7 @@ export class MessengerService {
       return { skipped: true, payload };
     }
 
-    const response = await fetch(`${endpoint}?access_token=${pageToken}`, {
+    const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
