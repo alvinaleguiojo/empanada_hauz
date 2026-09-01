@@ -1,6 +1,5 @@
-import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
-import { ConfigModule, ConfigService } from "@nestjs/config";
+import { ConfigModule } from "@nestjs/config";
 import { AuthModule } from "./modules/auth/auth.module";
 import { MessengerModule } from "./modules/messenger/messenger.module";
 import { AiModule } from "./modules/ai/ai.module";
@@ -27,12 +26,6 @@ import { GoogleMapsModule } from "./modules/google-maps/google-maps.module";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    BullModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: { url: config.getOrThrow<string>("REDIS_URL") }
-      })
-    }),
     DatabaseModule,
     RealtimeModule,
     HealthModule,
