@@ -1,13 +1,14 @@
-import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, OnModuleInit, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../database/prisma.service";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 interface MetaTokenDebug { data?: { type?: string; profile_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number; scopes?: string[] } }
 interface MetaPageAccount { id: string; name?: string; access_token?: string }
+interface MetaSubscribedApp { id?: string; name?: string; subscribed_fields?: string[] }
 
 @Injectable()
-export class MetaAuthService {
+export class MetaAuthService implements OnModuleInit {
   constructor(private readonly config: ConfigService, private readonly prisma: PrismaService) {}
   private graphVersion() { return this.config.get<string>("META_GRAPH_API_VERSION") ?? "v26.0"; }
   private pageId() { return this.config.get<string>("META_PAGE_ID") ?? ""; }
@@ -57,10 +58,29 @@ export class MetaAuthService {
     return JSON.parse(body) as { access_token: string };
   }
 
-  // OAuth state is signed with the Meta app secret instead of relying on one shared
-  // database row. This is important when Cloudflare can route the OAuth start and
-  // callback to different local instances/processes. The Meta authorization code is
-  // still one-time, while the state is short-lived (10 minutes).
+  async onModuleInit() {
+    setTimeout(() => { void this.reconcilePageSubscription("startup"); }, 2000);
+  }
+
+  private async reconcilePageSubscription(source: string) {
+    const pageId = this.pageId();
+    if (!pageId || !this.appId()) return;
+    try {
+      const token = await this.getPageToken();
+      if (!token) return;
+      const debug = await this.graphGet<MetaTokenDebug>(`/debug_token?input_token=${encodeURIComponent(token)}`, token);
+      const data = debug.data;
+      if (!data?.is_valid || data.type !== "PAGE" || data.profile_id !== pageId) return;
+      const result = await this.graphGet<{ data?: MetaSubscribedApp[] }>(`/${encodeURIComponent(pageId)}/subscribed_apps?fields=id,name,subscribed_fields`, token);
+      const current = (result.data ?? []).find((item) => item.id === this.appId());
+      const hasMessages = current?.subscribed_fields?.includes("messages") ?? false;
+      if (!current || !hasMessages) await this.subscribePageToMessenger(pageId, token);
+      console.log(`[Messenger] Page webhook subscription reconciled (${source}): page=${pageId} app=${this.appId()} subscribed=${Boolean(current)} messages=${hasMessages}`);
+    } catch (err) {
+      console.warn(`[Messenger] Page webhook subscription reconciliation failed (${source}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private createOAuthState() {
     if (!this.appSecret()) throw new Error("META_APP_SECRET is not configured");
     const issuedAt = Math.floor(Date.now() / 1000).toString();
@@ -90,8 +110,6 @@ export class MetaAuthService {
     if (!this.appId()) throw new Error("META_APP_ID is not configured");
     const state = this.createOAuthState();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    // Keep the legacy DB fields for observability/backward compatibility, but do not
-    // use this single-row value to validate the callback.
     await this.prisma.metaConnection.upsert({ where: { id: "meta" }, create: { id: "meta", oauthState: state, oauthStateExpiresAt: expiresAt }, update: { oauthState: state, oauthStateExpiresAt: expiresAt } });
     const url = new URL(`https://www.facebook.com/${this.graphVersion()}/dialog/oauth`);
     url.searchParams.set("client_id", this.appId()); url.searchParams.set("redirect_uri", this.redirectUri()); url.searchParams.set("state", state); url.searchParams.set("response_type", "code"); url.searchParams.set("scope", "pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata");
@@ -116,9 +134,7 @@ export class MetaAuthService {
     return { pageId: page.id, pageName: page.name, expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : null };
   }
   private async subscribePageToMessenger(pageId: string, pageAccessToken: string) {
-    await this.graphPost<{ success?: boolean }>(`/${encodeURIComponent(pageId)}/subscribed_apps`, pageAccessToken, {
-      subscribed_fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers"
-    });
+    await this.graphPost<{ success?: boolean }>(`/${encodeURIComponent(pageId)}/subscribed_apps`, pageAccessToken, { subscribed_fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers" });
   }
   async getPageToken() {
     const connection = await this.prisma.metaConnection.findUnique({ where: { id: "meta" } });
@@ -129,6 +145,7 @@ export class MetaAuthService {
     try {
       const debug = await this.graphGet<MetaTokenDebug>(`/debug_token?input_token=${encodeURIComponent(token)}`, token); const data = debug.data;
       const authenticated = Boolean(data?.is_valid && data.type === "PAGE" && data.profile_id === this.pageId());
+      if (authenticated) await this.reconcilePageSubscription("status");
       return { authenticated, status: authenticated ? "authenticated" : "invalid", pageId: this.pageId(), tokenType: data?.type ?? null, expiresAt: data?.expires_at ? new Date(data.expires_at * 1000) : null, dataAccessExpiresAt: data?.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : null, scopes: data?.scopes ?? [] };
     } catch { return { authenticated: false, status: "invalid" }; }
   }
