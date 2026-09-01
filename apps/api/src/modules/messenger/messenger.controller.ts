@@ -26,28 +26,54 @@ export class MessengerController {
     @Headers("x-hub-signature-256") signature: string | undefined,
     @Req() request: RawBodyRequest
   ) {
-    if (!this.verifySignature(request.rawBody, signature)) {
-      this.logger.warn("Rejected Messenger webhook request with invalid x-hub-signature-256");
+    const rawBody = request.rawBody;
+    this.logger.log(
+      `Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0}`
+    );
+
+    if (!this.verifySignature(rawBody, signature)) {
+      this.logger.warn(
+        `Rejected Messenger webhook: invalid signature (signature=${Boolean(signature)}, rawBody=${Boolean(rawBody)}, rawBodyLength=${rawBody?.length ?? 0}, appSecret=${Boolean(process.env.META_APP_SECRET)})`
+      );
       return { received: false };
     }
 
-    for (const entry of payload.entry ?? []) {
+    const entries = payload.entry ?? [];
+    this.logger.log(`Meta webhook signature verified: entries=${entries.length}`);
+
+    // Acknowledge Meta immediately after authentication. Do not make Meta wait
+    // for database, AI, notifications, or outbound Messenger API calls.
+    setImmediate(() => {
+      void this.processWebhookEntries(entries);
+    });
+
+    return { received: true };
+  }
+
+  private async processWebhookEntries(entries: any[]) {
+    for (const entry of entries) {
       for (const event of entry.messaging ?? []) {
         const text = event.message?.text;
-        if (!text || !event.sender?.id) continue;
+        if (!text || !event.sender?.id) {
+          this.logger.debug(
+            `Ignoring Messenger event without text/sender: sender=${Boolean(event.sender?.id)} text=${Boolean(text)}`
+          );
+          continue;
+        }
         try {
+          this.logger.log(`Processing Messenger message: sender=${event.sender.id} messageId=${event.message?.mid ?? "unknown"}`);
           await this.messengerService.processIncoming({
             senderId: event.sender.id,
             messageId: event.message.mid,
             text,
             rawPayload: event
           });
+          this.logger.log(`Processed Messenger message: sender=${event.sender.id} messageId=${event.message?.mid ?? "unknown"}`);
         } catch (err) {
-          this.logger.error(`Failed to process message from ${event.sender.id}`, err);
+          this.logger.error(`Failed to process message from ${event.sender.id}`, err instanceof Error ? err.stack : String(err));
         }
       }
     }
-    return { received: true };
   }
 
   private verifySignature(rawBody?: Buffer, signature?: string) {
