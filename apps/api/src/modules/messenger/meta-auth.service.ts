@@ -12,6 +12,7 @@ export class MetaAuthService implements OnModuleInit {
   constructor(private readonly config: ConfigService, private readonly prisma: PrismaService) {}
   private graphVersion() { return this.config.get<string>("META_GRAPH_API_VERSION") ?? "v26.0"; }
   private pageId() { return this.config.get<string>("META_PAGE_ID") ?? ""; }
+  getConfiguredPageId() { return this.pageId(); }
   private appId() { return this.config.get<string>("META_APP_ID") ?? ""; }
   private appSecret() { return this.config.get<string>("META_APP_SECRET") ?? ""; }
   private redirectUri() { return this.config.get<string>("META_OAUTH_REDIRECT_URI") ?? "http://localhost:3000/messenger/auth/callback"; }
@@ -127,7 +128,7 @@ export class MetaAuthService implements OnModuleInit {
     if (!data?.is_valid || data.type !== "PAGE" || data.profile_id !== this.pageId()) throw new BadRequestException("Meta returned an invalid Page Access Token for the configured Page");
     await this.prisma.metaConnection.upsert({
       where: { id: "meta" },
-      create: { id: "meta", pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : undefined, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : undefined, connectedAt: new Date(), oauthState: null, oauthStateExpiresAt: null },
+      create: { id: page.id, pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : undefined, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : undefined, connectedAt: new Date(), oauthState: null, oauthStateExpiresAt: null },
       update: { pageId: page.id, pageName: page.name, encryptedAccessToken: this.encrypt(page.access_token), expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : null, dataAccessExpiresAt: data.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : null, connectedAt: new Date(), oauthState: null, oauthStateExpiresAt: null }
     });
     await this.subscribePageToMessenger(page.id, page.access_token);
