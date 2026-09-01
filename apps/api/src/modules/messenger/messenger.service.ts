@@ -37,6 +37,21 @@ export class MessengerService {
     await this.sendText(event.senderId, ai.suggestedReply);
   }
 
+  async handleStandbyEvent(event: { senderId: string; messageId?: string; text?: string; rawPayload: unknown }) {
+    const text = event.text;
+    if (text) {
+      await this.persistInbound({ senderId: event.senderId, messageId: event.messageId, text, rawPayload: event.rawPayload });
+    }
+
+    const autoRequest = this.config.get<string>("META_AUTO_REQUEST_THREAD_CONTROL")?.toLowerCase() === "true";
+    if (!autoRequest) {
+      return { action: "observed" as const };
+    }
+
+    const result = await this.requestThreadControl(event.senderId, "Empanada Hauz backend requests control after receiving a standby message");
+    return { action: result ? "thread_control_requested" as const : "thread_control_request_failed" as const };
+  }
+
   verify(mode?: string, token?: string, challenge?: string) {
     if (mode === "subscribe" && token === this.config.get<string>("META_VERIFY_TOKEN")) return challenge ?? "";
     return null;
@@ -51,6 +66,35 @@ export class MessengerService {
     const response = await fetch(requestUrl, { headers: { accept: "application/json" } }); const body = await response.text();
     if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
     return JSON.parse(body) as T;
+  }
+
+  private async metaPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    const token = await this.metaAuthService.getPageToken();
+    if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
+    const endpoint = `https://graph.facebook.com/${this.graphVersion()}${path}`;
+    const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body)
+    });
+    const responseBody = await response.text();
+    if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
+    return JSON.parse(responseBody) as T;
+  }
+
+  async requestThreadControl(psid: string, metadata?: string) {
+    this.logger.warn(`Requesting Messenger thread control: psid=${psid}`);
+    try {
+      const result = await this.metaPost<{ success?: boolean }>("/me/request_thread_control", {
+        recipient: { id: psid },
+        ...(metadata ? { metadata } : {})
+      });
+      this.logger.log(`Messenger thread control request result: psid=${psid} success=${Boolean(result.success)}`);
+      return Boolean(result.success);
+    } catch (err) {
+      this.logger.error(`Messenger thread control request failed: psid=${psid}`, err instanceof Error ? err.message : String(err));
+      return false;
+    }
   }
 
   async syncFromMeta(options: { maxConversations?: number; maxMessagesPerConversation?: number } = {}) {
