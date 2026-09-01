@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, MessageCircle, Send, UserRound } from "lucide-react";
+import { Loader2, MessageCircle, RefreshCw, Send, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,7 +38,9 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   const [draft, setDraft] = useState("");
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
   const messagesRequestId = useRef(0);
 
   const selected = useMemo(
@@ -68,6 +70,30 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
       });
     } catch (err) {
       if (!silent) setError(err instanceof Error ? err.message : "Unable to load conversations.");
+    }
+  }
+
+  async function syncMetaHistory() {
+    if (syncing) return;
+    setSyncing(true);
+    setError("");
+    setSyncMessage("");
+    try {
+      const result = await apiFetch<{
+        conversationsSeen: number;
+        conversationsImported: number;
+        messagesImported: number;
+      }>("/messenger/sync?maxConversations=100&maxMessagesPerConversation=1000", {
+        method: "POST"
+      });
+      await loadConversations();
+      setSyncMessage(
+        `Synced ${result.conversationsImported} conversations and ${result.messagesImported} messages from Meta.`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sync Messenger history.");
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -112,9 +138,22 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
       <div className="grid min-h-[620px] md:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="border-b border-line bg-black/10 md:border-b-0 md:border-r">
           <div className="border-b border-line px-4 py-4">
-            <div className="flex items-center gap-2">
-              <MessageCircle size={18} className="text-accent" />
-              <h2 className="font-semibold">Conversations</h2>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <MessageCircle size={18} className="text-accent" />
+                <h2 className="font-semibold">Conversations</h2>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void syncMetaHistory()}
+                disabled={syncing}
+                title="Sync historical Messenger conversations and messages from Meta"
+              >
+                {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {syncing ? "Syncing..." : "Sync Meta"}
+              </Button>
             </div>
             <p className="mt-1 text-xs text-foreground/45">Messenger customers, most recent first</p>
           </div>
@@ -189,6 +228,7 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
             })}
           </div>
           <div className="border-t border-line p-4">
+            {syncMessage ? <p className="mb-2 text-xs text-accent">{syncMessage}</p> : null}
             {error ? <p className="mb-2 text-xs text-danger">{error}</p> : null}
             <div className="flex gap-2">
               <Input
