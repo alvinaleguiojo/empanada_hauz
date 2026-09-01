@@ -1,17 +1,13 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
-import { InjectQueue } from "@nestjs/bullmq";
-import { Queue } from "bullmq";
-import { MESSENGER_QUEUE } from "../../common/enums";
+import { Body, Controller, Get, Headers, HttpCode, Logger, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MessengerService } from "./messenger.service";
 import { SendMessageDto } from "./dto";
 
 @Controller("messenger")
 export class MessengerController {
-  constructor(
-    private readonly messengerService: MessengerService,
-    @InjectQueue(MESSENGER_QUEUE) private readonly messengerQueue: Queue
-  ) {}
+  private readonly logger = new Logger(MessengerController.name);
+
+  constructor(private readonly messengerService: MessengerService) {}
 
   @Get("webhook")
   verify(
@@ -23,6 +19,11 @@ export class MessengerController {
     return verified ?? "Verification failed";
   }
 
+  // No queue here on purpose: this project doesn't run Redis, and
+  // queue.add() would otherwise hang indefinitely trying to connect,
+  // producing a Cloudflare 524 on every real webhook call. Meta only waits
+  // ~20s for a 200 response, and inline AI classification + a DB write
+  // comfortably fits inside that.
   @Post("webhook")
   @HttpCode(200)
   async handleWebhook(@Body() payload: any, @Headers("x-hub-signature-256") _signature?: string) {
@@ -34,20 +35,16 @@ export class MessengerController {
           continue;
         }
 
-        await this.messengerQueue.add(
-          "incoming-message",
-          {
+        try {
+          await this.messengerService.processIncoming({
             senderId: event.sender.id,
             messageId: event.message.mid,
             text,
             rawPayload: event
-          },
-          {
-            attempts: 5,
-            removeOnComplete: 1000,
-            backoff: { type: "exponential", delay: 2000 }
-          }
-        );
+          });
+        } catch (err) {
+          this.logger.error(`Failed to process message from ${event.sender.id}`, err);
+        }
       }
     }
 
