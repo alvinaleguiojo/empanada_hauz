@@ -134,7 +134,7 @@ model ReferralPartner {
   id             String    @id @default(auto()) @map("_id") @db.ObjectId
   email          String    @unique
   passwordHash   String
-  name           String
+  name            String
   phoneNumber    String?
   referralCode   String    @unique
   approvalStatus String    @default("pending")
@@ -161,14 +161,14 @@ model ReferralChatConversation {
 }
 
 model ReferralChatMessage {
-  id             String    @id @default(auto()) @map("_id") @db.ObjectId
-  conversationId String    @db.ObjectId
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String   @db.ObjectId
   senderType     String
-  senderId       String    @db.ObjectId
+  senderId       String   @db.ObjectId
   senderName     String
   content        String
   readAt         DateTime?
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])
   @@index([conversationId, readAt])
@@ -240,7 +240,7 @@ model MetaConnection {
   expiresAt            DateTime?
   dataAccessExpiresAt  DateTime?
   connectedAt          DateTime?
-  oauthState           String?
+  oauthState            String?
   oauthStateExpiresAt  DateTime?
   updatedAt            DateTime  @updatedAt
 }
@@ -285,6 +285,7 @@ model Order {
   status                 OrderStatus    @default(inquiry)
   items                  Json?
   notes                  String?
+  adLabel                String?
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
   customer               Customer       @relation(fields: [customerId], references: [id])
@@ -399,7 +400,7 @@ model DeliveryJob {
   createdAt                DateTime          @default(now())
   updatedAt                DateTime          @updatedAt
   order                    Order?            @relation(fields: [orderId], references: [id])
-  rider                    Rider?            @relation(fields: [riderId], references: [id])
+  rider                    Rider?             @relation(fields: [riderId], references: [id])
   offers                   DeliveryOffer[]
 
   @@index([status, requestedAt])
