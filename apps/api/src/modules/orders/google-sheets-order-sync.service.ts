@@ -16,6 +16,7 @@ type OrderForSheet = {
   preferredSchedule?: Date | string | null;
   status: string;
   notes?: string | null;
+  adLabel?: string | null;
   createdAt: Date | string;
   customer?: {
     name?: string | null;
@@ -39,7 +40,7 @@ export class GoogleSheetsOrderSyncService {
       const spreadsheetId = this.config.getOrThrow<string>("GOOGLE_SHEETS_SPREADSHEET_ID");
       const sheetName = this.config.get<string>("GOOGLE_SHEETS_ORDERS_SHEET_NAME") ?? "Orders";
       const token = await this.getAccessToken();
-      const range = encodeURIComponent(`${sheetName}!A:P`);
+      const range = encodeURIComponent(`${sheetName}!A:Q`);
       const url = new URL(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append`);
       url.searchParams.set("valueInputOption", "USER_ENTERED");
       url.searchParams.set("insertDataOption", "INSERT_ROWS");
@@ -134,7 +135,8 @@ export class GoogleSheetsOrderSyncService {
       this.formatDate(order.preferredSchedule),
       order.status,
       order.notes ?? "",
-      order.id
+      order.id,
+      order.adLabel ?? ""
     ];
   }
 
