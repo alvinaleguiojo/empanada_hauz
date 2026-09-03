@@ -85,6 +85,10 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  adLabel?: string;
 }
 
 export class UpdateOrderStatusDto {
@@ -147,6 +151,10 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  adLabel?: string;
 }
 
 export class ManualOrderEntryDto {
@@ -204,6 +212,10 @@ export class ManualOrderEntryDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  adLabel?: string;
 }
 
 export class PublicOrderEntryDto {
@@ -259,6 +271,10 @@ export class PublicOrderEntryDto {
   @IsOptional()
   @IsString()
   referralCode?: string;
+
+  @IsOptional()
+  @IsString()
+  adLabel?: string;
 }
 
 export class AddOrderNoteDto {

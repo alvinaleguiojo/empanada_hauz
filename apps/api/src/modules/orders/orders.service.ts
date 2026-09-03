@@ -98,7 +98,7 @@ export class OrdersService {
       unitPrice: order.unitPrice, totalAmount: order.totalAmount, deliveryFee: order.deliveryFee,
       discountAmount: order.discountAmount, deliveryMethod: order.deliveryMethod, paymentMethod: order.paymentMethod,
       location: order.location, address: order.address, preferredSchedule: order.preferredSchedule, items: order.items,
-      notes: order.notes, createdAt: order.createdAt, updatedAt: order.updatedAt,
+      notes: order.notes, adLabel: order.adLabel, createdAt: order.createdAt, updatedAt: order.updatedAt,
       customer: { name: order.customer.name, phoneNumber: order.customer.phoneNumber },
       delivery: order.delivery ? {
         status: order.delivery.status, areaGroup: order.delivery.areaGroup, scheduledAt: order.delivery.scheduledAt,
@@ -120,7 +120,7 @@ export class OrdersService {
         orderNumber: `EMP-${Date.now()}`, customerId: dto.customerId, quantity: dto.quantity, unitPrice: dto.unitPrice,
         totalAmount, deliveryFee, discountAmount, deliveryMethod: dto.deliveryMethod, paymentMethod: dto.paymentMethod ?? "cod",
         location: dto.location, address: dto.address, preferredSchedule: dto.preferredSchedule ? new Date(dto.preferredSchedule) : undefined,
-        scheduleReminderSentAt: null, items: dto.items, notes: dto.notes,
+        scheduleReminderSentAt: null, items: dto.items, notes: dto.notes, adLabel: dto.adLabel,
         ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}),
         batchId: batch?.id, status: batch ? "queued" : "awaiting_confirmation"
       }, include: { customer: true, batch: true, orderNotes: { orderBy: { createdAt: "desc" } } }
@@ -166,7 +166,8 @@ export class OrdersService {
       location: dto.landmark,
       preferredSchedule: dto.preferredSchedule,
       items: trustedItems,
-      notes: dto.notes
+      notes: dto.notes,
+      adLabel: dto.adLabel
     });
 
     await this.referralsService.recordOrderReferral({
@@ -227,7 +228,7 @@ export class OrdersService {
         orderNumber: `EMP-${Date.now()}`, customerId: customer.id, quantity: orderQuantity, unitPrice, totalAmount, deliveryFee,
         discountAmount, deliveryMethod: dto.deliveryMethod, paymentMethod: dto.paymentMethod ?? "cod", location: dto.location,
         address: dto.address, preferredSchedule: dto.preferredSchedule ? new Date(dto.preferredSchedule) : undefined,
-        scheduleReminderSentAt: null, items: dto.items, notes: dto.notes,
+        scheduleReminderSentAt: null, items: dto.items, notes: dto.notes, adLabel: dto.adLabel,
         ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}),
         batchId: batch?.id, status: dto.status ?? (batch ? "queued" : "awaiting_confirmation")
       }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } }
@@ -298,6 +299,7 @@ export class OrdersService {
         ...(dto.preferredSchedule !== undefined ? { preferredSchedule: new Date(dto.preferredSchedule) } : {}),
         ...(dto.items !== undefined ? { items: dto.items } : {}),
         ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        ...(dto.adLabel !== undefined ? { adLabel: dto.adLabel || null } : {}),
         ...(dto.customerName !== undefined || dto.phoneNumber !== undefined
           ? {
               customer: {
