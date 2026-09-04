@@ -2,75 +2,50 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View, Pressable, Switch }
 import { SafeAreaView } from "react-native-safe-area-context";
 import { RiderSession } from "../hooks/useRiderSession";
 import { colors, radius, shadow, spacing } from "../theme";
-import { JOB_NEXT_STATUS } from "../types";
 
-export function HomeScreen({ session }: { session: RiderSession }) {
-  const { rider, currentJob, busy, refresh, setAvailability, advanceJob } = session;
+type Props = {
+  session: RiderSession;
+  onOpenNavigation: (jobId: string) => void;
+  onOpenDeliveries: () => void;
+  onOpenEarnings: () => void;
+};
+
+export function HomeScreen({ session, onOpenNavigation, onOpenDeliveries, onOpenEarnings }: Props) {
+  const { rider, currentJob, busy, refresh, setAvailability } = session;
   if (!rider) return null;
-
   const isOnline = rider.status === "online" || rider.status === "busy";
   const firstName = rider.user.name?.split(" ")[0] ?? "Rider";
 
-  const onRefresh = async () => { await refresh(); };
-  const toggleAvailability = () => void setAvailability(isOnline ? "offline" : "online");
-  const openNavigation = () => {
-    // Navigation is opened by the app shell through the deliveries/map tab.
-    if (!currentJob) return;
-    const next = JOB_NEXT_STATUS[currentJob.status];
-    if (!next) return;
-    void advanceJob(currentJob, next);
-  };
-
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={busy} onRefresh={() => void onRefresh()} tintColor={colors.orange} />}
-      >
+      <ScrollView contentContainerStyle={styles.scroll} refreshControl={<RefreshControl refreshing={busy} onRefresh={() => void refresh()} tintColor={colors.orange} />}>
         <View style={styles.card}>
           <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.eyebrow}>EMPANADA HAUZ</Text>
-              <Text style={styles.title}>Hi, {firstName}</Text>
-            </View>
+            <View><Text style={styles.eyebrow}>EMPANADA HAUZ</Text><Text style={styles.title}>Hi, {firstName}</Text></View>
             <View style={styles.statusPill}><Text style={styles.statusPillText}>{rider.status}</Text></View>
           </View>
-
           <View style={styles.toggleRow}>
             <View style={[styles.dot, { backgroundColor: isOnline ? colors.green : colors.gray }]} />
             <View style={styles.toggleCopy}>
               <Text style={styles.toggleTitle}>{rider.status === "busy" ? "Online · Busy" : isOnline ? "Online" : "Offline"}</Text>
               <Text style={styles.toggleSubtitle}>{rider.status === "busy" ? "Currently handling a delivery" : isOnline ? "Ready to receive orders" : "Go online to start receiving orders"}</Text>
             </View>
-            <Switch value={isOnline} onValueChange={toggleAvailability} disabled={busy || rider.status === "suspended"} trackColor={{ false: colors.line, true: colors.orangeSoft }} thumbColor={isOnline ? colors.orange : "#fff"} />
+            <Switch value={isOnline} onValueChange={() => void setAvailability(isOnline ? "offline" : "online")} disabled={busy || rider.status === "suspended"} trackColor={{ false: colors.line, true: colors.orangeSoft }} thumbColor={isOnline ? colors.orange : "#fff"} />
           </View>
-
           {currentJob ? (
             <View style={styles.activeCard}>
               <View style={styles.activeTop}><Text style={styles.activeLabel}>ACTIVE DELIVERY</Text><Text style={styles.jobStatus}>{currentJob.status.replaceAll("_", " ")}</Text></View>
               <Text style={styles.customer}>{currentJob.order?.customer?.name ?? "Customer"}</Text>
-              <View style={styles.addressBlock}>
-                <Text style={styles.addressLabel}>Pickup</Text>
-                <Text style={styles.address}>{currentJob.pickupAddress}</Text>
-                <Text style={[styles.addressLabel, { marginTop: 10 }]}>Drop-off</Text>
-                <Text style={styles.address}>{currentJob.dropoffAddress}</Text>
-              </View>
-              <Pressable style={styles.button} onPress={openNavigation}>
-                <Text style={styles.buttonText}>Open navigation map</Text>
-              </Pressable>
+              <View style={styles.addressBlock}><Text style={styles.addressLabel}>Pickup</Text><Text style={styles.address}>{currentJob.pickupAddress}</Text><Text style={styles.addressLabel}>Drop-off</Text><Text style={styles.address}>{currentJob.dropoffAddress}</Text></View>
+              <Pressable style={styles.button} onPress={() => onOpenNavigation(currentJob.id)}><Text style={styles.buttonText}>Open navigation map</Text></Pressable>
             </View>
           ) : (
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>🧭</Text>
-              <Text style={styles.emptyTitle}>Ready for your next delivery</Text>
-              <Text style={styles.emptyText}>Go online to become available for new delivery assignments.</Text>
-            </View>
+            <View style={styles.empty}><Text style={styles.emptyEmoji}>🧭</Text><Text style={styles.emptyTitle}>Ready for your next delivery</Text><Text style={styles.emptyText}>Go online to become available for new delivery assignments.</Text></View>
           )}
         </View>
-
         <View style={styles.grid}>
-          <Pressable style={styles.tile} onPress={() => {}}><Text style={styles.tileLabel}>DELIVERIES</Text><Text style={styles.tileTitle}>View jobs</Text></Pressable>
-          <Pressable style={styles.tile} onPress={() => {}}><Text style={styles.tileLabel}>EARNINGS</Text><Text style={styles.tileTitle}>View income</Text></Pressable>
+          <Pressable style={styles.tile} onPress={onOpenDeliveries}><Text style={styles.tileLabel}>DELIVERIES</Text><Text style={styles.tileTitle}>View jobs</Text></Pressable>
+          <Pressable style={styles.tile} onPress={onOpenEarnings}><Text style={styles.tileLabel}>EARNINGS</Text><Text style={styles.tileTitle}>View income</Text></Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -94,10 +69,10 @@ const styles = StyleSheet.create({
   activeCard: { marginTop: spacing.lg, backgroundColor: "#F7F2EC", borderRadius: 24, padding: spacing.md },
   activeTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   activeLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 1.4, color: colors.muted },
-  jobStatus: { backgroundColor: colors.surface, borderRadius: colors ? radius.pill : 999, paddingHorizontal: 10, paddingVertical: 6, fontSize: 10, fontWeight: "900", color: colors.ink, textTransform: "capitalize" } as any,
+  jobStatus: { backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6, overflow: "hidden", fontSize: 10, fontWeight: "900", color: colors.ink, textTransform: "capitalize" } as any,
   customer: { marginTop: spacing.sm, fontSize: 18, fontWeight: "900", color: colors.ink },
   addressBlock: { marginTop: spacing.md },
-  addressLabel: { fontSize: 11, fontWeight: "800", color: colors.muted },
+  addressLabel: { fontSize: 11, fontWeight: "800", color: colors.muted, marginTop: 8 },
   address: { marginTop: 2, fontSize: 13, lineHeight: 18, fontWeight: "700", color: colors.ink },
   button: { marginTop: spacing.lg, backgroundColor: "#111827", borderRadius: radius.md, paddingVertical: 14, alignItems: "center" },
   buttonText: { color: "#fff", fontSize: 13, fontWeight: "900" },
