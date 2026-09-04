@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { RiderNavigation } from "@/components/rider/rider-navigation";
+import { RiderMapShell } from "@/components/rider/rider-map-shell";
 import { apiFetch } from "@/lib/api";
 
 type RiderProfile = { user: { role: string } };
@@ -18,7 +18,7 @@ export default async function RiderMapPage() {
     const job = jobs.find((item) => ["delivering", "picked_up", "pickup_started", "accepted", "assigned"].includes(item.status));
     if (!job) redirect("/rider");
 
-    return <RiderNavigation initialJob={job} onBack={() => undefined} />;
+    return <RiderMapShell job={job} />;
   } catch {
     redirect("/rider/login");
   }
