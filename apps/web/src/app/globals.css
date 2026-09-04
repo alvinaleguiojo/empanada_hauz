@@ -100,16 +100,19 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 
-/* Rider live-position marker: use the supplied rider photo without touching the MapLibre basemap style. */
-.maplibregl-marker > div > div[style*="width:46px"] {
-  width: 46px !important;
-  height: 46px !important;
-  background-image: url('/rider%20sideview.jpg') !important;
-  background-position: center !important;
-  background-size: contain !important;
-  background-repeat: no-repeat !important;
+/* Rider live-position marker: replace the generated SVG with the supplied rider photo. */
+.maplibregl-marker > div.flex.h-12.w-12 {
+  background: transparent !important;
 }
 
-.maplibregl-marker > div > div[style*="width:46px"] > svg {
+.maplibregl-marker > div.flex.h-12.w-12 > div {
+  width: 46px !important;
+  height: 46px !important;
+  background: url("/rider sideview.jpg") center / contain no-repeat !important;
+}
+
+.maplibregl-marker > div.flex.h-12.w-12 svg,
+.maplibregl-marker svg {
   display: none !important;
+  visibility: hidden !important;
 }
