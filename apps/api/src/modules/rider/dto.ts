@@ -21,6 +21,11 @@ export class RiderLocationDto {
   @IsOptional()
   @IsNumber()
   speed?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  accuracy?: number;
 }
 
 export class RiderJobStatusDto {
