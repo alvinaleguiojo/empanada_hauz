@@ -11,8 +11,8 @@ export function RiderStatusToggle({ initialStatus }: { initialStatus: Status }) 
   const [error, setError] = useState<string | null>(null);
 
   const isOnline = status === "online" || status === "busy";
-  const canToggle = status === "online" || status === "offline";
-  const nextStatus = status === "online" ? "offline" : "online";
+  const canToggle = status === "online" || status === "offline" || status === "busy";
+  const nextStatus = status === "online" || status === "busy" ? "offline" : "online";
 
   async function toggle() {
     if (!canToggle || busy) return;
@@ -43,13 +43,13 @@ export function RiderStatusToggle({ initialStatus }: { initialStatus: Status }) 
           onClick={toggle}
           disabled={!canToggle || busy}
           className={`relative h-11 w-[82px] shrink-0 rounded-full p-1 transition ${isOnline ? "bg-[#217A3B]" : "bg-[#C8BEB5]"} ${!canToggle ? "cursor-not-allowed opacity-70" : ""}`}
-          aria-label={status === "online" ? "Go offline" : status === "busy" ? "On active delivery" : "Go online"}
+          aria-label={status === "online" || status === "busy" ? "Go offline" : "Go online"}
         >
           <span className={`block h-9 w-9 rounded-full bg-white shadow transition-transform ${isOnline ? "translate-x-[38px]" : "translate-x-0"}`} />
         </button>
       </div>
       {error ? <p className="mt-2 text-xs font-semibold text-red-600">{error}</p> : null}
-      <p className="mt-2 text-xs text-[#756D66]">{busy ? "Updating availability…" : status === "online" ? "Tap to go offline" : status === "busy" ? "You are online and currently handling a delivery" : status === "offline" ? "Tap to go online and receive delivery assignments" : "Your account is suspended"}</p>
+      <p className="mt-2 text-xs text-[#756D66]">{busy ? "Updating availability…" : status === "online" ? "Tap to go offline" : status === "busy" ? "Tap to go offline" : status === "offline" ? "Tap to go online and receive delivery assignments" : "Your account is suspended"}</p>
     </div>
   );
 }
