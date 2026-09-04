@@ -1,4 +1,5 @@
-import { IsIn, IsNumber, IsOptional, Min } from "class-validator";
+import { Type } from "class-transformer";
+import { IsIn, IsNumber, IsOptional, Max, Min } from "class-validator";
 import { DELIVERY_JOB_STATUSES, DeliveryJobStatus, RIDER_STATUSES, RiderStatus } from "../delivery-network/dto";
 
 export class RiderStatusDto {
@@ -30,4 +31,30 @@ export class RiderJobStatusDto {
   @IsNumber()
   @Min(0)
   finalFare?: number;
+}
+
+export class RiderRouteQueryDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  originLat!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  originLng!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  destLat!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  destLng!: number;
 }
