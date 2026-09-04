@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { DELIVERY_JOB_STATUSES, DeliveryJobStatus } from "../delivery-network/dto";
-import { RiderJobStatusDto, RiderLocationDto, RiderStatusDto } from "./dto";
+import { RiderJobStatusDto, RiderLocationDto, RiderRouteQueryDto, RiderStatusDto } from "./dto";
 import { RiderService } from "./rider.service";
 
 type JwtUser = {
@@ -18,6 +18,11 @@ export class RiderController {
   @Get("me")
   me(@Req() request: { user: JwtUser }) {
     return this.riderService.getProfile(request.user.sub);
+  }
+
+  @Get("route")
+  route(@Query() dto: RiderRouteQueryDto) {
+    return this.riderService.route(dto);
   }
 
   @Get("jobs")
