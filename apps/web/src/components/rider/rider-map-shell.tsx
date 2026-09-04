@@ -12,7 +12,7 @@ export function RiderMapShell({ job }: { job: Job }) {
   const [drawerOpen, setDrawerOpen] = useState(true);
 
   return (
-    <div className={`relative h-[100dvh] w-full overflow-hidden ${drawerOpen ? "" : "[&>div>div:last-child]:translate-y-[calc(100%-64px)]"}`}>
+    <div className={`relative h-[100dvh] w-full overflow-hidden ${drawerOpen ? "" : "[&>div>div:last-child]:translate-y-full"}`}>
       <RiderNavigation initialJob={job} onBack={() => router.replace("/rider")} />
       <button
         type="button"
