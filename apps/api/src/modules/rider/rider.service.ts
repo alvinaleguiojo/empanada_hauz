@@ -83,17 +83,31 @@ export class RiderService {
   }
 
   async updateStatus(userId: string, dto: RiderStatusDto) {
-    const rider = await this.ensureRiderForUser(userId);
+    const rider = await this.prisma.rider.findUnique({ where: { userId } });
+
+    if (!rider) {
+      throw new NotFoundException("Rider profile not found");
+    }
 
     if (rider.status === "suspended") {
       throw new ForbiddenException("Suspended riders cannot change availability");
     }
 
-    const updated = await this.prisma.rider.update({
+    // Persist the availability directly on the Rider record, then read it back from
+    // MongoDB so the PATCH response is always the same value /rider/me returns after refresh.
+    await this.prisma.rider.update({
       where: { id: rider.id },
-      data: { status: dto.status },
+      data: { status: dto.status }
+    });
+
+    const updated = await this.prisma.rider.findUnique({
+      where: { id: rider.id },
       include: this.riderIncludes()
     });
+
+    if (!updated) {
+      throw new NotFoundException("Rider profile not found after status update");
+    }
 
     this.realtime.emit("delivery-network.riders.updated", updated);
     return updated;
