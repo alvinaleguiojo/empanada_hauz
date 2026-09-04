@@ -22,6 +22,7 @@ const MAP_STYLE = {
       type: "raster",
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
       tileSize: 256,
+      maxzoom: 19,
       attribution: "© OpenStreetMap contributors"
     }
   },
@@ -62,7 +63,7 @@ export function RiderNavigation({ initialJob, onBack }: { initialJob: Job; onBac
     const ml = window.maplibregl;
     if (!ml) { setError("Map library is unavailable"); return; }
     const p = position ?? destination ?? { latitude: 14.5995, longitude: 120.9842 };
-    const m = new ml.Map({ container: node.current, style: MAP_STYLE, center: [p.longitude, p.latitude], zoom: 16.5, attributionControl: true, preserveDrawingBuffer: false });
+    const m = new ml.Map({ container: node.current, style: MAP_STYLE, center: [p.longitude, p.latitude], zoom: 16.5, maxZoom: 19, attributionControl: true, preserveDrawingBuffer: false });
     map.current = m;
     m.addControl(new ml.NavigationControl({ showCompass: false }), "bottom-right");
     let routeReady = false;
