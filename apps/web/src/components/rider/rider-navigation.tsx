@@ -34,7 +34,7 @@ export function RiderNavigation({ initialJob, onBack }: { initialJob: Job; onBac
   const steps = useMemo(() => (route?.legs ?? []).flatMap(x => x.steps ?? []), [route]);
   const stepInfo = useMemo(() => { let offset = 0; return steps.map(s => { const x = { step: s, start: offset }; offset += s.distance ?? 0; return x; }); }, [steps]);
   const current = useMemo(() => stepInfo.find(x => x.start + (x.step.distance ?? 0) > progress + 8)?.step ?? stepInfo.at(-1)?.step, [stepInfo, progress]);
-  const nextDistance = useMemo(() => { const x = stepInfo.find(v => v.step === current); return x && current ? Math.max(0, x.start + (current.distance ?? 0) - progress) : null; }, [stepInfo, current]);
+  const nextDistance = useMemo(() => { const x = stepInfo.find(v => v.step === current); return x && current ? Math.max(0, x.start + (current.distance ?? 0) - progress) : null; }, [stepInfo, current, progress]);
   const remaining = Math.max(0, (route?.distance ?? 0) - progress); const eta = Math.max(0, (route?.duration ?? 0) - (progress / Math.max(route?.distance ?? 1, 1)) * (route?.duration ?? 0));
   const codAmount = job.codAmount ?? job.order?.codAmount ?? job.order?.amountDue ?? job.order?.totalAmount;
   const deliveryFee = job.deliveryFee ?? job.order?.deliveryFee ?? job.finalFare ?? job.estimatedFare;
