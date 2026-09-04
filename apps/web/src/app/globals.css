@@ -101,12 +101,15 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
 }
 
 /* Rider live-position marker: use the supplied rider photo without touching the MapLibre basemap style. */
-.maplibregl-marker > div.flex.h-12.w-12 > div[style*="width:46px"] {
-  background: url('/rider%20sideview.jpg') center / contain no-repeat;
-  width: 46px;
-  height: 46px;
+.maplibregl-marker > div > div[style*="width:46px"] {
+  width: 46px !important;
+  height: 46px !important;
+  background-image: url('/rider%20sideview.jpg') !important;
+  background-position: center !important;
+  background-size: contain !important;
+  background-repeat: no-repeat !important;
 }
 
-.maplibregl-marker > div.flex.h-12.w-12 > div[style*="width:46px"] > svg {
-  visibility: hidden;
+.maplibregl-marker > div > div[style*="width:46px"] > svg {
+  display: none !important;
 }
