@@ -24,7 +24,7 @@ export default async function RiderDeliveriesPage() {
               <div key={job.id} className="mb-3 rounded-[24px] bg-white p-5 shadow-[0_12px_30px_rgba(59,29,15,0.08)] ring-1 ring-[#F0E4D6]">
                 <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase text-[#8A817A]">{job.status.replaceAll("_", " ")}</p><h3 className="mt-1 font-black">{job.order?.customer?.name ?? "Customer"}</h3></div><span className="font-black">₱{Number(job.finalFare ?? job.estimatedFare ?? 0).toFixed(2)}</span></div>
                 <p className="mt-4 text-sm font-semibold">{job.pickupAddress}</p><p className="mt-2 text-sm font-semibold text-[#756D66]">→ {job.dropoffAddress}</p>
-                <Link href="/rider/map" className="mt-4 flex justify-center rounded-2xl bg-[#111827] px-4 py-3 text-sm font-black text-white">Open navigation</Link>
+                <Link href={`/rider/map?jobId=${encodeURIComponent(job.id)}`} className="mt-4 flex justify-center rounded-2xl bg-[#111827] px-4 py-3 text-sm font-black text-white">Open navigation</Link>
               </div>
             )) : <div className="rounded-[24px] bg-white p-6 text-center text-sm text-[#756D66]">No active deliveries.</div>}
           </section>
