@@ -99,15 +99,3 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
-
-/* Use the rider side-view photo as the live map marker. */
-.maplibregl-marker > div > div:has(> svg) {
-  background: #ffffff url('/rider%20sideview.jpg') center / contain no-repeat;
-  border-radius: 999px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
-  overflow: hidden;
-}
-
-.maplibregl-marker > div > div:has(> svg) > svg {
-  display: none;
-}
