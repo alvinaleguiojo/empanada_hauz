@@ -99,3 +99,14 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
+
+/* Rider live-position marker: use the supplied rider photo without touching the MapLibre basemap style. */
+.maplibregl-marker > div.flex.h-12.w-12 > div[style*="width:46px"] {
+  background: url('/rider%20sideview.jpg') center / contain no-repeat;
+  width: 46px;
+  height: 46px;
+}
+
+.maplibregl-marker > div.flex.h-12.w-12 > div[style*="width:46px"] > svg {
+  visibility: hidden;
+}
