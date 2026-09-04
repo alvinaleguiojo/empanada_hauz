@@ -99,3 +99,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
+
+/* Rider map: use the supplied rider photo as the live-position marker. */
+.maplibregl-marker > div {
+  background: url('/rider%20sideview.jpg') center / contain no-repeat;
+}
+
+.maplibregl-marker > div > svg {
+  opacity: 0;
+}
