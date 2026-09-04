@@ -141,6 +141,32 @@ export class RiderService {
       throw new BadRequestException("Closed delivery jobs cannot be updated");
     }
 
+    if (dto.status === "delivered") {
+      const destinationLat = job.dropoffLatitude;
+      const destinationLng = job.dropoffLongitude;
+      if (destinationLat == null || destinationLng == null) {
+        throw new BadRequestException("Delivery destination coordinates are unavailable");
+      }
+
+      const latestLocation = await this.prisma.riderLocation.findFirst({
+        where: { riderId: rider.id },
+        orderBy: { createdAt: "desc" }
+      });
+      if (!latestLocation) {
+        throw new BadRequestException("Rider location is unavailable");
+      }
+
+      const distance = this.haversineMeters(
+        Number(latestLocation.latitude),
+        Number(latestLocation.longitude),
+        Number(destinationLat),
+        Number(destinationLng)
+      );
+      if (distance > 50) {
+        throw new BadRequestException("Rider must be at the delivery location before completing the delivery");
+      }
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const updatedJob = await tx.deliveryJob.update({
         where: { id: job.id },
@@ -187,6 +213,16 @@ export class RiderService {
       this.realtime.emit("orders.updated", updated.order);
     }
     return updated;
+  }
+
+  private haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+    const radius = 6371000;
+    const p1 = lat1 * Math.PI / 180;
+    const p2 = lat2 * Math.PI / 180;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLng / 2) ** 2;
+    return 2 * radius * Math.asin(Math.sqrt(a));
   }
 
   private async ensureRiderForUser(userId: string) {
