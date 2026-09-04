@@ -1,8 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { PrismaService } from "../../database/prisma.service";
 import { DeliveryJobStatus } from "../delivery-network/dto";
-import { RiderJobStatusDto, RiderLocationDto, RiderStatusDto } from "./dto";
+import { RiderJobStatusDto, RiderLocationDto, RiderRouteQueryDto, RiderStatusDto } from "./dto";
 
 @Injectable()
 export class RiderService {
@@ -34,6 +34,52 @@ export class RiderService {
       orderBy: [{ deliveredAt: "desc" }, { requestedAt: "desc" }],
       take: 100
     });
+  }
+
+  async route(dto: RiderRouteQueryDto) {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
+    if (!apiKey) {
+      throw new ServiceUnavailableException("Google Maps API key is not configured");
+    }
+
+    const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline"
+      },
+      body: JSON.stringify({
+        origin: { location: { latLng: { latitude: dto.originLat, longitude: dto.originLng } } },
+        destination: { location: { latLng: { latitude: dto.destLat, longitude: dto.destLng } } },
+        travelMode: process.env.GOOGLE_MAPS_TRAVEL_MODE ?? "TWO_WHEELER",
+        routingPreference: "TRAFFIC_AWARE"
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new BadRequestException(`Google Maps route request failed: ${errorText.slice(0, 500)}`);
+    }
+
+    const data = (await response.json()) as {
+      routes?: Array<{
+        distanceMeters?: number;
+        duration?: string;
+        polyline?: { encodedPolyline?: string };
+      }>;
+    };
+
+    const route = data.routes?.[0];
+    if (!route?.polyline?.encodedPolyline) {
+      throw new NotFoundException("No route found between the supplied coordinates");
+    }
+
+    return {
+      distanceMeters: route.distanceMeters ?? 0,
+      duration: route.duration ?? "0s",
+      polyline: route.polyline.encodedPolyline
+    };
   }
 
   async updateStatus(userId: string, dto: RiderStatusDto) {
