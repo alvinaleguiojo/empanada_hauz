@@ -15,7 +15,7 @@ apps/rider/
     api.ts                  Thin fetch client against the NestJS API
     hooks/useRiderSession.ts  Auth, jobs, GPS tracking, realtime socket
     components/            Header, OnlineToggle, StatRow, ActiveOrderCard,
-                            RecentOrderRow, SectionHeader, BottomNav
+                            RecentOrderRow, SectionHeader, BottomNav, RiderMap
     screens/                WelcomeScreen, LoginScreen, RegisterScreen,
                             HomeScreen, MapScreen, EarningsScreen, ProfileScreen
 ```
@@ -38,6 +38,16 @@ authenticated dispatcher session — there's no public self-registration endpoin
 this build collects a rider's name/email/phone and shows a "we'll be in touch" confirmation rather than
 calling a real endpoint. If you want true self-service registration, we can either open that endpoint up
 (with appropriate validation/anti-abuse) or wire the form to email/notify the dispatcher.
+
+## Maps
+
+The rider map now uses a platform-specific renderer. Native iOS/Android keeps `react-native-maps`, while
+rider web uses the Google Maps JavaScript API and `DirectionsService` so the route follows actual roads
+instead of drawing a straight line between GPS coordinates. The web map also uses a fixed light map canvas
+and a bounded map area so the header cannot consume the map viewport.
+
+For rider web, expose a browser-restricted Google Maps key as `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` or
+`EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY`. The key must have the Maps JavaScript API and Directions API enabled.
 
 ## Running locally
 
