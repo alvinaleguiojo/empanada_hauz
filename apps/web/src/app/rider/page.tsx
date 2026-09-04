@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { RiderAppV6 } from "@/components/rider/rider-app-v6";
+import { RiderAppV7 } from "@/components/rider/rider-app-v7";
 import { apiFetch } from "@/lib/api";
 
 type RiderProfile = {
@@ -18,5 +18,5 @@ export default async function RiderPage() {
   } catch {
     redirect("/rider/login");
   }
-  return <RiderAppV6 />;
+  return <RiderAppV7 />;
 }
