@@ -10,6 +10,43 @@ type JwtUser = {
   role: string;
 };
 
+function decodePolyline(encoded: string): [number, number][] {
+  const coordinates: [number, number][] = [];
+  let index = 0;
+  let latitude = 0;
+  let longitude = 0;
+
+  while (index < encoded.length) {
+    let result = 0;
+    let shift = 0;
+    let byte: number;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20 && index < encoded.length);
+    latitude += result & 1 ? ~(result >> 1) : result >> 1;
+
+    result = 0;
+    shift = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20 && index < encoded.length);
+    longitude += result & 1 ? ~(result >> 1) : result >> 1;
+
+    coordinates.push([longitude / 1e5, latitude / 1e5]);
+  }
+
+  return coordinates;
+}
+
+function durationSeconds(duration: string): number {
+  const match = duration.match(/^([0-9]+(?:\.[0-9]+)?)s$/);
+  return match ? Number(match[1]) : 0;
+}
+
 @UseGuards(JwtAuthGuard)
 @Controller("rider")
 export class RiderController {
@@ -21,8 +58,21 @@ export class RiderController {
   }
 
   @Get("route")
-  route(@Query() dto: RiderRouteQueryDto) {
-    return this.riderService.route(dto);
+  async route(@Query() dto: RiderRouteQueryDto) {
+    const result = await this.riderService.route(dto);
+    const duration = durationSeconds(result.duration);
+    const coordinates = decodePolyline(result.polyline);
+
+    return {
+      ...result,
+      routes: [
+        {
+          distance: result.distanceMeters,
+          duration,
+          geometry: { coordinates }
+        }
+      ]
+    };
   }
 
   @Get("jobs")
