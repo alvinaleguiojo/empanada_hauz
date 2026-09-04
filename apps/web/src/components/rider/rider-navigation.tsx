@@ -15,7 +15,18 @@ declare global { interface Window { maplibregl?: any } }
 const NEXT: Record<string, string> = { assigned: "accepted", accepted: "pickup_started", pickup_started: "picked_up", picked_up: "delivering", delivering: "delivered" };
 const ACTION: Record<string, string> = { assigned: "Confirm acceptance", accepted: "Start pickup", pickup_started: "Confirm pickup", picked_up: "Start delivery", delivering: "Complete delivery" };
 const ARRIVAL_RADIUS_METERS = 50;
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const MAP_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors"
+    }
+  },
+  layers: [{ id: "osm", type: "raster", source: "osm" }]
+};
 const MAP_FALLBACK_STYLE = "https://demotiles.maplibre.org/style.json";
 const DRAWER_HANDLE_HEIGHT = 76;
 
@@ -36,7 +47,7 @@ export function RiderNavigation({ initialJob, onBack }: { initialJob: Job; onBac
   const steps = useMemo(() => (route?.legs ?? []).flatMap(x => x.steps ?? []), [route]);
   const stepInfo = useMemo(() => { let offset = 0; return steps.map(s => { const x = { step: s, start: offset }; offset += s.distance ?? 0; return x; }); }, [steps]);
   const current = useMemo(() => stepInfo.find(x => x.start + (x.step.distance ?? 0) > progress + 8)?.step ?? stepInfo.at(-1)?.step, [stepInfo, progress]);
-  const nextDistance = useMemo(() => { const x = stepInfo.find(v => v.step === current); return x && current ? Math.max(0, x.start + (current.distance ?? 0) - progress) : null; }, [stepInfo, current, progress]);
+  const nextDistance = useMemo(() => { const x = stepInfo.find(v => v.step === current); return x && current ? Math.max(0, x.start + (current.distance ?? 0) - progress) : null; }, [stepInfo, current]);
   const remaining = Math.max(0, (route?.distance ?? 0) - progress); const eta = Math.max(0, (route?.duration ?? 0) - (progress / Math.max(route?.distance ?? 1, 1)) * (route?.duration ?? 0));
   const codAmount = job.codAmount ?? job.order?.codAmount ?? job.order?.amountDue ?? job.order?.totalAmount;
   const deliveryFee = job.finalFare ?? job.estimatedFare ?? job.deliveryFee ?? job.order?.deliveryFee;
@@ -46,13 +57,43 @@ export function RiderNavigation({ initialJob, onBack }: { initialJob: Job; onBac
   const calculateRoute = useCallback(async (force = false) => { if (!position || !destination) return; const now = Date.now(); if (!force && now - lastRoute.current < 4000) return; lastRoute.current = now; const id = ++requestId.current; setLoading(true); setError(null); try { const q = new URLSearchParams({ originLat: String(position.latitude), originLng: String(position.longitude), destLat: String(destination.latitude), destLng: String(destination.longitude) }); const data = await apiFetch<RouteResponse>(`/rider/route?${q}`, undefined); const next = data?.routes?.[0]; if (!next?.geometry?.coordinates?.length) throw new Error(data?.distanceMeters ? "Route geometry is unavailable" : "No drivable route found"); if (id !== requestId.current) return; routeRef.current = next; setRoute(next); setOffRoute(false); } catch (e) { if (id === requestId.current) setError(e instanceof Error ? e.message : "Routing unavailable"); } finally { if (id === requestId.current) setLoading(false); } }, [destination, position]);
 
   useEffect(() => { loadMapLibre().then(() => setReady(true)).catch(e => setError(e.message)); }, []);
-  useEffect(() => { if (!ready || !node.current || map.current) return; const ml = window.maplibregl; if (!ml) { setError("Map library is unavailable"); return; } const p = position ?? destination ?? { latitude: 14.5995, longitude: 120.9842 }; const m = new ml.Map({ container: node.current, style: MAP_STYLE, center: [p.longitude, p.latitude], zoom: 16.5, attributionControl: true, preserveDrawingBuffer: false }); map.current = m; m.addControl(new ml.NavigationControl({ showCompass: false }), "bottom-right");
-    const ensureRouteLayer = () => { if (!m.getSource("route")) m.addSource("route", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } } }); if (!m.getLayer("route-casing")) m.addLayer({ id: "route-casing", type: "line", source: "route", paint: { "line-color": "#fff", "line-width": 11 } }); if (!m.getLayer("route")) m.addLayer({ id: "route", type: "line", source: "route", paint: { "line-color": "#4285F4", "line-width": 6 } }); };
-    const applyRoute = () => { if (!routeRef.current?.geometry?.coordinates?.length) return; const source = m.getSource("route") as any; if (source) source.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: routeRef.current.geometry.coordinates } }); };
-    m.once("load", () => { ensureRouteLayer(); m.resize(); applyRoute(); });
-    m.on("error", (event: any) => { const message = event?.error?.message ?? "Map tiles or style failed to load"; if (!fallbackUsed.current && /style|source|tile|network|fetch/i.test(message)) { fallbackUsed.current = true; m.setStyle(MAP_FALLBACK_STYLE); m.once("style.load", () => { ensureRouteLayer(); m.resize(); applyRoute(); }); } else { setError(`Map failed to load: ${message}`); } });
-    const resize = () => m.resize(); window.requestAnimationFrame(resize); window.setTimeout(resize, 250); window.setTimeout(resize, 1000);
-    m.on("dragstart", () => { manual.current = true; setFollow(false); }); m.on("zoomstart", () => { manual.current = true; setFollow(false); }); return () => { marker.current?.remove(); m.remove(); map.current = null; }; }, [ready]);
+  useEffect(() => {
+    if (!ready || !node.current || map.current) return;
+    const ml = window.maplibregl;
+    if (!ml) { setError("Map library is unavailable"); return; }
+    const p = position ?? destination ?? { latitude: 14.5995, longitude: 120.9842 };
+    const m = new ml.Map({ container: node.current, style: MAP_STYLE, center: [p.longitude, p.latitude], zoom: 16.5, attributionControl: true, preserveDrawingBuffer: false });
+    map.current = m;
+    m.addControl(new ml.NavigationControl({ showCompass: false }), "bottom-right");
+    let routeReady = false;
+    const ensureRouteLayer = () => {
+      if (!m.isStyleLoaded()) return;
+      if (!m.getSource("route")) m.addSource("route", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } } });
+      if (!m.getLayer("route-casing")) m.addLayer({ id: "route-casing", type: "line", source: "route", paint: { "line-color": "#fff", "line-width": 11 } });
+      if (!m.getLayer("route")) m.addLayer({ id: "route", type: "line", source: "route", paint: { "line-color": "#4285F4", "line-width": 6 } });
+      routeReady = true;
+    };
+    const applyRoute = () => { if (!routeReady || !routeRef.current?.geometry?.coordinates?.length) return; const source = m.getSource("route") as any; if (source) source.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: routeRef.current.geometry.coordinates } }); };
+    const handleLoad = () => { m.resize(); ensureRouteLayer(); applyRoute(); };
+    const handleStyleLoad = () => { routeReady = false; ensureRouteLayer(); applyRoute(); m.resize(); };
+    m.once("load", handleLoad);
+    m.on("style.load", handleStyleLoad);
+    m.on("error", (event: any) => {
+      const message = event?.error?.message ?? "Map tiles or style failed to load";
+      if (!fallbackUsed.current && /style|source|tile|network|fetch/i.test(message)) {
+        fallbackUsed.current = true;
+        routeReady = false;
+        m.setStyle(MAP_FALLBACK_STYLE);
+      } else {
+        setError(`Map failed to load: ${message}`);
+      }
+    });
+    const resize = () => m.resize();
+    window.requestAnimationFrame(resize); window.setTimeout(resize, 250); window.setTimeout(resize, 1000);
+    m.on("dragstart", () => { manual.current = true; setFollow(false); });
+    m.on("zoomstart", () => { manual.current = true; setFollow(false); });
+    return () => { marker.current?.remove(); m.remove(); map.current = null; };
+  }, [ready]);
   useEffect(() => { const m = map.current; if (!m || !route?.geometry?.coordinates?.length) return; const update = () => { const source = m.getSource("route") as any; if (source) source.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: route.geometry!.coordinates! } }); }; if (m.isStyleLoaded()) update(); else m.once("load", update); }, [route]);
   useEffect(() => { const m = map.current; const ml = window.maplibregl; if (!m || !ml || !position) return; const xy: [number, number] = [position.longitude, position.latitude]; if (!marker.current) { const el = document.createElement("div"); el.className = "flex h-12 w-12 items-center justify-center"; el.innerHTML = `<div style="width:46px;height:46px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));transform:rotate(${heading}deg)"><svg width="40" height="40" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="17" cy="47" r="7" fill="#111827"/><circle cx="47" cy="47" r="7" fill="#111827"/><path d="M17 47l9-19h13l8 19M26 28l7 10h12M33 38l-8 0M39 28l5-7h7" stroke="#4285F4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="39" cy="20" r="5" fill="#4285F4"/><path d="M39 20h8" stroke="#111827" stroke-width="4" stroke-linecap="round"/></svg></div>`; marker.current = new ml.Marker({ element: el, anchor: "center" }).setLngLat(xy).addTo(m); } else { marker.current.setLngLat(xy); const bike = marker.current.getElement()?.firstElementChild as HTMLElement | null; if (bike) bike.style.transform = `rotate(${heading}deg)`; } if (follow && !manual.current) m.easeTo({ center: xy, zoom: 17.4, bearing: heading, pitch: 48, duration: 500, essential: true }); }, [ready, position, heading, follow]);
   useEffect(() => { if (!route?.geometry?.coordinates?.length || !position) return; const n = nearest(position, route.geometry.coordinates); setProgress(n.along); const off = n.d > 60 && (!destination || meters(position, destination) > 40); setOffRoute(off); if (off) void calculateRoute(true); }, [position, route, destination, calculateRoute]);
