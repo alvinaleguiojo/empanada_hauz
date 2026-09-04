@@ -1,13 +1,14 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, spacing } from "../theme";
 
-export type Tab = "orders" | "map" | "earnings" | "profile";
+export type Tab = "orders" | "map" | "deliveries" | "earnings" | "notifications" | "profile";
 
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
-  { id: "orders", label: "Orders", icon: "🧾" },
-  { id: "map", label: "Map", icon: "🗺️" },
-  { id: "earnings", label: "Earnings", icon: "📊" },
-  { id: "profile", label: "Profile", icon: "👤" }
+  { id: "orders", label: "Home", icon: "⌂" },
+  { id: "deliveries", label: "Deliveries", icon: "▤" },
+  { id: "earnings", label: "Earnings", icon: "₱" },
+  { id: "notifications", label: "Alerts", icon: "♢" },
+  { id: "profile", label: "Profile", icon: "●" }
 ];
 
 export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) {
@@ -27,17 +28,10 @@ export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) =>
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    flexDirection: "row",
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md
-  },
+  wrap: { flexDirection: "row", backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.sm, paddingBottom: spacing.md },
   item: { flex: 1, alignItems: "center", gap: 3 },
-  icon: { fontSize: 20, opacity: 0.55 },
-  activeIcon: { opacity: 1 },
-  label: { fontSize: 11, fontWeight: "700", color: colors.muted },
+  icon: { fontSize: 19, opacity: 0.5, color: colors.ink },
+  activeIcon: { opacity: 1, color: colors.orange },
+  label: { fontSize: 10, fontWeight: "700", color: colors.muted },
   activeLabel: { color: colors.orange, fontWeight: "900" }
 });
