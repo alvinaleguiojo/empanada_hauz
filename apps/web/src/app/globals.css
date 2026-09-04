@@ -100,11 +100,11 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 
-/* Rider live-position marker: render the supplied rider photo at the MapLibre marker root. */
+/* Rider live-position marker: use the transparent PNG supplied in the public folder. */
 .maplibregl-marker {
   width: 56px !important;
   height: 56px !important;
-  background: url("/rider%20sideview.jpg") center / contain no-repeat !important;
+  background: url("/rider_sideview-removebg-preview.png") center / contain no-repeat !important;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
 }
 
