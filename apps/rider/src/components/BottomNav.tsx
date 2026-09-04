@@ -3,7 +3,8 @@ import { colors, spacing } from "../theme";
 
 export type Tab = "orders" | "map" | "deliveries" | "earnings" | "notifications" | "profile";
 
-const TABS: Array<{ id: Tab; label: string; icon: string }> = [
+type NavItem = { id: Exclude<Tab, "map">; label: string; icon: string };
+const TABS: NavItem[] = [
   { id: "orders", label: "Home", icon: "⌂" },
   { id: "deliveries", label: "Deliveries", icon: "▤" },
   { id: "earnings", label: "Earnings", icon: "₱" },
@@ -28,10 +29,10 @@ export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) =>
 }
 
 const styles = StyleSheet.create({
-  wrap: { flexDirection: "row", backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.sm, paddingBottom: spacing.md },
-  item: { flex: 1, alignItems: "center", gap: 3 },
-  icon: { fontSize: 19, opacity: 0.5, color: colors.ink },
-  activeIcon: { opacity: 1, color: colors.orange },
-  label: { fontSize: 10, fontWeight: "700", color: colors.muted },
-  activeLabel: { color: colors.orange, fontWeight: "900" }
+  wrap: { flexDirection: "row", backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.line, paddingHorizontal: 8, paddingTop: spacing.sm, paddingBottom: spacing.md },
+  item: { flex: 1, alignItems: "center", gap: 3, borderRadius: 16, paddingVertical: spacing.sm },
+  icon: { fontSize: 20, color: "#9A9088", opacity: 0.9 },
+  activeIcon: { color: "#111827", opacity: 1 },
+  label: { fontSize: 11, fontWeight: "900", color: "#9A9088" },
+  activeLabel: { color: "#111827" }
 });
