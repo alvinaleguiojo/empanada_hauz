@@ -100,19 +100,21 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 
-/* Rider live-position marker: replace the generated SVG with the supplied rider photo. */
-.maplibregl-marker > div.flex.h-12.w-12 {
-  background: transparent !important;
+/* Rider live-position marker: render the supplied rider photo at the MapLibre marker root. */
+.maplibregl-marker {
+  width: 56px !important;
+  height: 56px !important;
+  background: url("/rider%20sideview.jpg") center / contain no-repeat !important;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
 }
 
-.maplibregl-marker > div.flex.h-12.w-12 > div {
-  width: 46px !important;
-  height: 46px !important;
-  background: url("/rider sideview.jpg") center / contain no-repeat !important;
-}
-
-.maplibregl-marker > div.flex.h-12.w-12 svg,
 .maplibregl-marker svg {
   display: none !important;
   visibility: hidden !important;
+}
+
+.maplibregl-marker > div {
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
 }
