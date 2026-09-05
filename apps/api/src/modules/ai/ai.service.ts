@@ -7,6 +7,7 @@ const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empan
 The CURRENT CUSTOMER MESSAGE is the highest priority. Answer that message first.
 Previous conversation is background only and must never override a new or unrelated question.
 Treat each new message as a new question unless the customer clearly refers to an existing order.
+A greeting is a fresh conversation boundary. Do not carry an older order across a greeting unless the current message explicitly refers to that order.
 Do not repeat the previous assistant answer unless the current message asks for it.
 A greeting is not an order. A flavor or quantity request is not confirmation.
 A flavor-only request means the customer has selected a flavor but has NOT yet given the quantity.
@@ -14,8 +15,9 @@ When a customer names a flavor without a quantity, ask how many pcs they would l
 When an order request has missing required fields, ask for the missing required information before any confirmation summary.
 A confirmation summary is allowed ONLY when application order facts say Missing required fields: none.
 If any required field is missing, DO NOT say the details are correct, DO NOT ask the customer to confirm the order, and DO NOT use the sentence "Please confirm if all the details above are correct. 😊".
-When delivery method or payment method is missing, ask the customer for those missing details.
-For delivery orders, collect Address, Landmark, and Contact # before confirmation. For Maxim, all three are required. Pickup does not require delivery address details.
+When delivery method or payment method is missing, ask for those missing details.
+For Maxim delivery, once Maxim is selected, explicitly collect Address, Landmark, and Contact # before asking for order confirmation. Ask for those three delivery details before payment if both are still missing.
+Pickup does not require delivery address details.
 Only treat a confirmation as confirmation when the customer clearly confirms the complete order.
 Never say an order is confirmed, placed, submitted, or created unless the application context explicitly says the order is READY and was actually created.
 If the application says NOT READY, explain or ask only for the missing required information.
@@ -83,8 +85,11 @@ export class AiService {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const customerName = context?.customerName?.trim() || "Customer";
     const recentMessages = (context?.recentMessages ?? []).slice(-6);
-    const details = this.buildOrderDetails(message, context?.activeOrderState);
-    const replyContext = this.buildReplyContext(message, recentMessages, context?.activeOrderState, details);
+    const activeOrderState = context?.activeOrderState && this.hasCurrentOrderContext(recentMessages)
+      ? context.activeOrderState
+      : undefined;
+    const details = this.buildOrderDetails(message, activeOrderState);
+    const replyContext = this.buildReplyContext(message, recentMessages, activeOrderState, details);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${customerName}`;
 
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
@@ -119,7 +124,7 @@ export class AiService {
       model: this.model, stream: false, think: false,
       options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written.\n\nRULE ORDER:\n1. Treat APPLICATION ORDER FACTS and the NEXT ACTION DIRECTIVE as authoritative application state.\n2. Answer the customer's current question directly using those facts. If the customer asks for a total, give the stated total amount; never repeat the question back.\n3. For an order request, follow the NEXT ACTION DIRECTIVE exactly. If it says missing delivery method/payment method, ask for those instead of presenting a confirmation summary.\n4. If Missing required fields is not none, confirmation is forbidden. Do not say the details are correct and do not ask the customer to confirm.\n5. Only present a confirmation summary when Missing required fields is none.\n6. Never claim that an order is confirmed or placed when application validation says NOT READY.\n7. Never invent missing delivery or payment information.\nDo not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written.\n\nRULE ORDER:\n1. Treat APPLICATION ORDER FACTS and the NEXT ACTION DIRECTIVE as authoritative application state.\n2. Answer the customer's current question directly using those facts. If the customer asks for a total, give the stated total amount; never repeat the question back.\n3. For an order request, follow the NEXT ACTION DIRECTIVE exactly. If it says missing delivery method/payment method, ask for those instead of presenting a confirmation summary.\n4. If Missing required fields is not none, confirmation is forbidden. Do not say the details are correct and do not ask the customer to confirm.\n5. Only present a confirmation summary when Missing required fields is none.\n6. For Maxim, when Address, Landmark, or Contact # is missing, explicitly ask for those delivery details before asking for payment or confirmation.\n7. Never claim that an order is confirmed or placed when application validation says NOT READY.\n8. Never invent missing delivery or payment information.\nDo not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     }, "Ollama customer reply failed");
@@ -170,6 +175,16 @@ export class AiService {
     return "CONVERSATION CONTEXT: none. Treat the current message as a fresh request. Do not repeat any previous answer.";
   }
 
+  private hasCurrentOrderContext(recentMessages: string[]) {
+    const customerMessages = recentMessages.filter((message) => /^Customer:/i.test(message)).map((message) => message.replace(/^Customer:\s*/i, "").trim());
+    for (let index = customerMessages.length - 1; index >= 0; index -= 1) {
+      const text = customerMessages[index].toLowerCase();
+      if (/^(hello|hi|hey|good morning|good afternoon|good evening)$/.test(text)) return false;
+      if (/\b(order|pork|asado|bacon|ham|chicken|ube|mango|choco|chocolate|beef)\b|\b\d+\s*(?:pcs?|pieces?)\b|\b(same order|continue my order|place my order|change|remove|add|instead)\b|\b(maxim|pickup|pick up|gcash|cod)\b/i.test(text)) return true;
+    }
+    return false;
+  }
+
   private buildNextActionDirective(message: string, details: Details): string {
     const lower = message.toLowerCase().trim();
     if (/\b(total|total cost|how much is the total|how much total)\b/i.test(lower) && details.flavors.length) {
@@ -177,7 +192,19 @@ export class AiService {
       return `NEXT ACTION DIRECTIVE: Answer the total directly. The current food total is ₱${total}. After answering, do not ask the customer to confirm the order unless the application's missing-field list is none.`;
     }
 
+    if (/\b(how long|how much time|delivery time|when will it arrive|when can it arrive|how soon)\b/i.test(lower)) {
+      return "NEXT ACTION DIRECTIVE: Answer directly that preparation takes about 1 hour; do not treat the customer's timing question as order confirmation and do not ask for a preferred delivery time.";
+    }
+
     const missing = details.missingFields;
+    if (details.deliveryMethod === "maxim") {
+      const deliveryMissing = missing.filter((field) => field === "address" || field === "landmark" || field === "contactNumber");
+      if (deliveryMissing.length) {
+        const names = deliveryMissing.map((field) => field === "address" ? "Address" : field === "landmark" ? "Landmark" : "Contact #");
+        return `NEXT ACTION DIRECTIVE: The customer selected Maxim. Ask explicitly for these missing delivery details first: ${names.join(", ")}. Do not ask for order confirmation yet. If payment is also missing, collect the delivery details before payment.`;
+      }
+    }
+
     if (missing.length) {
       const humanMissing = missing.map((field) => {
         if (field === "deliveryMethod") return "delivery method (Pickup or Maxim)";
