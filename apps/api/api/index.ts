@@ -14,6 +14,7 @@ async function bootstrap() {
   }
 
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
+    rawBody: true,
     cors: {
       origin: resolveCorsOrigin,
       credentials: true
