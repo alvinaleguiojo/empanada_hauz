@@ -1,9 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AIIntentResult, CustomerIntent } from "./types";
+import { AIIntentResult } from "./types";
 
 const EMPANADA_SYSTEM_PROMPT = `You are a customer support assistant for Empanada Hauz.
 Keep replies short and clear. Use Cebuano when the customer uses Cebuano, otherwise English.
+You answer EVERY customer message. Do not use application-side intent guesses to decide what to say. Read the customer's current message together with the conversation context and this system prompt, then decide the correct intent and write the customer-facing reply yourself.
 Do not invent prices or order details. Minimum order is 10 pcs.
 
 Prices:
@@ -31,11 +32,10 @@ If a customer schedules an order, preserve the date and time in the summary; nev
 Before confirmation, provide a concise bullet-point summary and end with: "Please confirm if all the details above are correct. 😊"
 After the application successfully creates a confirmed order, the application will send the ready message. Never claim an order was created yourself.
 If today is Sunday in Asia/Manila, tell customers the business is closed and do not create Sunday orders.
+Never treat placeholder strings such as "none provided", "unknown", or "not available" as real customer information. Use null or omit missing values.
 Return ONLY valid JSON matching the requested schema.`;
 
 interface OllamaResponse { message?: { content?: string } }
-
-type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
 
 type KnownOrderFacts = {
   product?: { name: string; price: number };
@@ -75,13 +75,10 @@ export class AiService {
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[] }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
-    const systemPrompt = EMPANADA_SYSTEM_PROMPT
-      .replace("{{CURRENT_DATE_TIME}}", now)
-      .replaceAll("{{Customer's Name}}", context?.customerName ?? "Customer");
+    const systemPrompt = EMPANADA_SYSTEM_PROMPT.replace("{{CURRENT_DATE_TIME}}", now).replaceAll("{{Customer's Name}}", context?.customerName ?? "Customer");
     const recentMessages = (context?.recentMessages ?? []).slice(-12);
     const conversationContext = recentMessages.length ? `\nRecent conversation:\n${recentMessages.join("\n")}` : "";
-    const intentHint = this.inferIntentHint(message);
-    const knownFacts = this.buildKnownFacts(message, recentMessages, intentHint);
+    const knownFacts = this.buildKnownFacts(message, recentMessages);
     const schema = {
       intent: "inquiry | order_confirmation | reservation | delivery_request | pickup_request | pricing_question",
       confidence: "number from 0 to 1",
@@ -95,16 +92,14 @@ export class AiService {
       suggestedReply: "short customer-facing reply string"
     };
 
-    this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)} intentHint=${intentHint ?? "none"}`);
+    this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
     const result = await this.callOllama({ systemPrompt, schema, conversationContext, knownFacts, message });
-    const corrected = this.applyKnownFacts(result, message, recentMessages, intentHint);
-    if (this.shouldRewriteReply(message, corrected) || !corrected.suggestedReply?.trim()) {
+    const corrected = this.applyKnownFacts(result, message, recentMessages);
+    if (this.shouldRewriteReply(corrected) || !corrected.suggestedReply?.trim()) {
       const rewritten = await this.generateCustomerReply({ systemPrompt, conversationContext, knownFacts, message, result: corrected });
       if (rewritten) corrected.suggestedReply = rewritten;
     }
-    if (!corrected.suggestedReply?.trim()) {
-      throw new Error("Ollama did not return a usable customer reply");
-    }
+    if (!corrected.suggestedReply?.trim()) throw new Error("Ollama did not return a usable customer reply");
     this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${corrected.confidence} intent=${corrected.intent}`);
     return { ...corrected, source: "ollama" };
   }
@@ -114,11 +109,8 @@ export class AiService {
       model: this.model, stream: false, format: "json", think: false,
       options: { temperature: 0.1, num_predict: 512, num_ctx: 4096 },
       messages: [
-        {
-          role: "system",
-          content: `${input.systemPrompt}\n\nYOU are the customer-facing AI. Always generate suggestedReply yourself. Use the recent conversation and application facts to maintain context. Application facts are authoritative for known product names, prices, quantities, delivery method, payment method, and supplied customer details. Never invent missing information. Never mark an order confirmed when required fields are missing. "Place my order" is only a confirmation request; the application decides whether the order is complete and eligible for creation. Never claim an order was created unless the application says it was created. Never use placeholder strings such as "none provided" as actual order values; use null or omit the field when information is missing.\n\nJSON schema:\n${JSON.stringify(input.schema)}`
-        },
-        { role: "user", content: `${input.conversationContext}\nAuthoritative application facts:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
+        { role: "system", content: `${input.systemPrompt}\n\nYou are the only customer-facing AI. Every customer message must be answered by you. Do not rely on a hard-coded application intent classifier. Use the customer's current message, recent conversation, and the system prompt to understand the request. The application may validate structured order data after you respond, but it must not replace your customer-facing answer.\n\nJSON schema:\n${JSON.stringify(input.schema)}` },
+        { role: "user", content: `${input.conversationContext}\nCurrent application facts for order validation only:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
       ]
     };
     const controller = new AbortController();
@@ -129,12 +121,8 @@ export class AiService {
       const bodyJson = await response.json() as OllamaResponse;
       const content = bodyJson.message?.content?.trim();
       if (!content) throw new Error("Ollama returned an empty response");
-      try {
-        return this.normalizeResult(JSON.parse(content) as AIIntentResult);
-      } catch (error) {
-        this.logger.warn(`AI path=OLLAMA_RETRY reason=${String(error)}`);
-        return this.callOllamaRetry(input);
-      }
+      try { return this.normalizeResult(JSON.parse(content) as AIIntentResult); }
+      catch (error) { this.logger.warn(`AI path=OLLAMA_RETRY reason=${String(error)}`); return this.callOllamaRetry(input); }
     } finally { clearTimeout(timeout); }
   }
 
@@ -148,8 +136,8 @@ export class AiService {
           model: this.model, stream: false, format: "json", think: false,
           options: { temperature: 0, num_predict: 384, num_ctx: 3072 },
           messages: [
-            { role: "system", content: `${input.systemPrompt}\n\nReturn ONE compact JSON object only. Always write a short customer-facing suggestedReply. Treat application facts as authoritative. Never invent missing information and never mark incomplete orders confirmed. Never use placeholder strings such as "none provided" as actual order values; use null or omit missing fields. JSON schema:\n${JSON.stringify(input.schema)}` },
-            { role: "user", content: `${input.conversationContext}\nApplication facts:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
+            { role: "system", content: `${input.systemPrompt}\n\nReturn ONE compact JSON object only. Always write a short customer-facing suggestedReply. You are the customer-facing AI for every message. Do not use a hard-coded application intent classifier.\n\nJSON schema:\n${JSON.stringify(input.schema)}` },
+            { role: "user", content: `${input.conversationContext}\nOrder-validation facts only:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
           ]
         })
       });
@@ -161,43 +149,36 @@ export class AiService {
     } finally { clearTimeout(timeout); }
   }
 
-  private async generateCustomerReply(input: { systemPrompt: string; conversationContext: string; knownFacts: string; message: string; result: AIIntentResult }): Promise<string | null> {
+  private async generateCustomerReply(input: { systemPrompt: string; conversationContext: string; knownFacts: string; message: string; result: AIIntentResult }): Promise<string> {
     const details = input.result.details;
-    const total = Number(details.totalAmount ?? 0);
-    const incomplete = !this.hasCompleteOrder(details);
     const prompt = [
       input.systemPrompt,
-      "You are now writing ONLY the final customer-facing reply for the current turn.",
-      "Do not output JSON, labels, analysis, or a canned fallback.",
-      "Use the authoritative order facts below. Never ask for information that is already present.",
-      incomplete ? "The order is NOT complete. Do not ask for confirmation and do not say the order was placed. Ask only for the missing required details." : "The order is complete only if the application facts say so.",
-      this.isTotalQuestion(input.message) && total > 0 ? `The customer asked for the total. Answer directly: ₱${total}.` : "",
-      `Validated details: ${JSON.stringify(details)}`,
+      "You are writing the final customer-facing response for EVERY current customer message.",
+      "Answer the customer's actual question first. Do not let stale order facts override an unrelated current question.",
+      "Do not output JSON, labels, analysis, or a fallback message.",
+      "Use the recent conversation only when it is relevant to the customer's current message.",
+      "For order execution, follow the validated details and never claim an order was created unless the application has successfully created it.",
+      `Validated order details: ${JSON.stringify(details)}`,
       `Recent conversation: ${input.conversationContext}`,
       `Customer message: ${input.message}`,
-      `Original AI interpretation: ${input.result.suggestedReply || "(empty)"}`
-    ].filter(Boolean).join("\n\n");
-    try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
-        method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ model: this.model, stream: false, format: "json", think: false, options: { temperature: 0.1, num_predict: 160, num_ctx: 3072 }, messages: [{ role: "system", content: prompt }, { role: "user", content: input.message }] })
-      });
-      if (!response.ok) throw new Error(`Ollama reply rewrite failed: ${response.status} ${await response.text()}`);
-      const body = await response.json() as OllamaResponse;
-      const content = body.message?.content?.trim();
-      if (!content) return null;
-      const parsed = JSON.parse(content) as { reply?: string };
-      return parsed.reply?.trim() || null;
-    } catch (error) {
-      this.logger.warn(`AI path=OLLAMA_REPLY_REWRITE_FAILED reason=${String(error)}`);
-      return null;
-    }
+      `Original Qwen response: ${input.result.suggestedReply || "(empty)"}`
+    ].join("\n\n");
+    const response = await fetch(`${this.baseUrl}/api/chat`, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ model: this.model, stream: false, format: "json", think: false, options: { temperature: 0.1, num_predict: 160, num_ctx: 3072 }, messages: [{ role: "system", content: prompt }, { role: "user", content: input.message }] })
+    });
+    if (!response.ok) throw new Error(`Ollama reply rewrite failed: ${response.status} ${await response.text()}`);
+    const body = await response.json() as OllamaResponse;
+    const content = body.message?.content?.trim();
+    if (!content) throw new Error("Ollama reply rewrite returned an empty response");
+    const parsed = JSON.parse(content) as { reply?: string };
+    if (!parsed.reply?.trim()) throw new Error("Ollama reply rewrite returned no reply");
+    return parsed.reply.trim();
   }
 
-  private buildKnownFacts(message: string, recentMessages: string[], intentHint?: CustomerIntent) {
+  private buildKnownFacts(message: string, recentMessages: string[]) {
     const current = this.extractFacts(message);
-    const isolatedRequest = intentHint === "pricing_question" || (intentHint === "inquiry" && !this.hasOrderSignal(message));
-    const historical = isolatedRequest ? {} : this.extractHistoricalFacts(recentMessages);
+    const historical = this.extractHistoricalFacts(recentMessages);
     const product = current.product ?? historical.product;
     const quantity = current.quantity ?? historical.quantity;
     const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
@@ -206,8 +187,7 @@ export class AiService {
     const landmark = this.cleanText(current.landmark ?? historical.landmark);
     const contactNumber = this.cleanText(current.contactNumber ?? historical.contactNumber);
     const missing = this.requiredMissingFromFacts({ product, quantity, deliveryMethod, paymentMethod, address, landmark, contactNumber });
-    const facts = [
-      intentHint ? `Authoritative request type: ${intentHint}. Follow this request type even if conversation history suggests another intent.` : "Authoritative request type: none.",
+    return [
       product ? `Product: ${product.name} at ₱${product.price}.` : "Product: none provided.",
       quantity ? `Quantity: ${quantity}.` : "Quantity: none provided.",
       deliveryMethod ? `Delivery method: ${deliveryMethod}.` : "Delivery method: none provided.",
@@ -215,10 +195,9 @@ export class AiService {
       address ? `Address: ${address}.` : "Address: none provided.",
       landmark ? `Landmark: ${landmark}.` : "Landmark: none provided.",
       contactNumber ? `Contact #: ${contactNumber}.` : "Contact #: none provided.",
-      product && quantity ? `Calculated product subtotal/total before delivery fee: ₱${product.price * quantity}.` : "Calculated total: unavailable.",
+      product && quantity ? `Validated product total before delivery fee: ₱${product.price * quantity}.` : "Validated total: unavailable.",
       missing.length ? `Required missing fields: ${missing.join(", ")}.` : "Required missing fields: none."
-    ];
-    return facts.join("\n");
+    ].join("\n");
   }
 
   private extractHistoricalFacts(recentMessages: string[]): KnownOrderFacts {
@@ -249,10 +228,9 @@ export class AiService {
     };
   }
 
-  private applyKnownFacts(result: AIIntentResult, message: string, recentMessages: string[], intentHint?: CustomerIntent): AIIntentResult {
+  private applyKnownFacts(result: AIIntentResult, message: string, recentMessages: string[]): AIIntentResult {
     const current = this.extractFacts(message);
-    const isolatedRequest = intentHint === "pricing_question" || (intentHint === "inquiry" && !this.hasOrderSignal(message));
-    const historical = isolatedRequest ? {} : this.extractHistoricalFacts(recentMessages);
+    const historical = this.extractHistoricalFacts(recentMessages);
     const details = {
       ...(result.details ?? { missingFields: [] }),
       missingFields: Array.isArray(result.details?.missingFields) ? [...result.details.missingFields] : [],
@@ -265,59 +243,23 @@ export class AiService {
     const address = this.cleanText(current.address ?? historical.address);
     const landmark = this.cleanText(current.landmark ?? historical.landmark);
     const contactNumber = this.cleanText(current.contactNumber ?? historical.contactNumber);
-
-    if (isolatedRequest) {
-      details.flavors = [];
-      details.quantity = undefined;
-      details.totalAmount = undefined;
-      details.deliveryMethod = undefined;
-      details.paymentMethod = undefined;
-      delete details.address;
-      delete details.landmark;
-      delete details.contactNumber;
-    } else if (product && quantity) {
+    if (product && quantity) {
       details.flavors = [{ name: product.name, quantity, unitPrice: product.price, subtotal: product.price * quantity }];
       details.quantity = quantity;
       details.totalAmount = product.price * quantity;
-      if (deliveryMethod) details.deliveryMethod = deliveryMethod;
-      if (paymentMethod) details.paymentMethod = paymentMethod;
-      if (address) details.address = address;
-      else delete details.address;
-      if (landmark) details.landmark = landmark;
-      else delete details.landmark;
-      if (contactNumber) details.contactNumber = contactNumber;
-      else delete details.contactNumber;
-    } else {
-      if (deliveryMethod) details.deliveryMethod = deliveryMethod;
-      if (paymentMethod) details.paymentMethod = paymentMethod;
-      if (address) details.address = address;
-      else delete details.address;
-      if (landmark) details.landmark = landmark;
-      else delete details.landmark;
-      if (contactNumber) details.contactNumber = contactNumber;
-      else delete details.contactNumber;
     }
-
+    if (deliveryMethod) details.deliveryMethod = deliveryMethod;
+    if (paymentMethod) details.paymentMethod = paymentMethod;
+    if (address) details.address = address; else delete details.address;
+    if (landmark) details.landmark = landmark; else delete details.landmark;
+    if (contactNumber) details.contactNumber = contactNumber; else delete details.contactNumber;
     details.deliveryMethod = this.normalizeDeliveryMethod(details.deliveryMethod);
     details.paymentMethod = this.normalizePaymentMethod(details.paymentMethod);
     details.location = this.cleanText(details.location);
-
     const complete = this.hasCompleteOrder(details);
-    const explicitConfirmation = this.isExplicitConfirmation(message);
     details.missingFields = complete ? [] : this.requiredMissingFields(details);
-    details.confirmed = complete && explicitConfirmation;
-
-    const intent = intentHint ?? (details.confirmed
-      ? "order_confirmation"
-      : details.deliveryMethod === "maxim"
-        ? "delivery_request"
-        : details.deliveryMethod === "pickup"
-          ? "pickup_request"
-          : this.isTotalQuestion(message)
-            ? "pricing_question"
-            : result.intent);
-
-    return this.normalizeResult({ ...result, intent, details });
+    details.confirmed = complete && this.isExplicitConfirmation(message);
+    return this.normalizeResult({ ...result, details });
   }
 
   private hasCompleteOrder(details: AIIntentResult["details"]) {
@@ -356,40 +298,13 @@ export class AiService {
     return missing;
   }
 
-  private inferIntentHint(message: string): CustomerIntent | undefined {
-    const lower = message.toLowerCase().trim();
-    if (/^(hi|hello|hey|helo|good morning|good afternoon|good evening|yo|hoy)\b/i.test(lower)) return "inquiry";
-    if (this.isTotalQuestion(lower) || /\b(price list|pricelist|menu|menus|prices|pricing|how much|hm|tagpila|pila|presyo)\b/i.test(lower)) return "pricing_question";
-    if (this.isExplicitConfirmation(lower)) return "order_confirmation";
-    if (/\b(pick ?up|pick-up)\b/i.test(lower)) return "pickup_request";
-    if (/\b(maxim|deliver|delivery)\b/i.test(lower)) return "delivery_request";
-    return undefined;
-  }
-
-  private hasOrderSignal(message: string) {
-    const lower = message.toLowerCase();
-    return Boolean(this.findProduct(lower) || this.extractQuantity(lower) || /\b(order|ordering|place|pcs?|pieces?|gcash|cod|cash|address|landmark|contact)\b/i.test(lower));
-  }
-
   private isExplicitConfirmation(message: string) {
     return /\b(yes|correct|confirmed|confirm|go ahead|place my order|place the order|order it|that's correct|that is correct|okay proceed|proceed)\b/i.test(message);
   }
 
-  private isTotalQuestion(message: string) {
-    return /\b(how much is the total|what(?:'s| is) the total|total\??|how much altogether|how much all|pila tanan|tagpila tanan)\b/i.test(message);
-  }
-
-  private shouldRewriteReply(message: string, result: AIIntentResult) {
+  private shouldRewriteReply(result: AIIntentResult) {
     const details = result.details;
-    const complete = this.hasCompleteOrder(details);
-    const confirmationRequest = this.isExplicitConfirmation(message);
-    const hasOrderState = Boolean(details.flavors?.length || details.quantity || details.deliveryMethod || details.paymentMethod);
-    const intentHint = this.inferIntentHint(message);
-    return this.isTotalQuestion(message) ||
-      Boolean(intentHint) ||
-      hasOrderState ||
-      (!complete && (confirmationRequest || result.intent === "order_confirmation" || details.confirmed === true)) ||
-      (!complete && /please confirm if all the details above are correct/i.test(result.suggestedReply ?? ""));
+    return Boolean(details.flavors?.length || details.quantity || details.deliveryMethod || details.paymentMethod || details.confirmed);
   }
 
   private findProduct(text: string) {
@@ -413,10 +328,7 @@ export class AiService {
     return undefined;
   }
 
-  private extractField(text: string, pattern: RegExp) {
-    const match = text.match(pattern);
-    return this.cleanText(match?.[1]);
-  }
+  private extractField(text: string, pattern: RegExp) { return this.cleanText(text.match(pattern)?.[1]); }
 
   private cleanText(value?: unknown) {
     if (typeof value !== "string") return undefined;
@@ -426,15 +338,8 @@ export class AiService {
     return normalized;
   }
 
-  private normalizeDeliveryMethod(value: unknown): "pickup" | "maxim" | undefined {
-    if (value === "pickup" || value === "maxim") return value;
-    return undefined;
-  }
-
-  private normalizePaymentMethod(value: unknown): "cod" | "gcash" | undefined {
-    if (value === "cod" || value === "gcash") return value;
-    return undefined;
-  }
+  private normalizeDeliveryMethod(value: unknown): "pickup" | "maxim" | undefined { return value === "pickup" || value === "maxim" ? value : undefined; }
+  private normalizePaymentMethod(value: unknown): "cod" | "gcash" | undefined { return value === "cod" || value === "gcash" ? value : undefined; }
 
   private normalizeResult(result: AIIntentResult): AIIntentResult {
     const details = result.details ?? { missingFields: [] };
@@ -448,6 +353,7 @@ export class AiService {
     details.contactNumber = this.cleanText(details.contactNumber);
     result.confidence = Math.max(0, Math.min(1, Number(result.confidence) || 0));
     if (!result.intent) result.intent = "inquiry";
+    result.suggestedReply = result.suggestedReply?.trim() ?? "";
     if (!details.quantity && details.flavors.length) details.quantity = details.flavors.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     result.details = details;
     return result;
