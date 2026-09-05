@@ -34,7 +34,6 @@ export class MessengerService {
       await this.ordersService.createManual({ customerName: `Messenger ${event.senderId}`, quantity: ai.details.quantity, unitPrice: 20, deliveryFee: 0, deliveryMethod: ai.details.deliveryMethod, paymentMethod: "cod", address: ai.details.deliveryMethod === "maxim" ? ai.details.location : undefined, location: ai.details.location, preferredSchedule: ai.details.preferredTime, notes: event.text });
       this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId });
     }
-    await this.sendText(event.senderId, ai.suggestedReply);
   }
 
   async handleStandbyEvent(event: { senderId: string; messageId?: string; text?: string; rawPayload: unknown }) {
