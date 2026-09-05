@@ -65,7 +65,10 @@ export class AiService {
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[] }): Promise<AIIntentResult> {
     const fast = this.tryFastPath(message);
-    if (fast) return fast;
+    if (fast) {
+      this.logger.log(`AI path=FAST_PATH confidence=${fast.confidence} intent=${fast.intent} message=${JSON.stringify(message)}`);
+      return { ...fast, source: "fast_path" };
+    }
 
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const systemPrompt = EMPANADA_SYSTEM_PROMPT
@@ -86,6 +89,7 @@ export class AiService {
       suggestedReply: "short customer-facing reply string"
     };
 
+    this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 45000);
@@ -112,10 +116,12 @@ export class AiService {
       const body = await response.json() as OllamaResponse;
       const content = body.message?.content?.trim();
       if (!content) throw new Error("Ollama returned an empty response");
-      return this.normalizeResult(JSON.parse(content) as AIIntentResult, message);
+      const result = this.normalizeResult(JSON.parse(content) as AIIntentResult, message);
+      this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${result.confidence} intent=${result.intent}`);
+      return { ...result, source: "ollama" };
     } catch (error) {
-      this.logger.warn(`Ollama parse/request failed, using deterministic fallback: ${String(error)}`);
-      return this.fallbackParse(message);
+      this.logger.warn(`AI path=FALLBACK reason=${String(error)} message=${JSON.stringify(message)}`);
+      return { ...this.fallbackParse(message), source: "fallback" };
     }
   }
 
@@ -233,13 +239,13 @@ export class AiService {
   }
 
   private fallbackParse(message: string): AIIntentResult {
-    const fast = this.tryFastPath(message);
-    if (fast) return fast;
     const lower = message.toLowerCase();
     const deliveryMethod = this.extractDeliveryMethod(lower);
     const quantity = this.extractQuantity(lower);
     const product = this.findProduct(lower);
     const intent = /\b(price|hm|how much|pila|tagpila|presyo)\b/.test(lower) ? "pricing_question" : deliveryMethod === "pickup" ? "pickup_request" : deliveryMethod === "maxim" ? "delivery_request" : "inquiry";
+    const fast = this.tryFastPath(message);
+    if (fast) return fast;
     return {
       intent,
       confidence: 0.5,
