@@ -8,7 +8,7 @@ export type CustomerIntent =
   | "pickup_request"
   | "pricing_question";
 
-export type AIResultSource = "fast_path" | "ollama" | "fallback";
+export type AIResultSource = "ollama";
 
 export interface AIIntentResult {
   intent: CustomerIntent;
