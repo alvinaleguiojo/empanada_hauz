@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AIIntentResult, CustomerIntent, DeliveryMethodValue } from "./types";
+import { AIIntentResult, CustomerIntent } from "./types";
 
 const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
 
@@ -29,27 +29,11 @@ Business facts:
 - Orders of 30 pcs or more get 20% off the delivery fee only when the customer asks about a discount.
 - If today is Sunday in Asia/Manila, the business is closed and Sunday orders must not be created.
 - When presenting a complete order summary before confirmation, end exactly with: Please confirm if all the details above are correct. 😊
+- Do NOT use that confirmation sentence after a greeting, menu/flavor list, price answer, delivery-fee answer, or general inquiry.
 - "hm" means how much. "df" means delivery fee.
 `;
 
 interface OllamaResponse { message?: { content?: string } }
-
-type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
-
-const PRODUCTS: Array<{ aliases: string[]; name: string; price: number }> = [
-  { aliases: ["bacon with cheese", "bacon"], name: "Bacon with Cheese", price: 35 },
-  { aliases: ["pork regular with egg", "pork with egg", "pork egg"], name: "Pork Regular with Egg", price: 25 },
-  { aliases: ["pork regular", "pork"], name: "Pork Regular", price: 20 },
-  { aliases: ["pork asado", "asado"], name: "Pork Asado", price: 30 },
-  { aliases: ["ham & cheese", "ham and cheese", "ham cheese", "ham"], name: "Ham & Cheese", price: 25 },
-  { aliases: ["chicken with egg", "chicken egg"], name: "Chicken with Egg", price: 25 },
-  { aliases: ["chicken"], name: "Chicken", price: 20 },
-  { aliases: ["ube empanada", "ube"], name: "Ube Empanada", price: 25 },
-  { aliases: ["mango"], name: "Mango", price: 25 },
-  { aliases: ["choco", "chocolate"], name: "Choco", price: 30 },
-  { aliases: ["beef with egg", "beef egg"], name: "Beef with Egg", price: 40 },
-  { aliases: ["beef"], name: "Beef", price: 35 }
-];
 
 const ORDER_STATE_SCHEMA = {
   type: "object",
@@ -116,7 +100,7 @@ export class AiService {
 
     const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
 
-    if (!this.shouldExtractOrderState(message, recentMessages)) {
+    if (!this.shouldExtractOrderState(message)) {
       const result: AIIntentResult = {
         intent: this.inferNonOrderIntent(message),
         confidence: 0,
@@ -135,14 +119,13 @@ export class AiService {
       return { ...normalized, source: "ollama" };
     } catch (error) {
       this.logger.warn(`AI order extraction unavailable; keeping Qwen customer reply reason=${String(error)}`);
-      const result: AIIntentResult = {
+      return {
         intent: this.inferNonOrderIntent(message),
         confidence: 0,
         details: { flavors: [], missingFields: [], confirmed: false },
         suggestedReply,
         source: "ollama"
       };
-      return result;
     }
   }
 
@@ -198,10 +181,7 @@ export class AiService {
           role: "system",
           content: `${systemPrompt}\n\nThis call is ONLY for order state used by the application. Extract order details from the CURRENT CUSTOMER MESSAGE and previous messages only when they clearly belong to the same active order. The current message has priority. A greeting, question, price request, delivery-fee question, flavor request, or quantity request is NOT confirmation. Set confirmed=true only when the current message clearly confirms a complete order that already has all required fields. Do not invent missing values.`
         },
-        {
-          role: "user",
-          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nRECENT CONVERSATION:\n${compactContext}`
-        }
+        { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nRECENT CONVERSATION:\n${compactContext}` }
       ]
     };
 
@@ -236,14 +216,15 @@ export class AiService {
       || /\border\b/i.test(lower);
 
     if (!isContinuation) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
-
     return `CONVERSATION CONTEXT (background only; current message wins):\n${recentMessages.join("\n")}`;
   }
 
-  private shouldExtractOrderState(message: string, recentMessages: string[]): boolean {
-    const text = `${message} ${recentMessages.join(" ")}`.toLowerCase();
-    return /\border\b|\bpcs?\b|\bpieces?\b|\bpickup\b|\bpick up\b|\bmaxim\b|\bgcash\b|\bcod\b|\baddress\b|\blandmark\b|\bcontact\b|\bconfirm(?:ed|ation)?\b|\bgo ahead\b|\bproceed\b/.test(text)
-      || /\b(yes|yeah|yep|correct)\b/i.test(message.trim());
+  private shouldExtractOrderState(message: string): boolean {
+    const lower = message.toLowerCase().trim();
+    if (/\b(hm|how much|price|pila|tagpila|presyo)\b/.test(lower)) {
+      return /\border\b|\bpcs?\b|\bpieces?\b|\badd\b|\bremove\b|\bchange\b|\bpickup\b|\bmaxim\b|\bgcash\b|\bcod\b/.test(lower);
+    }
+    return /\border\b|\b\d+\s*(?:pcs?|pieces?)\b|\bpickup\b|\bpick up\b|\bmaxim\b|\bgcash\b|\bcod\b|\baddress\b|\blandmark\b|\bcontact\b|\bconfirm(?:ed|ation)?\b|\bgo ahead\b|\bproceed\b|\b(yes|yeah|yep|correct)\b/i.test(lower);
   }
 
   private inferNonOrderIntent(message: string): CustomerIntent {
