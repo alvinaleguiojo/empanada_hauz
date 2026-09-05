@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, MessageCircle, Search, Send, UserRound, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { socket } from "@/lib/socket";
@@ -141,8 +142,8 @@ export function FloatingMessenger() {
     setError("");
   }
 
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[110] flex justify-end px-4 sm:bottom-6 sm:right-6 sm:left-auto sm:px-0">
+  const content = (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[9999] flex justify-end px-4 sm:bottom-6 sm:right-6 sm:left-auto sm:px-0">
       <div className="pointer-events-auto flex flex-col items-end gap-3">
         {open ? (
           <div className="flex h-[min(680px,calc(100dvh-120px))] w-[min(430px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-[#101827]/95 shadow-2xl shadow-black/45 backdrop-blur-xl">
@@ -218,13 +219,15 @@ export function FloatingMessenger() {
           </div>
         ) : null}
 
-        <button type="button" onClick={() => setOpen((value) => !value)} className="relative mb-16 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-black shadow-2xl shadow-accent/30 transition hover:scale-105 hover:brightness-110" aria-label="Open Messenger" title="Messenger">
-          {open ? <ChevronDown size={22} /> : <MessageCircle size={23} />}
-          {!open && unread > 0 ? <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#101827] bg-danger px-1 text-[10px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
+        <button type="button" onClick={() => setOpen((value) => !value)} className="relative mb-20 flex h-16 w-16 items-center justify-center rounded-full border-2 border-white/20 bg-accent text-black shadow-2xl shadow-accent/40 transition hover:scale-105 hover:brightness-110" aria-label="Open Messenger" title="Messenger">
+          {open ? <ChevronDown size={24} /> : <MessageCircle size={26} />}
+          {!open && unread > 0 ? <span className="absolute -right-1 -top-1 flex min-h-6 min-w-6 items-center justify-center rounded-full border-2 border-[#101827] bg-danger px-1.5 text-[10px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
         </button>
       </div>
     </div>
   );
+
+  return typeof document === "undefined" ? null : createPortal(content, document.body);
 }
 
 function isMessengerNotification(payload: unknown): payload is { conversationId?: string } {
