@@ -35,8 +35,6 @@ Return ONLY valid JSON matching the requested schema.`;
 
 interface OllamaResponse { message?: { content?: string } }
 
-type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
-
 type KnownOrderFacts = {
   product?: { name: string; price: number };
   quantity?: number;
@@ -95,19 +93,17 @@ export class AiService {
     };
 
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
-    try {
-      const result = await this.callOllama({ systemPrompt, schema, conversationContext, knownFacts, message });
-      const corrected = this.applyKnownFacts(result, message, recentMessages);
-      if (this.shouldRewriteReply(message, corrected)) {
-        const rewritten = await this.generateCustomerReply({ systemPrompt, conversationContext, knownFacts, message, result: corrected });
-        if (rewritten) corrected.suggestedReply = rewritten;
-      }
-      this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${corrected.confidence} intent=${corrected.intent}`);
-      return { ...corrected, source: "ollama" };
-    } catch (error) {
-      this.logger.warn(`AI path=FALLBACK reason=${String(error)} message=${JSON.stringify(message)}`);
-      return { ...this.fallbackParse(message), source: "fallback" };
+    const result = await this.callOllama({ systemPrompt, schema, conversationContext, knownFacts, message });
+    const corrected = this.applyKnownFacts(result, message, recentMessages);
+    if (this.shouldRewriteReply(message, corrected) || !corrected.suggestedReply?.trim()) {
+      const rewritten = await this.generateCustomerReply({ systemPrompt, conversationContext, knownFacts, message, result: corrected });
+      if (rewritten) corrected.suggestedReply = rewritten;
     }
+    if (!corrected.suggestedReply?.trim()) {
+      throw new Error("Ollama did not return a usable customer reply");
+    }
+    this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${corrected.confidence} intent=${corrected.intent}`);
+    return { ...corrected, source: "ollama" };
   }
 
   private async callOllama(input: { systemPrompt: string; schema: object; conversationContext: string; knownFacts: string; message: string }): Promise<AIIntentResult> {
@@ -130,13 +126,12 @@ export class AiService {
       const bodyJson = await response.json() as OllamaResponse;
       const content = bodyJson.message?.content?.trim();
       if (!content) throw new Error("Ollama returned an empty response");
-      return this.normalizeResult(JSON.parse(content) as AIIntentResult);
-    } catch (error) {
-      if (error instanceof SyntaxError || (error instanceof Error && /JSON/i.test(error.message))) {
+      try {
+        return this.normalizeResult(JSON.parse(content) as AIIntentResult);
+      } catch (error) {
         this.logger.warn(`AI path=OLLAMA_RETRY reason=${String(error)}`);
         return this.callOllamaRetry(input);
       }
-      throw error;
     } finally { clearTimeout(timeout); }
   }
 
@@ -177,7 +172,7 @@ export class AiService {
       `Validated details: ${JSON.stringify(details)}`,
       `Recent conversation: ${input.conversationContext}`,
       `Customer message: ${input.message}`,
-      `Original AI interpretation: ${input.result.suggestedReply}`
+      `Original AI interpretation: ${input.result.suggestedReply || "(empty)"}`
     ].filter(Boolean).join("\n\n");
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
@@ -203,9 +198,9 @@ export class AiService {
     const quantity = current.quantity ?? historical.quantity;
     const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
     const paymentMethod = current.paymentMethod ?? historical.paymentMethod;
-    const address = current.address ?? historical.address;
-    const landmark = current.landmark ?? historical.landmark;
-    const contactNumber = current.contactNumber ?? historical.contactNumber;
+    const address = this.cleanText(current.address ?? historical.address);
+    const landmark = this.cleanText(current.landmark ?? historical.landmark);
+    const contactNumber = this.cleanText(current.contactNumber ?? historical.contactNumber);
     const missing = this.requiredMissingFromFacts({ product, quantity, deliveryMethod, paymentMethod, address, landmark, contactNumber });
     const facts = [
       product ? `Product: ${product.name} at ₱${product.price}.` : "Product: none provided.",
@@ -272,12 +267,9 @@ export class AiService {
     }
     if (deliveryMethod) details.deliveryMethod = deliveryMethod;
     if (paymentMethod) details.paymentMethod = paymentMethod;
-    if (address) details.address = address;
-    else delete details.address;
-    if (landmark) details.landmark = landmark;
-    else delete details.landmark;
-    if (contactNumber) details.contactNumber = contactNumber;
-    else delete details.contactNumber;
+    if (address) details.address = address; else delete details.address;
+    if (landmark) details.landmark = landmark; else delete details.landmark;
+    if (contactNumber) details.contactNumber = contactNumber; else delete details.contactNumber;
 
     details.deliveryMethod = this.normalizeDeliveryMethod(details.deliveryMethod);
     details.paymentMethod = this.normalizePaymentMethod(details.paymentMethod);
@@ -412,23 +404,9 @@ export class AiService {
     details.contactNumber = this.cleanText(details.contactNumber);
     result.confidence = Math.max(0, Math.min(1, Number(result.confidence) || 0));
     if (!result.intent) result.intent = "inquiry";
-    if (!result.suggestedReply?.trim()) throw new Error("Ollama returned no suggestedReply");
+    result.suggestedReply = result.suggestedReply?.trim() ?? "";
     if (!details.quantity && details.flavors.length) details.quantity = details.flavors.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     result.details = details;
     return result;
-  }
-
-  private fallbackParse(message: string): AIIntentResult {
-    const lower = message.toLowerCase();
-    const deliveryMethod = this.extractDeliveryMethod(lower);
-    const quantity = this.extractQuantity(lower);
-    const product = this.findProduct(lower);
-    const intent = /\b(price|hm|how much|pila|tagpila|presyo)\b/.test(lower) ? "pricing_question" : deliveryMethod === "pickup" ? "pickup_request" : deliveryMethod === "maxim" ? "delivery_request" : "inquiry";
-    return {
-      intent,
-      confidence: 0.5,
-      details: { quantity, deliveryMethod, missingFields: product ? [] : ["flavors"], flavors: product && quantity ? [{ name: product.name, quantity, unitPrice: product.price, subtotal: product.price * quantity }] : [] },
-      suggestedReply: product && quantity ? `I can help with that. Would you like pickup or Maxim delivery? 😊` : "Sure! 😊 What would you like to order?"
-    };
   }
 }
