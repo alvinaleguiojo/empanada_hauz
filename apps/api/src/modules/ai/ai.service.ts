@@ -189,7 +189,7 @@ export class AiService {
 
   private buildOrderDetails(message: string, activeOrderState?: Details): Details {
     const lower = message.toLowerCase().trim();
-    const continuation = this.isContinuationMessage(lower);
+    const continuation = this.isContinuationMessage(lower) || Boolean(activeOrderState?.flavors?.length && this.isOrderFieldAnswer(lower));
     const parsed = this.parseCurrentMessage(message, activeOrderState, continuation);
     const base = continuation ? activeOrderState : undefined;
     const merged: Details = {
@@ -205,7 +205,8 @@ export class AiService {
     if (base?.flavors?.length && !parsed.flavors.length && parsed.quantity && base.flavors.length === 1) {
       const existing = base.flavors[0];
       const quantity = Number(parsed.quantity);
-      merged.flavors = [{ name: existing.name, quantity, unitPrice: existing.unitPrice ?? PRICES[existing.name.toLowerCase()], subtotal: quantity * (existing.unitPrice ?? PRICES[existing.name.toLowerCase()] ?? 0) }];
+      const price = existing.unitPrice ?? PRICES[existing.name.toLowerCase()] ?? 0;
+      merged.flavors = [{ name: existing.name, quantity, unitPrice: price, subtotal: quantity * price }];
       merged.quantity = quantity;
     }
 
@@ -280,6 +281,14 @@ export class AiService {
     }
 
     return details;
+  }
+
+  private isOrderFieldAnswer(lower: string) {
+    return /^\d+\s*(?:pcs?|pieces?)$/i.test(lower)
+      || /^(pickup|pick up|maxim|gcash|cod)$/i.test(lower)
+      || /^(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it)$/i.test(lower)
+      || /\b(address|landmark|contact(?: number| #)?|phone(?: number)?|cp|mobile)\b/i.test(lower)
+      || /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower);
   }
 
   private calculateMissingFields(details: Details): string[] {
