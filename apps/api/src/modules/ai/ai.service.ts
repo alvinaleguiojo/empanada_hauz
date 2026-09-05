@@ -144,6 +144,24 @@ interface OllamaResponse {
   message?: { content?: string };
 }
 
+const PRICE_LIST: Record<string, number> = {
+  "bacon with cheese": 35,
+  "pork regular": 20,
+  "pork regular with egg": 25,
+  "pork with egg": 25,
+  "pork asado": 30,
+  "ham & cheese": 25,
+  "ham and cheese": 25,
+  chicken: 20,
+  "chicken with egg": 25,
+  "ube": 25,
+  "ube empanada": 25,
+  mango: 25,
+  choco: 30,
+  beef: 35,
+  "beef with egg": 40
+};
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -156,6 +174,9 @@ export class AiService {
   }
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[] }): Promise<AIIntentResult> {
+    const fastPricing = this.tryFastPricingReply(message);
+    if (fastPricing) return fastPricing;
+
     const now = new Date();
     const currentDateTime = new Intl.DateTimeFormat("en-PH", {
       timeZone: "Asia/Manila",
@@ -166,8 +187,10 @@ export class AiService {
       .replace("{{CURRENT_DATE_TIME}}", currentDateTime)
       .replaceAll("{{Customer's Name}}", context?.customerName ?? "Customer");
 
-    const conversationContext = context?.recentMessages?.length
-      ? `\nRecent conversation:\n${context.recentMessages.join("\n")}`
+    // Keep the CPU inference prompt small. Messenger only needs the most recent turns.
+    const recentMessages = (context?.recentMessages ?? []).slice(-6);
+    const conversationContext = recentMessages.length
+      ? `\nRecent conversation:\n${recentMessages.join("\n")}`
       : "";
 
     const schema = {
@@ -193,7 +216,7 @@ export class AiService {
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
+      const timeout = setTimeout(() => controller.abort(), 45000);
       let response: Response;
       try {
         response = await fetch(`${this.baseUrl}/api/chat`, {
@@ -204,7 +227,14 @@ export class AiService {
             model: this.model,
             stream: false,
             format: "json",
-            options: { temperature: 0.2 },
+            // Qwen3 thinking is unnecessary for a short customer-support response and
+            // is especially expensive on CPU-only machines.
+            think: false,
+            options: {
+              temperature: 0.1,
+              num_predict: 300,
+              num_ctx: 4096
+            },
             messages: [
               { role: "system", content: `${systemPrompt}\n\nJSON schema to follow:\n${JSON.stringify(schema)}` },
               { role: "user", content: `${conversationContext}\nCustomer message:\n${message}` }
@@ -231,6 +261,30 @@ export class AiService {
     }
   }
 
+  private tryFastPricingReply(message: string): AIIntentResult | null {
+    const lower = message.toLowerCase().trim();
+    const asksPrice = /\b(hm|how much|price|pila|tagpila|presyo)\b/.test(lower);
+    if (!asksPrice) return null;
+
+    const matched = Object.entries(PRICE_LIST).find(([name]) => lower.includes(name));
+    if (!matched) return null;
+
+    const [name, price] = matched;
+    const displayName = name
+      .replace("pork with egg", "Pork Regular with Egg")
+      .replace("pork regular", "Pork Regular")
+      .replace("bacon with cheese", "New Flavor Bacon with Cheese")
+      .replace("chicken with egg", "Chicken with Egg")
+      .replace("beef with egg", "Beef with Egg");
+
+    return {
+      intent: "pricing_question",
+      confidence: 1,
+      details: { missingFields: [], flavors: [] },
+      suggestedReply: `- ${displayName} — ₱${price}`
+    };
+  }
+
   private normalizeResult(result: AIIntentResult, message: string): AIIntentResult {
     const details = result.details ?? { missingFields: [] };
     details.missingFields = Array.isArray(details.missingFields) ? details.missingFields : [];
@@ -253,7 +307,11 @@ export class AiService {
     const lower = message.toLowerCase();
     const quantityMatch = lower.match(/(\d+)\s*(pcs|pieces|pc)?/);
     const deliveryMethod = lower.includes("maxim") ? "maxim" : lower.includes("pickup") ? "pickup" : undefined;
-    const intent = lower.includes("price") || lower.includes("hm") ? "pricing_question" : deliveryMethod === "pickup" ? "pickup_request" : deliveryMethod === "maxim" ? "delivery_request" : "inquiry";
+    const intent = lower.includes("price") || lower.includes("hm") || lower.includes("how much") || lower.includes("pila") || lower.includes("tagpila") || lower.includes("presyo")
+      ? "pricing_question"
+      : deliveryMethod === "pickup" ? "pickup_request"
+      : deliveryMethod === "maxim" ? "delivery_request"
+      : "inquiry";
     return {
       intent,
       confidence: 0.2,
