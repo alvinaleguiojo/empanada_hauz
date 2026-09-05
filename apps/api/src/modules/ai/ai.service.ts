@@ -2,60 +2,49 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AIIntentResult } from "./types";
 
-const EMPANADA_SYSTEM_PROMPT = `You are a customer support assistant for Empanada Hauz.
-Keep replies short and clear. Use Cebuano when the customer uses Cebuano, otherwise English.
-You answer EVERY customer message.
+const EMPANADA_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
 
-Read the customer's current message together with the recent conversation and these business rules, then decide the correct intent, extract any order details, and write the customer-facing reply yourself.
+You answer EVERY customer message yourself.
+Use the customer's current message and relevant recent conversation together with these business rules.
+Decide what the customer is actually asking before answering.
+Never assume a normal question is an order confirmation.
+Never let an old order discussion override a new unrelated question.
+Do not invent prices, order details, delivery times, or policies.
+Keep replies short, clear, natural, and helpful.
+Use Cebuano when the customer uses Cebuano, otherwise English.
 
-Do not invent prices or order details. Minimum order is 10 pcs.
+Business rules:
+- Minimum order: 10 pcs.
+- Mixed flavors are allowed.
+- Prices: New Flavor Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30; Ham & Cheese ₱25; Chicken ₱20; Chicken with Egg ₱25; Ube Empanada ₱25; Mango ₱25; Choco ₱30; Beef ₱35; Beef with Egg ₱40.
+- Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
+- Payment: GCash or COD. GCash: Alvin Aleguiojo, 09453916796.
+- Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Beside Prince Bulacao.
+- Maxim delivery is available.
+- For Maxim, collect Address, Landmark, and Contact #. Do not ask for a preferred delivery time.
+- Pickup orders need flavor, quantity, payment method, and pickup/delivery choice before confirmation.
+- Baked is ₱5 more than the original price.
+- Preparation is approximately 1 hour.
+- Orders of 30 pcs or more get 20% off the delivery fee only, and only when the customer asks about a discount.
+- If a customer schedules an order, preserve the date and time; never invent a time.
+- If today is Sunday in Asia/Manila, tell customers the business is closed and do not create Sunday orders.
+- Never treat placeholder strings such as "none provided", "unknown", or "not available" as real customer information.
+- Before confirmation, when an order summary is appropriate, end exactly with: "Please confirm if all the details above are correct. 😊"
+- Never claim an order was created unless the application has successfully created it.
+- After the application successfully creates a confirmed order, the application sends the ready message.
 
-Prices:
-- New Flavor Bacon with Cheese - ₱35
-- Pork Regular - ₱20
-- Pork Regular with Egg - ₱25
-- Pork Asado - ₱30
-- Ham & Cheese - ₱25
-- Chicken - ₱20
-- Chicken with Egg - ₱25
-- Ube Empanada - ₱25
-- Mango - ₱25
-- Choco - ₱30
-- Beef - ₱35
-- Beef with Egg - ₱40
-Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
-
-Payment: GCash or Cash on Delivery (COD). GCash: Alvin Aleguiojo, 09453916796.
-Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Maxim delivery is also available.
-For Maxim delivery, collect Address, Landmark, and Contact #. Do not ask for a preferred delivery time.
-Pickup orders only need a flavor, quantity, and payment method before confirmation.
-Baked is ₱5 more than the original price. Mixed flavors are allowed. Preparation is approximately 1 hour.
-Orders of 30 pcs or more get 20% off the delivery fee only, and only when the customer asks about a discount.
-If a customer schedules an order, preserve the date and time in the summary; never invent a time.
-Before confirmation, provide a concise bullet-point summary and end with: "Please confirm if all the details above are correct. 😊"
-After the application successfully creates a confirmed order, the application will send the ready message. Never claim an order was created yourself.
-If today is Sunday in Asia/Manila, tell customers the business is closed and do not create Sunday orders.
-Never treat placeholder strings such as "none provided", "unknown", or "not available" as real customer information. Use null or omit missing values.
-
-Important conversation behavior:
-- Answer the customer's actual current question first.
-- Do not assume that every customer message is an order confirmation.
-- A flavor request is not a confirmation.
-- A quantity is not a confirmation.
-- "confirm" is confirmation only when the customer has already supplied all required order details.
-- Remember relevant details from the recent conversation when the customer is continuing an order.
-- Mixed flavors are allowed and should be handled naturally.
-
-Return ONLY valid JSON matching the requested schema.`;
+Conversation behavior:
+- "hm" means how much.
+- "df" means delivery fee.
+- A flavor request is not confirmation.
+- A quantity is not confirmation.
+- The word "confirm" is confirmation only when the customer has already provided all required order details.
+- Answer the customer's actual question first.
+- Do not ask for information the customer already provided.
+- Do not ask for a preferred delivery or pickup time.
+`;
 
 interface OllamaResponse { message?: { content?: string } }
-
-type KnownOrderFacts = {
-  product?: { name: string; price: number };
-  quantity?: number;
-  deliveryMethod?: "pickup" | "maxim";
-  paymentMethod?: "cod" | "gcash";
-};
 
 const PRODUCTS: Array<{ aliases: string[]; name: string; price: number }> = [
   { aliases: ["bacon with cheese", "bacon"], name: "New Flavor Bacon with Cheese", price: 35 },
@@ -77,10 +66,7 @@ const OLLAMA_RESULT_SCHEMA = {
   additionalProperties: false,
   required: ["intent", "confidence", "details", "suggestedReply"],
   properties: {
-    intent: {
-      type: "string",
-      enum: ["inquiry", "order_confirmation", "reservation", "delivery_request", "pickup_request", "pricing_question"]
-    },
+    intent: { type: "string", enum: ["inquiry", "order_confirmation", "reservation", "delivery_request", "pickup_request", "pricing_question"] },
     confidence: { type: "number", minimum: 0, maximum: 1 },
     details: {
       type: "object",
@@ -132,36 +118,83 @@ export class AiService {
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[] }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
-    const systemPrompt = EMPANADA_SYSTEM_PROMPT.replace("{{CURRENT_DATE_TIME}}", now).replaceAll("{{Customer's Name}}", context?.customerName ?? "Customer");
+    const systemPrompt = `${EMPANADA_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName ?? "Customer"}`;
     const recentMessages = (context?.recentMessages ?? []).slice(-12);
-    const conversationContext = recentMessages.length ? `Recent conversation:\n${recentMessages.join("\n")}` : "(no previous conversation)";
+    const conversationContext = recentMessages.length ? recentMessages.join("\n") : "(no previous conversation)";
 
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
-    const result = await this.callOllama({ systemPrompt, conversationContext, message });
-    const normalized = this.normalizeResult(result);
-    if (!normalized.suggestedReply) throw new Error("Ollama did not return a customer-facing reply");
+
+    const suggestedReply = await this.generateCustomerReply(systemPrompt, message, conversationContext);
+
+    let extracted: AIIntentResult;
+    try {
+      extracted = await this.extractOrderState(systemPrompt, message, conversationContext);
+    } catch (error) {
+      this.logger.warn(`AI extraction failed; customer reply remains Qwen-only reason=${String(error)}`);
+      extracted = {
+        intent: "inquiry",
+        confidence: 0,
+        details: { flavors: [], missingFields: [], confirmed: false },
+        suggestedReply
+      };
+    }
+
+    const normalized = this.normalizeResult({ ...extracted, suggestedReply });
     this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${normalized.confidence} intent=${normalized.intent}`);
     return { ...normalized, source: "ollama" };
   }
 
-  private async callOllama(input: { systemPrompt: string; conversationContext: string; message: string }): Promise<AIIntentResult> {
+  private async generateCustomerReply(systemPrompt: string, message: string, conversationContext: string): Promise<string> {
+    const body = {
+      model: this.model,
+      stream: false,
+      think: false,
+      options: { temperature: 0.35, num_predict: 256, num_ctx: 4096 },
+      messages: [
+        {
+          role: "system",
+          content: `${systemPrompt}\n\nYou are now answering the customer directly. The response you write will be sent to Messenger exactly as returned. Do not output JSON, labels, analysis, intent names, or instructions to the application. Answer naturally in one concise customer-facing message.`
+        },
+        {
+          role: "user",
+          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nRELEVANT RECENT CONVERSATION:\n${conversationContext}`
+        }
+      ]
+    };
+
+    const response = await this.ollamaChat(body, "Ollama customer reply failed");
+    const reply = response.message?.content?.trim();
+    if (!reply) throw new Error("Ollama returned an empty customer reply");
+    this.logger.log(`AI customer reply generated model=${this.model} message=${JSON.stringify(message)}`);
+    return reply.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  }
+
+  private async extractOrderState(systemPrompt: string, message: string, conversationContext: string): Promise<AIIntentResult> {
     const body = {
       model: this.model,
       stream: false,
       format: OLLAMA_RESULT_SCHEMA,
       think: false,
-      options: { temperature: 0.2, num_predict: 768, num_ctx: 4096 },
+      options: { temperature: 0, num_predict: 640, num_ctx: 4096 },
       messages: [
         {
           role: "system",
-          content: `${input.systemPrompt}\n\nYou are the sole customer-facing AI. Decide what the customer is asking and write the answer yourself from the business rules and conversation context. Do not ask the application how to reply. Do not use an external classifier. Do not output a generic order template when the customer is asking a normal product or pricing question.\n\nReturn one JSON object matching the schema.`
+          content: `${systemPrompt}\n\nThis call is ONLY for structured order state used by the application. Extract what the customer actually provided and determine whether they explicitly confirmed a complete order. Do not write the customer-facing response here beyond the suggestedReply field. Use the conversation context to preserve relevant order details.`
         },
         {
           role: "user",
-          content: `Customer context:\n${input.conversationContext}\n\nCurrent customer message:\n${input.message}`
+          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nRECENT CONVERSATION:\n${conversationContext}`
         }
       ]
     };
+
+    const response = await this.ollamaChat(body, "Ollama order extraction failed");
+    const content = response.message?.content?.trim();
+    if (!content) throw new Error("Ollama returned empty order extraction");
+    return this.normalizeResult(this.parseStructuredJson(content) as AIIntentResult);
+  }
+
+  private async ollamaChat(body: Record<string, unknown>, errorPrefix: string): Promise<OllamaResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
     try {
@@ -171,11 +204,8 @@ export class AiService {
         signal: controller.signal,
         body: JSON.stringify(body)
       });
-      if (!response.ok) throw new Error(`Ollama request failed: ${response.status} ${await response.text()}`);
-      const bodyJson = await response.json() as OllamaResponse;
-      const content = bodyJson.message?.content?.trim();
-      if (!content) throw new Error("Ollama returned an empty response");
-      return this.normalizeResult(this.parseStructuredJson(content) as AIIntentResult);
+      if (!response.ok) throw new Error(`${errorPrefix}: ${response.status} ${await response.text()}`);
+      return await response.json() as OllamaResponse;
     } finally {
       clearTimeout(timeout);
     }
@@ -208,37 +238,27 @@ export class AiService {
     };
   }
 
-  /** Structured validation for MCP execution only. It never changes the customer-facing suggestedReply. */
+  /** Structured validation for MCP execution only. It never changes the Qwen customer reply. */
   applyKnownFacts(result: AIIntentResult, message: string, recentMessages: string[]): AIIntentResult {
     const corrected = this.normalizeResult(result);
     const text = [message, ...recentMessages].join(" ").toLowerCase();
-    const facts = JSON.parse(this.buildKnownFacts(message, recentMessages)) as KnownOrderFacts;
     const details = corrected.details;
 
-    if (facts.product) {
-      const existing = details.flavors ?? [];
-      const found = existing.find(item => item.name.toLowerCase() === facts.product!.name.toLowerCase());
-      if (!found && (facts.quantity ?? 0) > 0) {
-        details.flavors = [{ name: facts.product.name, quantity: facts.quantity!, unitPrice: facts.product.price, subtotal: facts.quantity! * facts.product.price }, ...existing];
-      } else if (found) {
-        found.unitPrice = facts.product.price;
-        if (facts.quantity) found.quantity = facts.quantity;
-        found.subtotal = found.quantity * facts.product.price;
-      }
-    }
-
-    if (facts.quantity) details.quantity = Math.max(details.quantity ?? 0, facts.quantity);
-    if (facts.deliveryMethod) details.deliveryMethod = facts.deliveryMethod;
-    if (facts.paymentMethod) details.paymentMethod = facts.paymentMethod;
-
     details.flavors = (details.flavors ?? []).filter(item => item && item.name && item.quantity > 0);
+    details.flavors = details.flavors.map(item => {
+      const normalizedName = item.name.toLowerCase();
+      const product = PRODUCTS.find(p => p.name.toLowerCase() === normalizedName || p.aliases.some(alias => normalizedName === alias));
+      const price = product?.price ?? item.unitPrice ?? 0;
+      return {
+        ...item,
+        name: product?.name ?? item.name,
+        unitPrice: price || undefined,
+        subtotal: price ? price * item.quantity : item.subtotal
+      };
+    });
+
     const totalQty = details.flavors.reduce((sum, item) => sum + item.quantity, 0);
     if (totalQty > 0) details.quantity = totalQty;
-
-    details.flavors = details.flavors.map(item => {
-      const price = PRODUCTS.find(p => p.name.toLowerCase() === item.name.toLowerCase())?.price ?? item.unitPrice ?? 0;
-      return { ...item, unitPrice: price || undefined, subtotal: price ? price * item.quantity : item.subtotal };
-    });
     details.totalAmount = details.flavors.reduce((sum, item) => sum + (item.subtotal ?? 0), 0) || undefined;
 
     const hasFlavor = details.flavors.length > 0;
@@ -268,21 +288,5 @@ export class AiService {
     }
 
     return corrected;
-  }
-
-  private buildKnownFacts(message: string, recentMessages: string[]): string {
-    const text = [message, ...recentMessages].join(" ").toLowerCase();
-    const facts: KnownOrderFacts = {};
-    const matchedProducts = PRODUCTS.filter(product => product.aliases.some(alias => text.includes(alias)));
-    if (matchedProducts.length === 1) {
-      facts.product = { name: matchedProducts[0].name, price: matchedProducts[0].price };
-    }
-    const quantityMatches = [...text.matchAll(/\b(\d+)\s*(?:pcs?|pieces?)\b/gi)];
-    if (quantityMatches.length === 1) facts.quantity = Number(quantityMatches[0][1]);
-    if (/\b(?:pickup|pick-up)\b/i.test(text)) facts.deliveryMethod = "pickup";
-    else if (/\bmaxim\b/i.test(text)) facts.deliveryMethod = "maxim";
-    if (/\bgcash\b/i.test(text)) facts.paymentMethod = "gcash";
-    else if (/\b(?:cod|cash on delivery|cash)\b/i.test(text)) facts.paymentMethod = "cod";
-    return JSON.stringify(facts);
   }
 }
