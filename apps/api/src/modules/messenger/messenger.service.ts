@@ -27,12 +27,16 @@ export class MessengerService {
   ) {}
 
   async processIncoming(event: { senderId: string; messageId?: string; text: string; rawPayload: unknown }) {
+    this.logger.log(`Messenger AI processing started: sender=${event.senderId} messageId=${event.messageId ?? "unknown"}`);
     const stored = await this.persistInbound(event);
+    this.logger.log(`Messenger inbound persisted: sender=${event.senderId} messageId=${event.messageId ?? "unknown"} message=${stored.id}`);
     const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId }, include: { customer: true } });
     const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 12, select: { direction: true, content: true } });
     const contextMessages = recentMessages.reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
 
+    this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:8b")}`);
     const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages });
+    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
@@ -49,7 +53,8 @@ export class MessengerService {
     }
 
     if (reply) {
-      try { await this.sendText(event.senderId, reply); }
+      this.logger.log(`Sending Qwen Messenger reply: sender=${event.senderId}`);
+      try { await this.sendText(event.senderId, reply); this.logger.log(`Qwen Messenger reply sent: sender=${event.senderId}`); }
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error)); }
     }
     return { ai, reply };
@@ -121,19 +126,32 @@ export class MessengerService {
     const token = await this.metaAuthService.getPageToken();
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
     const requestUrl = new URL(url); requestUrl.searchParams.set("access_token", token);
-    const response = await fetch(requestUrl, { headers: { accept: "application/json" } }); const body = await response.text();
-    if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
-    return JSON.parse(body) as T;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal });
+      const body = await response.text();
+      if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
+      return JSON.parse(body) as T;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async metaPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
     const token = await this.metaAuthService.getPageToken();
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
     const endpoint = `https://graph.facebook.com/${this.graphVersion()}${path}`;
-    const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) });
-    const responseBody = await response.text();
-    if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
-    return JSON.parse(responseBody) as T;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+      const responseBody = await response.text();
+      if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
+      return JSON.parse(responseBody) as T;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async requestThreadControl(psid: string, metadata?: string) {
@@ -207,12 +225,17 @@ export class MessengerService {
   async sendText(recipientPsid: string, text: string) {
     const pageToken = await this.metaAuthService.getPageToken(); const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`; const payload = { recipient: { id: recipientPsid }, messaging_type: "RESPONSE", message: { text } };
     if (!pageToken) { this.logger.warn("Meta Page authentication not configured; outbound send skipped"); return { skipped: true, payload }; }
-    const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-    if (!response.ok) throw new Error(`Meta send failed: ${response.status} ${await response.text()}`);
-    const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
-    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
-    this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
-    return metaResult;
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
+      if (!response.ok) throw new Error(`Meta send failed: ${response.status} ${await response.text()}`);
+      const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
+      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
+      this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
+      return metaResult;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
