@@ -118,8 +118,8 @@ const OLLAMA_REPLY_SCHEMA = {
 @Injectable()
 export class AiService {
   protected readonly logger = new Logger(AiService.name);
-  private readonly baseUrl: string;
-  private readonly model: string;
+  protected readonly baseUrl: string;
+  protected readonly model: string;
 
   constructor(private readonly config: ConfigService) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
@@ -267,8 +267,7 @@ export class AiService {
     const content = body.message?.content?.trim();
     if (!content) throw new Error("Ollama reply rewrite returned an empty response");
     const parsed = this.parseStructuredJson(content) as { reply?: string };
-    if (!parsed.reply?.trim()) throw new Error("Ollama reply rewrite returned no reply");
-    return parsed.reply.trim();
+    return parsed.reply?.trim() ?? "";
   }
 
   private parseStructuredJson(content: string): unknown {
@@ -282,197 +281,97 @@ export class AiService {
     }
   }
 
-  private isOrderRelatedMessage(message: string) {
-    const lower = message.toLowerCase();
-    return Boolean(
-      this.findProduct(lower) ||
-      this.extractQuantity(lower) ||
-      this.extractDeliveryMethod(lower) ||
-      this.extractPaymentMethod(lower) ||
-      /\b(order|orders|ordering|confirm|confirmed|proceed|place|deliver|delivery|pickup|pick up|address|landmark|contact|schedule|scheduled|pcs?|pieces?|buy|get)\b/i.test(lower)
-    );
-  }
-
-  private buildKnownFacts(message: string, recentMessages: string[]) {
-    const current = this.extractFacts(message);
-    const historical = this.isOrderRelatedMessage(message) ? this.extractHistoricalFacts(recentMessages) : {};
-    const product = current.product ?? historical.product;
-    const quantity = current.quantity ?? historical.quantity;
-    const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
-    const paymentMethod = current.paymentMethod ?? historical.paymentMethod;
-    const address = this.cleanText(current.address ?? historical.address);
-    const landmark = this.cleanText(current.landmark ?? historical.landmark);
-    const contactNumber = this.cleanText(current.contactNumber ?? historical.contactNumber);
-    const missing = this.requiredMissingFromFacts({ product, quantity, deliveryMethod, paymentMethod, address, landmark, contactNumber });
-    return [
-      product ? `Product: ${product.name} at ₱${product.price}.` : "Product: none provided.",
-      quantity ? `Quantity: ${quantity}.` : "Quantity: none provided.",
-      deliveryMethod ? `Delivery method: ${deliveryMethod}.` : "Delivery method: none provided.",
-      paymentMethod ? `Payment method: ${paymentMethod}.` : "Payment method: none provided.",
-      address ? `Address: ${address}.` : "Address: none provided.",
-      landmark ? `Landmark: ${landmark}.` : "Landmark: none provided.",
-      contactNumber ? `Contact #: ${contactNumber}.` : "Contact #: none provided.",
-      product && quantity ? `Validated product total before delivery fee: ₱${product.price * quantity}.` : "Validated total: unavailable.",
-      missing.length ? `Required missing fields: ${missing.join(", ")}.` : "Required missing fields: none."
-    ].join("\n");
-  }
-
-  private extractHistoricalFacts(recentMessages: string[]): KnownOrderFacts {
-    const facts: KnownOrderFacts = {};
-    for (let i = recentMessages.length - 1; i >= 0; i -= 1) {
-      const line = recentMessages[i];
-      if (!/^Customer:/i.test(line)) continue;
-      const extracted = this.extractFacts(line.replace(/^Customer:\s*/i, ""));
-      if (!facts.product && extracted.product) facts.product = extracted.product;
-      if (!facts.quantity && extracted.quantity) facts.quantity = extracted.quantity;
-      if (!facts.deliveryMethod && extracted.deliveryMethod) facts.deliveryMethod = extracted.deliveryMethod;
-      if (!facts.paymentMethod && extracted.paymentMethod) facts.paymentMethod = extracted.paymentMethod;
-      if (!facts.address && extracted.address) facts.address = extracted.address;
-      if (!facts.landmark && extracted.landmark) facts.landmark = extracted.landmark;
-      if (!facts.contactNumber && extracted.contactNumber) facts.contactNumber = extracted.contactNumber;
-    }
-    return facts;
-  }
-
-  private extractFacts(text: string): KnownOrderFacts {
-    const lower = text.toLowerCase().trim();
+  private normalizeResult(result: AIIntentResult): AIIntentResult {
+    const details = result?.details ?? { flavors: [], missingFields: [], confirmed: false };
     return {
-      product: this.findProduct(lower), quantity: this.extractQuantity(lower), deliveryMethod: this.extractDeliveryMethod(lower),
-      paymentMethod: this.extractPaymentMethod(lower),
-      address: this.extractField(lower, /address[:\s]+(.+?)(?:\s+landmark[:\s]+|\s+contact(?:\s*#| number)?[:\s]+|$)/i),
-      landmark: this.extractField(lower, /landmark[:\s]+(.+?)(?:\s+contact(?:\s*#| number)?[:\s]+|$)/i),
-      contactNumber: this.extractField(lower, /contact(?:\s*#| number)?[:\s]+([+\d][\d\s-]{6,})/i)
+      intent: result?.intent ?? "inquiry",
+      confidence: typeof result?.confidence === "number" ? result.confidence : 0,
+      details: {
+        ...details,
+        flavors: Array.isArray(details.flavors) ? details.flavors : [],
+        missingFields: Array.isArray(details.missingFields) ? details.missingFields : [],
+        confirmed: details.confirmed === true
+      },
+      suggestedReply: typeof result?.suggestedReply === "string" ? result.suggestedReply.trim() : ""
     };
+  }
+
+  private buildKnownFacts(message: string, recentMessages: string[]): string {
+    const text = [message, ...recentMessages].join(" ").toLowerCase();
+    const facts: KnownOrderFacts = {};
+    for (const product of PRODUCTS) {
+      if (product.aliases.some(alias => text.includes(alias))) {
+        facts.product = { name: product.name, price: product.price };
+        break;
+      }
+    }
+    const quantityMatch = text.match(/\b(\d+)\s*(?:pcs?|pieces?)\b/i);
+    if (quantityMatch) facts.quantity = Number(quantityMatch[1]);
+    if (/\b(?:pickup|pick-up)\b/i.test(text)) facts.deliveryMethod = "pickup";
+    else if (/\bmaxim\b/i.test(text)) facts.deliveryMethod = "maxim";
+    if (/\bgcash\b/i.test(text)) facts.paymentMethod = "gcash";
+    else if (/\b(?:cod|cash on delivery|cash)\b/i.test(text)) facts.paymentMethod = "cod";
+    return JSON.stringify(facts);
   }
 
   private applyKnownFacts(result: AIIntentResult, message: string, recentMessages: string[]): AIIntentResult {
-    const current = this.extractFacts(message);
-    const historical = this.isOrderRelatedMessage(message) ? this.extractHistoricalFacts(recentMessages) : {};
-    const details = {
-      ...(result.details ?? { missingFields: [] }),
-      missingFields: Array.isArray(result.details?.missingFields) ? [...result.details.missingFields] : [],
-      flavors: Array.isArray(result.details?.flavors) ? [...result.details.flavors] : []
-    };
-    const product = current.product ?? historical.product;
-    const quantity = current.quantity ?? historical.quantity;
-    const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
-    const paymentMethod = current.paymentMethod ?? historical.paymentMethod;
-    const address = this.cleanText(current.address ?? historical.address);
-    const landmark = this.cleanText(current.landmark ?? historical.landmark);
-    const contactNumber = this.cleanText(current.contactNumber ?? historical.contactNumber);
-    if (product && quantity) {
-      details.flavors = [{ name: product.name, quantity, unitPrice: product.price, subtotal: product.price * quantity }];
-      details.quantity = quantity;
-      details.totalAmount = product.price * quantity;
+    const corrected = this.normalizeResult(result);
+    const text = [message, ...recentMessages].join(" ").toLowerCase();
+    const facts = JSON.parse(this.buildKnownFacts(message, recentMessages)) as KnownOrderFacts;
+    const details = corrected.details;
+
+    if (facts.product) {
+      const existing = details.flavors ?? [];
+      const found = existing.find(item => item.name.toLowerCase() === facts.product!.name.toLowerCase());
+      if (!found) details.flavors = [{ name: facts.product.name, quantity: facts.quantity ?? details.quantity ?? 0, unitPrice: facts.product.price, subtotal: (facts.quantity ?? details.quantity ?? 0) * facts.product.price }, ...existing];
+      else { found.unitPrice = facts.product.price; if (facts.quantity) found.quantity = facts.quantity; found.subtotal = found.quantity * facts.product.price; }
     }
-    if (deliveryMethod) details.deliveryMethod = deliveryMethod;
-    if (paymentMethod) details.paymentMethod = paymentMethod;
-    if (address) details.address = address; else delete details.address;
-    if (landmark) details.landmark = landmark; else delete details.landmark;
-    if (contactNumber) details.contactNumber = contactNumber; else delete details.contactNumber;
-    details.deliveryMethod = this.normalizeDeliveryMethod(details.deliveryMethod);
-    details.paymentMethod = this.normalizePaymentMethod(details.paymentMethod);
-    details.location = this.cleanText(details.location);
-    const complete = this.hasCompleteOrder(details);
-    details.missingFields = complete ? [] : this.requiredMissingFields(details);
-    details.confirmed = complete && this.isExplicitConfirmation(message);
-    return this.normalizeResult({ ...result, details });
-  }
+    if (facts.quantity) details.quantity = facts.quantity;
+    if (facts.deliveryMethod) details.deliveryMethod = facts.deliveryMethod;
+    if (facts.paymentMethod) details.paymentMethod = facts.paymentMethod;
 
-  private hasCompleteOrder(details: AIIntentResult["details"]) {
-    const flavors = details.flavors ?? [];
-    const quantity = Number(details.quantity ?? 0);
-    const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(this.cleanText(details.address) && this.cleanText(details.landmark) && this.cleanText(details.contactNumber)));
-    const paymentComplete = details.paymentMethod === "cod" || details.paymentMethod === "gcash";
-    return flavors.length > 0 && quantity >= 10 && paymentComplete && Boolean(details.deliveryMethod) && deliveryComplete;
-  }
+    details.flavors = (details.flavors ?? []).filter(item => item && item.name && item.quantity > 0);
+    let totalQty = details.flavors.reduce((sum, item) => sum + item.quantity, 0);
+    if (!details.quantity && totalQty > 0) details.quantity = totalQty;
+    if (details.quantity && totalQty !== details.quantity && details.flavors.length > 0) details.quantity = totalQty;
+    details.flavors = details.flavors.map(item => {
+      const price = PRODUCTS.find(p => p.name.toLowerCase() === item.name.toLowerCase())?.price ?? item.unitPrice ?? 0;
+      return { ...item, unitPrice: price || undefined, subtotal: price ? price * item.quantity : item.subtotal };
+    });
+    details.totalAmount = details.flavors.reduce((sum, item) => sum + (item.subtotal ?? 0), 0) || undefined;
 
-  private requiredMissingFields(details: AIIntentResult["details"]) {
-    const missing: string[] = [];
-    if (!details.flavors?.length) missing.push("flavors");
-    if (Number(details.quantity ?? 0) < 10) missing.push("quantity");
-    if (!details.deliveryMethod) missing.push("deliveryMethod");
-    if (!details.paymentMethod) missing.push("paymentMethod");
+    const hasFlavor = details.flavors.length > 0;
+    const hasQuantity = (details.quantity ?? 0) >= 10;
+    const hasDelivery = details.deliveryMethod === "pickup" || details.deliveryMethod === "maxim";
+    const hasPayment = details.paymentMethod === "cod" || details.paymentMethod === "gcash";
+    const hasAddress = details.deliveryMethod !== "maxim" || (!!details.address && !!details.landmark && !!details.contactNumber);
+    details.missingFields = [];
+    if (!hasFlavor) details.missingFields.push("flavor");
+    if (!hasQuantity) details.missingFields.push("quantity");
+    if (!hasDelivery) details.missingFields.push("pickup or delivery");
+    if (!hasPayment) details.missingFields.push("payment method");
     if (details.deliveryMethod === "maxim") {
-      if (!this.cleanText(details.address)) missing.push("address");
-      if (!this.cleanText(details.landmark)) missing.push("landmark");
-      if (!this.cleanText(details.contactNumber)) missing.push("contactNumber");
+      if (!details.address) details.missingFields.push("address");
+      if (!details.landmark) details.missingFields.push("landmark");
+      if (!details.contactNumber) details.missingFields.push("contact number");
     }
-    return missing;
-  }
 
-  private requiredMissingFromFacts(facts: KnownOrderFacts) {
-    const missing: string[] = [];
-    if (!facts.product) missing.push("flavors");
-    if (!facts.quantity || facts.quantity < 10) missing.push("quantity");
-    if (!facts.deliveryMethod) missing.push("deliveryMethod");
-    if (!facts.paymentMethod) missing.push("paymentMethod");
-    if (facts.deliveryMethod === "maxim") {
-      if (!this.cleanText(facts.address)) missing.push("address");
-      if (!this.cleanText(facts.landmark)) missing.push("landmark");
-      if (!this.cleanText(facts.contactNumber)) missing.push("contactNumber");
+    const explicitConfirmation = /\b(yes|correct|confirmed|confirm|go ahead|place my order|place the order|order it|that's correct|that is correct|okay proceed|proceed)\b/i.test(message);
+    details.confirmed = explicitConfirmation && hasFlavor && hasQuantity && hasDelivery && hasPayment && hasAddress && details.missingFields.length === 0;
+    if (!details.confirmed && !explicitConfirmation) details.confirmed = false;
+
+    const lowerReply = (corrected.suggestedReply ?? "").toLowerCase();
+    if (!details.confirmed && /\b(?:order (?:is )?(?:confirmed|placed|submitted|accepted)|confirmed order)\b/.test(lowerReply)) corrected.suggestedReply = "";
+    if (/\b(?:none provided|unknown|not available)\b/i.test(text)) {
+      details.address = details.address && !/\b(?:none provided|unknown|not available)\b/i.test(details.address) ? details.address : undefined;
+      details.landmark = details.landmark && !/\b(?:none provided|unknown|not available)\b/i.test(details.landmark) ? details.landmark : undefined;
+      details.contactNumber = details.contactNumber && !/\b(?:none provided|unknown|not available)\b/i.test(details.contactNumber) ? details.contactNumber : undefined;
     }
-    return missing;
+    return corrected;
   }
 
-  private isExplicitConfirmation(message: string) {
-    return /\b(yes|correct|confirmed|confirm|go ahead|place my order|place the order|order it|that's correct|that is correct|okay proceed|proceed)\b/i.test(message);
-  }
-
-  private shouldRewriteReply(result: AIIntentResult) {
-    const details = result.details;
-    return Boolean(details.flavors?.length || details.quantity || details.deliveryMethod || details.paymentMethod || details.confirmed);
-  }
-
-  private findProduct(text: string) {
-    return PRODUCTS.find((product) => product.aliases.some((alias) => new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i").test(text)));
-  }
-
-  private extractQuantity(text: string) {
-    const match = text.match(/\b(\d+)\s*(?:pcs?|pieces?)?\b/i);
-    return match ? Number(match[1]) : undefined;
-  }
-
-  private extractDeliveryMethod(text: string): "pickup" | "maxim" | undefined {
-    if (/\b(pick ?up|pick-up)\b/i.test(text)) return "pickup";
-    if (/\b(maxim|deliver|delivery)\b/i.test(text)) return "maxim";
-    return undefined;
-  }
-
-  private extractPaymentMethod(text: string): "cod" | "gcash" | undefined {
-    if (/\b(gcash|g cash)\b/i.test(text)) return "gcash";
-    if (/\b(cod|cash on delivery|cash)\b/i.test(text)) return "cod";
-    return undefined;
-  }
-
-  private extractField(text: string, pattern: RegExp) { return this.cleanText(text.match(pattern)?.[1]); }
-
-  private cleanText(value?: unknown) {
-    if (typeof value !== "string") return undefined;
-    const normalized = value.trim();
-    if (!normalized) return undefined;
-    if (/^(?:none|none provided|not provided|unknown|n\/a|na|null|undefined|not available)$/i.test(normalized)) return undefined;
-    return normalized;
-  }
-
-  private normalizeDeliveryMethod(value: unknown): "pickup" | "maxim" | undefined { return value === "pickup" || value === "maxim" ? value : undefined; }
-  private normalizePaymentMethod(value: unknown): "cod" | "gcash" | undefined { return value === "cod" || value === "gcash" ? value : undefined; }
-
-  private normalizeResult(result: AIIntentResult): AIIntentResult {
-    const details = result.details ?? { missingFields: [] };
-    details.missingFields = Array.isArray(details.missingFields) ? details.missingFields : [];
-    details.flavors = Array.isArray(details.flavors) ? details.flavors : [];
-    details.deliveryMethod = this.normalizeDeliveryMethod(details.deliveryMethod);
-    details.paymentMethod = this.normalizePaymentMethod(details.paymentMethod);
-    details.location = this.cleanText(details.location);
-    details.address = this.cleanText(details.address);
-    details.landmark = this.cleanText(details.landmark);
-    details.contactNumber = this.cleanText(details.contactNumber);
-    result.confidence = Math.max(0, Math.min(1, Number(result.confidence) || 0));
-    if (!result.intent) result.intent = "inquiry";
-    result.suggestedReply = result.suggestedReply?.trim() ?? "";
-    if (!details.quantity && details.flavors.length) details.quantity = details.flavors.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
-    result.details = details;
-    return result;
+  private shouldRewriteReply(result: AIIntentResult): boolean {
+    const d = result.details;
+    return d.flavors.length > 0 || (d.quantity ?? 0) > 0 || !!d.deliveryMethod || !!d.paymentMethod || d.confirmed === true;
   }
 }
