@@ -192,20 +192,28 @@ export class AiService {
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({
-          model: this.model,
-          stream: false,
-          format: "json",
-          options: { temperature: 0.2 },
-          messages: [
-            { role: "system", content: `${systemPrompt}\n\nJSON schema to follow:\n${JSON.stringify(schema)}` },
-            { role: "user", content: `${conversationContext}\nCustomer message:\n${message}` }
-          ]
-        })
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      let response: Response;
+      try {
+        response = await fetch(`${this.baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: this.model,
+            stream: false,
+            format: "json",
+            options: { temperature: 0.2 },
+            messages: [
+              { role: "system", content: `${systemPrompt}\n\nJSON schema to follow:\n${JSON.stringify(schema)}` },
+              { role: "user", content: `${conversationContext}\nCustomer message:\n${message}` }
+            ]
+          })
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         throw new Error(`Ollama request failed: ${response.status} ${await response.text()}`);
@@ -218,7 +226,7 @@ export class AiService {
       const parsed = JSON.parse(content) as AIIntentResult;
       return this.normalizeResult(parsed, message);
     } catch (error) {
-      this.logger.warn(`Ollama parse failed, using fallback: ${String(error)}`);
+      this.logger.warn(`Ollama parse/request failed, using fallback: ${String(error)}`);
       return this.fallbackParse(message);
     }
   }
