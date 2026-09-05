@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiService } from "./ai.service";
 import { AIIntentResult } from "./types";
@@ -14,7 +14,6 @@ const OLLAMA_REPLY_SCHEMA = {
 
 @Injectable()
 export class StrictReplyAiService extends AiService {
-  private readonly logger = new Logger(StrictReplyAiService.name);
   private readonly baseUrl: string;
   private readonly model: string;
 
@@ -28,7 +27,7 @@ export class StrictReplyAiService extends AiService {
     const result = await super.classifyAndExtract(message, context);
     const normalizedMessage = message.trim().toLowerCase();
     const explicitConfirmation = /\b(yes|correct|confirmed|confirm|go ahead|place my order|place the order|order it|that's correct|that is correct|okay proceed|proceed)\b/i.test(message);
-    const currentTurnLooksLikeOrderStep = /\b(?:chicken|pork|beef|asado|bacon|ham|ube|mango|choco|empanada|\d+\s*(?:pcs?|pieces?)?|pickup|pick-up|maxim|delivery|deliver|gcash|cod|cash|address|landmark|contact)\b/i.test(normalizedMessage);
+    const currentTurnLooksLikeOrderStep = /\b(?:chicken|pork|beef|asado|bacon|ham|ube|mango|choco|empanada|\d+\s*(?:pcs?|pieces?)?|pickup|pick-up|maxim|delivery|deliver|gcash|cod|cash|address|landmark|contact|confirm|confirmed|proceed|place)\b/i.test(normalizedMessage);
     const currentTurnSaysDetailsMissing = /\b(?:no details|no detail|details not|nothing provided|none provided)\b/i.test(normalizedMessage);
     const suspiciousConfirmation = /\b(?:confirmed|confirm|placed|submitted|accepted)\b/i.test(result.suggestedReply ?? "");
 
