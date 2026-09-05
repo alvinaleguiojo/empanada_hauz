@@ -119,7 +119,7 @@ export class AiService {
       model: this.model, stream: false, think: false,
       options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied application order facts when the current message clearly refers to them. The application facts contain the authoritative missing-fields list. When Missing required fields is not none, ask for the missing fields and do not ask for order confirmation. A complete confirmation summary is forbidden until Missing required fields is none. Never claim that an order is confirmed or placed when application validation says NOT READY. Never invent missing delivery or payment information. For an order request, ask only for the next missing required information; do not pretend the order is complete when quantity, delivery method, payment method, or required delivery details are still missing. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written.\n\nRULE ORDER:\n1. Treat APPLICATION ORDER FACTS and the NEXT ACTION DIRECTIVE as authoritative application state.\n2. Answer the customer's current question directly using those facts. If the customer asks for a total, give the stated total amount; never repeat the question back.\n3. For an order request, follow the NEXT ACTION DIRECTIVE exactly. If it says missing delivery method/payment method, ask for those instead of presenting a confirmation summary.\n4. If Missing required fields is not none, confirmation is forbidden. Do not say the details are correct and do not ask the customer to confirm.\n5. Only present a confirmation summary when Missing required fields is none.\n6. Never claim that an order is confirmed or placed when application validation says NOT READY.\n7. Never invent missing delivery or payment information.\nDo not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     }, "Ollama customer reply failed");
@@ -156,15 +156,11 @@ export class AiService {
 
     if (activeOrderState?.flavors?.length && (explicitFollowUp || activeOrderQuestion || scheduleMessage) && (!freshRequest || /\b(same order|change|remove|add|instead)\b/i.test(lower))) {
       const recent = recentMessages.slice(-2).join("\n");
-      return `ACTIVE ORDER CONTEXT:\n${this.formatOrderContext(activeOrderState)}\n\n${recent ? `RECENT CONVERSATION:\n${recent}\n\n` : ""}Use this only because the current message clearly refers to the active order. Current message always wins.`;
+      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(activeOrderState)}\n\n${this.buildNextActionDirective(message, activeOrderState)}\n\n${recent ? `RECENT CONVERSATION:\n${recent}\n\n` : ""}Current message always wins.`;
     }
 
     if (currentDetails?.flavors?.length) {
-      const missing = currentDetails.missingFields;
-      const nextAction = missing.length
-        ? `NEXT REQUIRED ACTION: Ask the customer for the missing information listed above. Do not ask them to confirm the order yet.`
-        : `NEXT REQUIRED ACTION: The order facts are complete. Only an explicit customer confirmation can move to placement.`;
-      return `CURRENT ORDER FACTS:\n${this.formatOrderContext(currentDetails)}\n${nextAction}\n\nCONVERSATION CONTEXT: none. Treat this as the current request.`;
+      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(currentDetails)}\n\n${this.buildNextActionDirective(message, currentDetails)}\n\nCONVERSATION CONTEXT: none. Treat this as the current request.`;
     }
 
     if (explicitFollowUp && !freshRequest && recentMessages.length) {
@@ -172,6 +168,32 @@ export class AiService {
     }
 
     return "CONVERSATION CONTEXT: none. Treat the current message as a fresh request. Do not repeat any previous answer.";
+  }
+
+  private buildNextActionDirective(message: string, details: Details): string {
+    const lower = message.toLowerCase().trim();
+    if (/\b(total|total cost|how much is the total|how much total)\b/i.test(lower) && details.flavors.length) {
+      const total = details.totalAmount ?? details.flavors.reduce((sum, item) => sum + (item.subtotal ?? item.quantity * (item.unitPrice ?? 0)), 0);
+      return `NEXT ACTION DIRECTIVE: Answer the total directly. The current food total is ₱${total}. After answering, do not ask the customer to confirm the order unless the application's missing-field list is none.`;
+    }
+
+    const missing = details.missingFields;
+    if (missing.length) {
+      const humanMissing = missing.map((field) => {
+        if (field === "deliveryMethod") return "delivery method (Pickup or Maxim)";
+        if (field === "paymentMethod") return "payment method (GCash or COD)";
+        if (field === "address") return "Address";
+        if (field === "landmark") return "Landmark";
+        if (field === "contactNumber") return "Contact #";
+        if (field === "quantity") return "quantity";
+        if (field === "flavors") return "flavor";
+        if (field === "minimumOrder") return "at least 10 pcs";
+        return field;
+      });
+      return `NEXT ACTION DIRECTIVE: Ask only for the missing required information: ${humanMissing.join(", ")}. Do not give a confirmation summary yet.`;
+    }
+
+    return "NEXT ACTION DIRECTIVE: All required order fields are present. Only provide a confirmation summary when the customer has not already explicitly confirmed. End a complete pre-confirmation summary with the exact required confirmation sentence.";
   }
 
   private formatOrderContext(details: Details): string {
@@ -263,7 +285,7 @@ export class AiService {
     if (/\b(gcash)\b/i.test(lower)) details.paymentMethod = "gcash";
     if (/\b(cod|cash on delivery|cash)\b/i.test(lower)) details.paymentMethod = "cod";
 
-    const phone = message.match(/(?:contact(?: number| #)?|phone(?: number)?|cp|mobile)?\s*[:\-]?\s*(\+?63\s*\d{10}|09\d{9})\b/i);
+    const phone = message.match(/(?:contact(?: number| #)?|phone(?: number)?|cp|mobile)?\s*[:\-]?(\+?63\s*\d{10}|09\d{9})\b/i);
     if (phone) details.contactNumber = phone[1].replace(/\s+/g, "");
     const landmark = message.match(/(?:landmark)\s*[:\-]\s*([^,;\n]+)/i);
     if (landmark) details.landmark = landmark[1].trim();
