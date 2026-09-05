@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Loader2, MessageCircle, Search, Send, UserRound, X } from "lucide-react";
+import { Bold, ChevronDown, Italic, Link, List, Loader2, MessageCircle, Search, Send, Strikethrough, UserRound, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
@@ -53,6 +53,7 @@ export function FloatingMessenger() {
   const messagesRequestId = useRef(0);
   const lastSeenRef = useRef("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selected = useMemo(() => conversations.find((item) => item.id === selectedId), [conversations, selectedId]);
   const filteredConversations = useMemo(() => {
@@ -133,6 +134,52 @@ export function FloatingMessenger() {
     }
   }
 
+  function applyFormatting(prefix: string, suffix = prefix) {
+    const input = composerRef.current;
+    if (!input) return;
+    const start = input.selectionStart ?? draft.length;
+    const end = input.selectionEnd ?? draft.length;
+    const selectedText = draft.slice(start, end);
+    const replacement = `${prefix}${selectedText || "text"}${suffix}`;
+    const nextDraft = `${draft.slice(0, start)}${replacement}${draft.slice(end)}`;
+    setDraft(nextDraft);
+    requestAnimationFrame(() => {
+      input.focus();
+      const selectionStart = start + prefix.length;
+      const selectionEnd = selectionStart + (selectedText || "text").length;
+      input.setSelectionRange(selectionStart, selectionEnd);
+    });
+  }
+
+  function insertBulletList() {
+    const input = composerRef.current;
+    if (!input) return;
+    const start = input.selectionStart ?? draft.length;
+    const end = input.selectionEnd ?? draft.length;
+    const selectedText = draft.slice(start, end) || "item";
+    const replacement = selectedText
+      .split("\n")
+      .map((line) => `• ${line}`)
+      .join("\n");
+    setDraft(`${draft.slice(0, start)}${replacement}${draft.slice(end)}`);
+    requestAnimationFrame(() => input.focus());
+  }
+
+  function insertLink() {
+    const input = composerRef.current;
+    if (!input) return;
+    const start = input.selectionStart ?? draft.length;
+    const end = input.selectionEnd ?? draft.length;
+    const selectedText = draft.slice(start, end) || "link text";
+    const replacement = `[${selectedText}](https://)`;
+    setDraft(`${draft.slice(0, start)}${replacement}${draft.slice(end)}`);
+    requestAnimationFrame(() => {
+      input.focus();
+      const urlStart = start + selectedText.length + 3;
+      input.setSelectionRange(urlStart, urlStart + 8);
+    });
+  }
+
   async function send() {
     const text = draft.trim();
     const psid = selected?.customer.messengerPsid;
@@ -211,11 +258,28 @@ export function FloatingMessenger() {
 
               <div className="shrink-0 border-t border-line bg-background/95 p-3 backdrop-blur">
                 {error ? <p className="mb-2 px-1 text-xs text-danger">{error}</p> : null}
+                <div className="mb-2 flex items-center gap-1 rounded-lg border border-line bg-foreground/[0.025] p-1">
+                  <FormatButton label="Bold" onClick={() => applyFormatting("**")}><Bold size={14} /></FormatButton>
+                  <FormatButton label="Italic" onClick={() => applyFormatting("*", "*")}><Italic size={14} /></FormatButton>
+                  <FormatButton label="Strikethrough" onClick={() => applyFormatting("~~")}><Strikethrough size={14} /></FormatButton>
+                  <FormatButton label="Bulleted list" onClick={insertBulletList}><List size={14} /></FormatButton>
+                  <FormatButton label="Insert link" onClick={insertLink}><Link size={14} /></FormatButton>
+                  <span className="ml-auto px-1 text-[9px] text-foreground/30">Markdown formatting</span>
+                </div>
                 <div className="flex items-end gap-2">
-                  <Input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={selected ? "Reply to this customer..." : "Select a conversation..."} disabled={!selected?.customer.messengerPsid || sending} className="h-11 min-w-0" />
+                  <textarea
+                    ref={composerRef}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }}
+                    placeholder={selected ? "Reply to this customer..." : "Select a conversation..."}
+                    disabled={!selected?.customer.messengerPsid || sending}
+                    rows={2}
+                    className="min-h-11 max-h-32 min-w-0 flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2.5 text-sm shadow-sm outline-none placeholder:text-foreground/40 focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  />
                   <Button type="button" onClick={() => void send()} disabled={!draft.trim() || !selected?.customer.messengerPsid || sending} className="h-11 shrink-0 px-3" aria-label="Send message">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}<span>Send</span></Button>
                 </div>
-                <p className="mt-1.5 px-1 text-[10px] text-foreground/30">Press Enter to send</p>
+                <p className="mt-1.5 px-1 text-[10px] text-foreground/30">Enter to send · Shift+Enter for a new line</p>
               </div>
             </section>
           </div>
@@ -232,6 +296,10 @@ export function FloatingMessenger() {
   );
 
   return typeof document === "undefined" ? null : createPortal(content, document.body);
+}
+
+function FormatButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return <button type="button" title={label} aria-label={label} onMouseDown={(event) => event.preventDefault()} onClick={onClick} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-foreground/50 transition hover:bg-foreground/10 hover:text-foreground">{children}</button>;
 }
 
 function getMessengerNotificationPayload(payload: unknown): MessengerNotification | null {
