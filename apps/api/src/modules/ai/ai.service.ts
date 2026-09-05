@@ -6,6 +6,8 @@ const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empan
 
 The CURRENT CUSTOMER MESSAGE is the highest priority. Answer that message first.
 Previous conversation is background only and must never override a new or unrelated question.
+Treat each new message as a new question unless the customer clearly refers to an existing order.
+Do not repeat the previous assistant answer unless the current message asks for it.
 A greeting is not an order. A flavor or quantity request is not confirmation.
 Only treat a confirmation as confirmation when the customer is clearly confirming a complete order.
 Keep replies short, clear, natural, and helpful.
@@ -156,7 +158,7 @@ export class AiService {
       think: false,
       options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer the current customer message directly. The response will be sent to Messenger exactly as written. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Ignore previous assistant answers unless the current message clearly asks to continue or confirm them. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     };
@@ -210,13 +212,27 @@ export class AiService {
 
   private buildReplyContext(message: string, recentMessages: string[]): string {
     if (!recentMessages.length) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
-    const lower = message.toLowerCase().trim();
-    const isContinuation = /\b(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|same order|my order|our order|add|remove|change|instead|also|pickup|pick up|maxim|gcash|cod|address|landmark|contact)\b/i.test(lower)
-      || /\b\d+\s*(?:pcs?|pieces?)\b/i.test(lower)
-      || /\border\b/i.test(lower);
 
-    if (!isContinuation) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
-    return `CONVERSATION CONTEXT (background only; current message wins):\n${recentMessages.join("\n")}`;
+    const lower = message.toLowerCase().trim();
+    const hasConcreteOrderDetails = /\b\d+\s*(?:pcs?|pieces?)\b/i.test(lower)
+      || /\b(bacon|pork|asado|ham|cheese|chicken|ube|mango|choco|chocolate|beef)\b/i.test(lower)
+      || /\b(hm|how much|price|pila|tagpila|presyo|df|delivery fee)\b/i.test(lower)
+      || /\b(hello|hi|hey|good morning|good afternoon|good evening)\b/i.test(lower);
+
+    if (hasConcreteOrderDetails) {
+      return "CONVERSATION CONTEXT: none. Treat the current message as a fresh request. Do not repeat any previous answer.";
+    }
+
+    const isExplicitFollowUp = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|same|same order|add that|remove that|change that)$/i.test(lower)
+      || /^(pickup|pick up|maxim|gcash|cod|same order|continue|continue my order)$/i.test(lower)
+      || /\b(change|remove|add|instead|same order)\b/i.test(lower);
+
+    if (!isExplicitFollowUp) {
+      return "CONVERSATION CONTEXT: none. Treat the current message as a fresh request. Do not repeat any previous answer.";
+    }
+
+    const relevant = recentMessages.slice(-2);
+    return `CONVERSATION CONTEXT (only for the explicit follow-up; current message wins):\n${relevant.join("\n")}`;
   }
 
   private shouldExtractOrderState(message: string): boolean {
