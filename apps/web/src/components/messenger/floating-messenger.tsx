@@ -31,6 +31,14 @@ type Message = {
   createdAt: string;
 };
 
+type MessengerNotification = {
+  conversationId?: string;
+  senderId?: string;
+  messageId?: string;
+  message?: string;
+  createdAt?: string;
+};
+
 export function FloatingMessenger() {
   const [open, setOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -69,8 +77,9 @@ export function FloatingMessenger() {
   }, [selectedId]);
 
   useEffect(() => {
-    const handleNotification = (payload: unknown) => {
-      if (!isMessengerNotification(payload)) return;
+    const handleNotification = (eventPayload: unknown) => {
+      const payload = getMessengerNotificationPayload(eventPayload);
+      if (!payload) return;
       if (!open) setUnread((count) => count + 1);
       void loadConversations(true);
       if (payload.conversationId === selectedId) void loadMessages(selectedId, true);
@@ -225,6 +234,9 @@ export function FloatingMessenger() {
   return typeof document === "undefined" ? null : createPortal(content, document.body);
 }
 
-function isMessengerNotification(payload: unknown): payload is { conversationId?: string } {
-  return Boolean(payload && typeof payload === "object" && (payload as Record<string, unknown>).type === "messenger.message_received");
+function getMessengerNotificationPayload(payload: unknown): MessengerNotification | null {
+  if (!payload || typeof payload !== "object") return null;
+  const envelope = payload as Record<string, unknown>;
+  if (envelope.type !== "messenger.message_received" || !envelope.payload || typeof envelope.payload !== "object") return null;
+  return envelope.payload as MessengerNotification;
 }
