@@ -117,7 +117,7 @@ const OLLAMA_REPLY_SCHEMA = {
 
 @Injectable()
 export class AiService {
-  private readonly logger = new Logger(AiService.name);
+  protected readonly logger = new Logger(AiService.name);
   private readonly baseUrl: string;
   private readonly model: string;
 
