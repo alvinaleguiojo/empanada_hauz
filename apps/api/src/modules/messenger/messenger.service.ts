@@ -8,7 +8,8 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { MetaAuthService } from "./meta-auth.service";
 
 interface MetaParticipant { id?: string; name?: string }
-interface MetaMessage { id?: string; message?: string; created_time?: string; from?: MetaParticipant; to?: { data?: MetaParticipant[] }; attachments?: unknown; tags?: unknown }
+interface MetaAttachment { type?: string; payload?: { url?: string; sticker_id?: string; [key: string]: unknown }; [key: string]: unknown }
+interface MetaMessage { id?: string; message?: string; created_time?: string; from?: MetaParticipant; to?: { data?: MetaParticipant[] }; attachments?: { data?: MetaAttachment[] } | MetaAttachment[]; tags?: unknown; is_echo?: boolean }
 interface MetaConversation { id: string; updated_time?: string; participants?: { data?: MetaParticipant[] } }
 interface MetaPage<T> { data?: T[]; paging?: { next?: string } }
 
@@ -137,7 +138,7 @@ export class MessengerService {
             conversationMessageCount += 1;
             if (!newestMessage || this.messageTime(metaMessage) > this.messageTime(newestMessage)) newestMessage = metaMessage;
             const existing = await this.prisma.message.findFirst({ where: { metaMessageId: metaMessage.id } });
-            const data = { conversationId: conversation.id, metaMessageId: metaMessage.id, direction: (metaMessage.from?.id === pageId ? "outbound" : "inbound") as "outbound" | "inbound", type: (metaMessage.attachments ? "attachment" : "text") as "attachment" | "text", content: this.messageContent(metaMessage), rawPayload: metaMessage as never, ...(metaMessage.created_time ? { createdAt: new Date(metaMessage.created_time) } : {}) };
+            const data = { conversationId: conversation.id, metaMessageId: metaMessage.id, direction: (metaMessage.from?.id === pageId ? "outbound" : "inbound") as "outbound" | "inbound", type: (this.hasAttachments(metaMessage) ? "attachment" : "text") as "attachment" | "text", content: this.messageContent(metaMessage), rawPayload: metaMessage as never, ...(metaMessage.created_time ? { createdAt: new Date(metaMessage.created_time) } : {}) };
             if (existing) await this.prisma.message.update({ where: { id: existing.id }, data }); else await this.prisma.message.create({ data });
             messagesImported += 1;
           }
@@ -152,18 +153,23 @@ export class MessengerService {
   }
   private findCustomerParticipant(participants: MetaParticipant[], pageId: string) { return participants.find((participant) => participant.id && participant.id !== pageId); }
   private messageTime(message: MetaMessage) { return message.created_time ? Date.parse(message.created_time) : 0; }
-  private messageContent(message: MetaMessage) { if (message.message) return message.message; if (message.attachments) return "[Attachment]"; return "[Messenger message]"; }
+  private attachmentList(message: MetaMessage): MetaAttachment[] {
+    if (Array.isArray(message.attachments)) return message.attachments;
+    return Array.isArray(message.attachments?.data) ? message.attachments.data : [];
+  }
+  private hasAttachments(message: MetaMessage) { return this.attachmentList(message).length > 0; }
+  private messageContent(message: MetaMessage) { if (message.message) return message.message; if (this.hasAttachments(message)) return "[Attachment]"; return "[Messenger message]"; }
   private async getOrCreateConversationByPsid(psid: string, lastMessage?: string, name?: string) {
     const customer = await this.customersService.findOrCreateByMessenger(psid, name || "Messenger Customer");
     const existing = await this.prisma.conversation.findFirst({ where: { customerId: customer.id, channel: "messenger" } });
     if (existing) { if (lastMessage !== undefined) return this.prisma.conversation.update({ where: { id: existing.id }, data: { lastMessage, updatedAt: new Date() } }); return existing; }
     return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
   }
-  async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown }) {
+  async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown; type?: "text" | "attachment" }) {
     const profileName = await this.getMessengerProfileName(payload.senderId);
     const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
     if (payload.messageId) { const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } }); if (existing) return existing; }
-    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", content: payload.text, rawPayload: payload.rawPayload as never } });
+    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
 
     this.notificationsService.notify("messenger.message_received", {
       conversationId: conversation.id,
