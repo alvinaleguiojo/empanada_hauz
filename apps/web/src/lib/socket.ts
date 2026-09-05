@@ -3,8 +3,10 @@
 import { io } from "socket.io-client";
 import { SOCKET_URL } from "./config";
 
+// Keep the shared realtime connection alive so notifications (including
+// Messenger webhook events) can reach every mounted dashboard component.
 export const socket = io(SOCKET_URL, {
-  autoConnect: false
+  autoConnect: true
 });
 
 // Status changes arrive through the same `orders.updated` channel as normal
