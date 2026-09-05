@@ -182,9 +182,18 @@ export class MessengerService {
     if (!pageToken) { this.logger.warn("Meta Page authentication not configured; outbound send skipped"); return { skipped: true, payload }; }
     const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     if (!response.ok) throw new Error(`Meta send failed: ${response.status} ${await response.text()}`);
+    const metaResult = await response.json() as { message_id?: string };
     const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
-    await this.prisma.message.create({ data: { conversationId: conversation.id, direction: "outbound", content: text } });
-    return response.json();
+    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
+    this.notificationsService.notify("messenger.message_sent", {
+      conversationId: conversation.id,
+      recipientPsid,
+      messageId: message.id,
+      metaMessageId: metaResult.message_id,
+      message: text,
+      createdAt: message.createdAt.toISOString()
+    });
+    return metaResult;
   }
   listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
