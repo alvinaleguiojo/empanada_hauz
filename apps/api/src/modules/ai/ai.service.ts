@@ -1,53 +1,43 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AIIntentResult } from "./types";
+import { AIIntentResult, CustomerIntent, DeliveryMethodValue } from "./types";
 
-const EMPANADA_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
+const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
 
-You answer EVERY customer message yourself.
-Use the customer's current message and relevant recent conversation together with these business rules.
-Decide what the customer is actually asking before answering.
-Never assume a normal question is an order confirmation.
-Never let an old order discussion override a new unrelated question.
-Do not invent prices, order details, delivery times, or policies.
+The CURRENT CUSTOMER MESSAGE is the highest priority. Answer that message first.
+Previous conversation is background only and must never override a new or unrelated question.
+A greeting is not an order. A flavor or quantity request is not confirmation.
+Only treat a confirmation as confirmation when the customer is clearly confirming a complete order.
 Keep replies short, clear, natural, and helpful.
 Use Cebuano when the customer uses Cebuano, otherwise English.
+Do not ask for information already provided.
+Do not ask for a preferred delivery or pickup time.
+Do not invent prices, delivery fees, times, policies, availability, or order details.
+Do not claim an order was created.
 
-Business rules:
-- Minimum order: 10 pcs.
-- Mixed flavors are allowed.
-- Prices: New Flavor Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30; Ham & Cheese ₱25; Chicken ₱20; Chicken with Egg ₱25; Ube Empanada ₱25; Mango ₱25; Choco ₱30; Beef ₱35; Beef with Egg ₱40.
+Business facts:
+- Minimum order: 10 pcs; mixed flavors are allowed.
+- Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30.
+- Ham & Cheese ₱25; Chicken ₱20; Chicken with Egg ₱25; Ube Empanada ₱25.
+- Mango ₱25; Choco ₱30; Beef ₱35; Beef with Egg ₱40.
 - Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
+- Baked is ₱5 more than the original price. Preparation is about 1 hour.
 - Payment: GCash or COD. GCash: Alvin Aleguiojo, 09453916796.
-- Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Beside Prince Bulacao.
-- Maxim delivery is available.
-- For Maxim, collect Address, Landmark, and Contact #. Do not ask for a preferred delivery time.
-- Pickup orders need flavor, quantity, payment method, and pickup/delivery choice before confirmation.
-- Baked is ₱5 more than the original price.
-- Preparation is approximately 1 hour.
-- Orders of 30 pcs or more get 20% off the delivery fee only, and only when the customer asks about a discount.
-- If a customer schedules an order, preserve the date and time; never invent a time.
-- If today is Sunday in Asia/Manila, tell customers the business is closed and do not create Sunday orders.
-- Never treat placeholder strings such as "none provided", "unknown", or "not available" as real customer information.
-- Before confirmation, when an order summary is appropriate, end exactly with: "Please confirm if all the details above are correct. 😊"
-- Never claim an order was created unless the application has successfully created it.
-- After the application successfully creates a confirmed order, the application sends the ready message.
-
-Conversation behavior:
-- "hm" means how much.
-- "df" means delivery fee.
-- A flavor request is not confirmation.
-- A quantity is not confirmation.
-- The word "confirm" is confirmation only when the customer has already provided all required order details.
-- Answer the customer's actual question first.
-- Do not ask for information the customer already provided.
-- Do not ask for a preferred delivery or pickup time.
+- Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.
+- Maxim delivery is available. For Maxim, Address, Landmark, and Contact # are required.
+- Delivery fee varies by location. For the current delivery fee and priority number, direct customers to https://www.empanadahauz.com.
+- Orders of 30 pcs or more get 20% off the delivery fee only when the customer asks about a discount.
+- If today is Sunday in Asia/Manila, the business is closed and Sunday orders must not be created.
+- When presenting a complete order summary before confirmation, end exactly with: Please confirm if all the details above are correct. 😊
+- "hm" means how much. "df" means delivery fee.
 `;
 
 interface OllamaResponse { message?: { content?: string } }
 
+type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
+
 const PRODUCTS: Array<{ aliases: string[]; name: string; price: number }> = [
-  { aliases: ["bacon with cheese", "bacon"], name: "New Flavor Bacon with Cheese", price: 35 },
+  { aliases: ["bacon with cheese", "bacon"], name: "Bacon with Cheese", price: 35 },
   { aliases: ["pork regular with egg", "pork with egg", "pork egg"], name: "Pork Regular with Egg", price: 25 },
   { aliases: ["pork regular", "pork"], name: "Pork Regular", price: 20 },
   { aliases: ["pork asado", "asado"], name: "Pork Asado", price: 30 },
@@ -61,10 +51,10 @@ const PRODUCTS: Array<{ aliases: string[]; name: string; price: number }> = [
   { aliases: ["beef"], name: "Beef", price: 35 }
 ];
 
-const OLLAMA_RESULT_SCHEMA = {
+const ORDER_STATE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["intent", "confidence", "details", "suggestedReply"],
+  required: ["intent", "confidence", "details"],
   properties: {
     intent: { type: "string", enum: ["inquiry", "order_confirmation", "reservation", "delivery_request", "pickup_request", "pricing_question"] },
     confidence: { type: "number", minimum: 0, maximum: 1 },
@@ -100,8 +90,7 @@ const OLLAMA_RESULT_SCHEMA = {
         confirmed: { type: "boolean" },
         missingFields: { type: "array", items: { type: "string" } }
       }
-    },
-    suggestedReply: { type: "string" }
+    }
   }
 };
 
@@ -118,30 +107,63 @@ export class AiService {
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[] }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
-    const systemPrompt = `${EMPANADA_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName ?? "Customer"}`;
-    const recentMessages = (context?.recentMessages ?? []).slice(-12);
-    const conversationContext = recentMessages.length ? recentMessages.join("\n") : "(no previous conversation)";
+    const customerName = context?.customerName?.trim() || "Customer";
+    const recentMessages = (context?.recentMessages ?? []).slice(-4);
+    const replyContext = this.buildReplyContext(message, recentMessages);
+    const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${customerName}`;
 
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
 
-    const suggestedReply = await this.generateCustomerReply(systemPrompt, message, conversationContext);
+    const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
 
-    let extracted: AIIntentResult;
-    try {
-      extracted = await this.extractOrderState(systemPrompt, message, conversationContext);
-    } catch (error) {
-      this.logger.warn(`AI extraction failed; customer reply remains Qwen-only reason=${String(error)}`);
-      extracted = {
-        intent: "inquiry",
+    if (!this.shouldExtractOrderState(message, recentMessages)) {
+      const result: AIIntentResult = {
+        intent: this.inferNonOrderIntent(message),
         confidence: 0,
         details: { flavors: [], missingFields: [], confirmed: false },
-        suggestedReply
+        suggestedReply,
+        source: "ollama"
       };
+      this.logger.log(`AI path=OLLAMA_SUCCESS intent=${result.intent} extraction=SKIPPED`);
+      return result;
     }
 
-    const normalized = this.normalizeResult({ ...extracted, suggestedReply });
-    this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${normalized.confidence} intent=${normalized.intent}`);
-    return { ...normalized, source: "ollama" };
+    try {
+      const extracted = await this.extractOrderState(systemPrompt, message, recentMessages);
+      const normalized = this.normalizeResult({ ...extracted, suggestedReply });
+      this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${normalized.confidence} intent=${normalized.intent}`);
+      return { ...normalized, source: "ollama" };
+    } catch (error) {
+      this.logger.warn(`AI order extraction unavailable; keeping Qwen customer reply reason=${String(error)}`);
+      const result: AIIntentResult = {
+        intent: this.inferNonOrderIntent(message),
+        confidence: 0,
+        details: { flavors: [], missingFields: [], confirmed: false },
+        suggestedReply,
+        source: "ollama"
+      };
+      return result;
+    }
+  }
+
+  async generateOrderResultReply(outcome: "created" | "failed", orderNumber?: string): Promise<string> {
+    const system = `${CUSTOMER_SYSTEM_PROMPT}\n\nThis is a private order-processing status update. Generate only the final short customer-facing reply. Never invent information. Do not mention internal tools, MCP, application code, or system details.`;
+    const status = outcome === "created"
+      ? `The application successfully created the customer's confirmed order.${orderNumber ? ` Order number: ${orderNumber}.` : ""}`
+      : "The application could not create the customer's confirmed order.";
+    const response = await this.ollamaChat({
+      model: this.model,
+      stream: false,
+      think: false,
+      options: { temperature: 0.25, num_predict: 96, num_ctx: 1536 },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: status }
+      ]
+    }, "Ollama order result reply failed");
+    const reply = response.message?.content?.trim();
+    if (!reply) throw new Error("Ollama returned an empty order result reply");
+    return reply.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
   }
 
   private async generateCustomerReply(systemPrompt: string, message: string, conversationContext: string): Promise<string> {
@@ -149,16 +171,10 @@ export class AiService {
       model: this.model,
       stream: false,
       think: false,
-      options: { temperature: 0.35, num_predict: 256, num_ctx: 4096 },
+      options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        {
-          role: "system",
-          content: `${systemPrompt}\n\nYou are now answering the customer directly. The response you write will be sent to Messenger exactly as returned. Do not output JSON, labels, analysis, intent names, or instructions to the application. Answer naturally in one concise customer-facing message.`
-        },
-        {
-          role: "user",
-          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nRELEVANT RECENT CONVERSATION:\n${conversationContext}`
-        }
+        { role: "system", content: `${systemPrompt}\n\nAnswer the current customer message directly. The response will be sent to Messenger exactly as written. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     };
 
@@ -169,21 +185,22 @@ export class AiService {
     return reply.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
   }
 
-  private async extractOrderState(systemPrompt: string, message: string, conversationContext: string): Promise<AIIntentResult> {
+  private async extractOrderState(systemPrompt: string, message: string, recentMessages: string[]): Promise<AIIntentResult> {
+    const compactContext = recentMessages.length ? recentMessages.join("\n") : "(no previous conversation)";
     const body = {
       model: this.model,
       stream: false,
-      format: OLLAMA_RESULT_SCHEMA,
+      format: ORDER_STATE_SCHEMA,
       think: false,
-      options: { temperature: 0, num_predict: 640, num_ctx: 4096 },
+      options: { temperature: 0, num_predict: 384, num_ctx: 3072 },
       messages: [
         {
           role: "system",
-          content: `${systemPrompt}\n\nThis call is ONLY for structured order state used by the application. Extract what the customer actually provided and determine whether they explicitly confirmed a complete order. Do not write the customer-facing response here beyond the suggestedReply field. Use the conversation context to preserve relevant order details.`
+          content: `${systemPrompt}\n\nThis call is ONLY for order state used by the application. Extract order details from the CURRENT CUSTOMER MESSAGE and previous messages only when they clearly belong to the same active order. The current message has priority. A greeting, question, price request, delivery-fee question, flavor request, or quantity request is NOT confirmation. Set confirmed=true only when the current message clearly confirms a complete order that already has all required fields. Do not invent missing values.`
         },
         {
           role: "user",
-          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nRECENT CONVERSATION:\n${conversationContext}`
+          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nRECENT CONVERSATION:\n${compactContext}`
         }
       ]
     };
@@ -211,6 +228,32 @@ export class AiService {
     }
   }
 
+  private buildReplyContext(message: string, recentMessages: string[]): string {
+    if (!recentMessages.length) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
+    const lower = message.toLowerCase().trim();
+    const isContinuation = /\b(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|same order|my order|our order|add|remove|change|instead|also|pickup|pick up|maxim|gcash|cod|address|landmark|contact)\b/i.test(lower)
+      || /\b\d+\s*(?:pcs?|pieces?)\b/i.test(lower)
+      || /\border\b/i.test(lower);
+
+    if (!isContinuation) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
+
+    return `CONVERSATION CONTEXT (background only; current message wins):\n${recentMessages.join("\n")}`;
+  }
+
+  private shouldExtractOrderState(message: string, recentMessages: string[]): boolean {
+    const text = `${message} ${recentMessages.join(" ")}`.toLowerCase();
+    return /\border\b|\bpcs?\b|\bpieces?\b|\bpickup\b|\bpick up\b|\bmaxim\b|\bgcash\b|\bcod\b|\baddress\b|\blandmark\b|\bcontact\b|\bconfirm(?:ed|ation)?\b|\bgo ahead\b|\bproceed\b/.test(text)
+      || /\b(yes|yeah|yep|correct)\b/i.test(message.trim());
+  }
+
+  private inferNonOrderIntent(message: string): CustomerIntent {
+    const lower = message.toLowerCase();
+    if (/\b(hm|how much|price|pila|tagpila|presyo)\b/.test(lower)) return "pricing_question";
+    if (/\b(delivery|deliver|maxim|df)\b/.test(lower)) return "delivery_request";
+    if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request";
+    return "inquiry";
+  }
+
   private parseStructuredJson(content: string): unknown {
     const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     try {
@@ -227,7 +270,7 @@ export class AiService {
     const details = result?.details ?? { flavors: [], missingFields: [], confirmed: false };
     return {
       intent: result?.intent ?? "inquiry",
-      confidence: typeof result?.confidence === "number" ? result.confidence : 0,
+      confidence: typeof result?.confidence === "number" ? Math.max(0, Math.min(1, result.confidence)) : 0,
       details: {
         ...details,
         flavors: Array.isArray(details.flavors) ? details.flavors : [],
@@ -236,57 +279,5 @@ export class AiService {
       },
       suggestedReply: typeof result?.suggestedReply === "string" ? result.suggestedReply.trim() : ""
     };
-  }
-
-  /** Structured validation for MCP execution only. It never changes the Qwen customer reply. */
-  applyKnownFacts(result: AIIntentResult, message: string, recentMessages: string[]): AIIntentResult {
-    const corrected = this.normalizeResult(result);
-    const text = [message, ...recentMessages].join(" ").toLowerCase();
-    const details = corrected.details;
-
-    details.flavors = (details.flavors ?? []).filter(item => item && item.name && item.quantity > 0);
-    details.flavors = details.flavors.map(item => {
-      const normalizedName = item.name.toLowerCase();
-      const product = PRODUCTS.find(p => p.name.toLowerCase() === normalizedName || p.aliases.some(alias => normalizedName === alias));
-      const price = product?.price ?? item.unitPrice ?? 0;
-      return {
-        ...item,
-        name: product?.name ?? item.name,
-        unitPrice: price || undefined,
-        subtotal: price ? price * item.quantity : item.subtotal
-      };
-    });
-
-    const totalQty = details.flavors.reduce((sum, item) => sum + item.quantity, 0);
-    if (totalQty > 0) details.quantity = totalQty;
-    details.totalAmount = details.flavors.reduce((sum, item) => sum + (item.subtotal ?? 0), 0) || undefined;
-
-    const hasFlavor = details.flavors.length > 0;
-    const hasQuantity = (details.quantity ?? 0) >= 10;
-    const hasDelivery = details.deliveryMethod === "pickup" || details.deliveryMethod === "maxim";
-    const hasPayment = details.paymentMethod === "cod" || details.paymentMethod === "gcash";
-    const hasAddress = details.deliveryMethod !== "maxim" || (!!details.address && !!details.landmark && !!details.contactNumber);
-
-    details.missingFields = [];
-    if (!hasFlavor) details.missingFields.push("flavor");
-    if (!hasQuantity) details.missingFields.push("quantity");
-    if (!hasDelivery) details.missingFields.push("pickup or delivery");
-    if (!hasPayment) details.missingFields.push("payment method");
-    if (details.deliveryMethod === "maxim") {
-      if (!details.address) details.missingFields.push("address");
-      if (!details.landmark) details.missingFields.push("landmark");
-      if (!details.contactNumber) details.missingFields.push("contact number");
-    }
-
-    const explicitConfirmation = /\b(yes|correct|confirmed|confirm|go ahead|place my order|place the order|order it|that's correct|that is correct|okay proceed|proceed)\b/i.test(message);
-    details.confirmed = explicitConfirmation && hasFlavor && hasQuantity && hasDelivery && hasPayment && hasAddress && details.missingFields.length === 0;
-
-    if (/\b(?:none provided|unknown|not available)\b/i.test(text)) {
-      details.address = details.address && !/\b(?:none provided|unknown|not available)\b/i.test(details.address) ? details.address : undefined;
-      details.landmark = details.landmark && !/\b(?:none provided|unknown|not available)\b/i.test(details.landmark) ? details.landmark : undefined;
-      details.contactNumber = details.contactNumber && !/\b(?:none provided|unknown|not available)\b/i.test(details.contactNumber) ? details.contactNumber : undefined;
-    }
-
-    return corrected;
   }
 }
