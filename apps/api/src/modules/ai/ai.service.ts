@@ -62,6 +62,60 @@ const PRODUCTS: Array<{ aliases: string[]; name: string; price: number }> = [
   { aliases: ["beef"], name: "Beef", price: 35 }
 ];
 
+const OLLAMA_RESULT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["intent", "confidence", "details", "suggestedReply"],
+  properties: {
+    intent: {
+      type: "string",
+      enum: ["inquiry", "order_confirmation", "reservation", "delivery_request", "pickup_request", "pricing_question"]
+    },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    details: {
+      type: "object",
+      additionalProperties: false,
+      required: ["quantity", "location", "deliveryMethod", "preferredTime", "deliveryDate", "address", "landmark", "contactNumber", "paymentMethod", "flavors", "totalAmount", "confirmed", "missingFields"],
+      properties: {
+        quantity: { type: ["number", "null"] },
+        location: { type: ["string", "null"] },
+        deliveryMethod: { type: ["string", "null"], enum: ["pickup", "maxim", null] },
+        preferredTime: { type: ["string", "null"] },
+        deliveryDate: { type: ["string", "null"] },
+        address: { type: ["string", "null"] },
+        landmark: { type: ["string", "null"] },
+        contactNumber: { type: ["string", "null"] },
+        paymentMethod: { type: ["string", "null"], enum: ["cod", "gcash", null] },
+        flavors: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["name", "quantity", "unitPrice", "subtotal"],
+            properties: {
+              name: { type: "string" },
+              quantity: { type: "number" },
+              unitPrice: { type: ["number", "null"] },
+              subtotal: { type: ["number", "null"] }
+            }
+          }
+        },
+        totalAmount: { type: ["number", "null"] },
+        confirmed: { type: "boolean" },
+        missingFields: { type: "array", items: { type: "string" } }
+      }
+    },
+    suggestedReply: { type: "string" }
+  }
+};
+
+const OLLAMA_REPLY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reply"],
+  properties: { reply: { type: "string" } }
+};
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -79,21 +133,16 @@ export class AiService {
     const recentMessages = (context?.recentMessages ?? []).slice(-12);
     const conversationContext = recentMessages.length ? `\nRecent conversation:\n${recentMessages.join("\n")}` : "";
     const knownFacts = this.buildKnownFacts(message, recentMessages);
-    const schema = {
-      intent: "inquiry | order_confirmation | reservation | delivery_request | pickup_request | pricing_question",
-      confidence: "number from 0 to 1",
-      details: {
-        quantity: "number or null", location: "string or null", deliveryMethod: "pickup | maxim | null",
-        preferredTime: "string or null", deliveryDate: "YYYY-MM-DD or null", address: "string or null",
-        landmark: "string or null", contactNumber: "string or null", paymentMethod: "cod | gcash | null",
-        flavors: "array of {name, quantity, unitPrice, subtotal} or []", totalAmount: "number or null",
-        confirmed: "boolean", missingFields: "array of strings"
-      },
-      suggestedReply: "short customer-facing reply string"
-    };
 
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
-    const result = await this.callOllama({ systemPrompt, schema, conversationContext, knownFacts, message });
+    let result: AIIntentResult;
+    try {
+      result = await this.callOllama({ systemPrompt, conversationContext, knownFacts, message });
+    } catch (error) {
+      this.logger.warn(`AI path=OLLAMA_STRUCTURED_FAILED reason=${String(error)}`);
+      result = await this.callOllamaReplyRecovery({ systemPrompt, conversationContext, knownFacts, message });
+    }
+
     const corrected = this.applyKnownFacts(result, message, recentMessages);
     if (this.shouldRewriteReply(corrected) || !corrected.suggestedReply?.trim()) {
       const rewritten = await this.generateCustomerReply({ systemPrompt, conversationContext, knownFacts, message, result: corrected });
@@ -104,12 +153,18 @@ export class AiService {
     return { ...corrected, source: "ollama" };
   }
 
-  private async callOllama(input: { systemPrompt: string; schema: object; conversationContext: string; knownFacts: string; message: string }): Promise<AIIntentResult> {
+  private async callOllama(input: { systemPrompt: string; conversationContext: string; knownFacts: string; message: string }): Promise<AIIntentResult> {
     const body = {
-      model: this.model, stream: false, format: "json", think: false,
-      options: { temperature: 0.1, num_predict: 512, num_ctx: 4096 },
+      model: this.model,
+      stream: false,
+      format: OLLAMA_RESULT_SCHEMA,
+      think: false,
+      options: { temperature: 0.1, num_predict: 768, num_ctx: 4096 },
       messages: [
-        { role: "system", content: `${input.systemPrompt}\n\nYou are the only customer-facing AI. Every customer message must be answered by you. Do not rely on a hard-coded application intent classifier. Use the customer's current message, recent conversation, and the system prompt to understand the request. The application may validate structured order data after you respond, but it must not replace your customer-facing answer.\n\nJSON schema:\n${JSON.stringify(input.schema)}` },
+        {
+          role: "system",
+          content: `${input.systemPrompt}\n\nYou are the only customer-facing AI. Every customer message must be answered by you. Do not rely on a hard-coded application intent classifier. Use the customer's current message, recent conversation, and the system prompt to understand the request. The application may validate structured order data after you respond, but it must not replace your customer-facing answer.\n\nReturn exactly one JSON object that matches the provided JSON schema. Keep suggestedReply short.`
+        },
         { role: "user", content: `${input.conversationContext}\nCurrent application facts for order validation only:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
       ]
     };
@@ -121,22 +176,27 @@ export class AiService {
       const bodyJson = await response.json() as OllamaResponse;
       const content = bodyJson.message?.content?.trim();
       if (!content) throw new Error("Ollama returned an empty response");
-      try { return this.normalizeResult(JSON.parse(content) as AIIntentResult); }
-      catch (error) { this.logger.warn(`AI path=OLLAMA_RETRY reason=${String(error)}`); return this.callOllamaRetry(input); }
+      return this.normalizeResult(this.parseStructuredJson(content) as AIIntentResult);
     } finally { clearTimeout(timeout); }
   }
 
-  private async callOllamaRetry(input: { systemPrompt: string; schema: object; conversationContext: string; knownFacts: string; message: string }): Promise<AIIntentResult> {
+  private async callOllamaRetry(input: { systemPrompt: string; conversationContext: string; knownFacts: string; message: string }): Promise<AIIntentResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal,
         body: JSON.stringify({
-          model: this.model, stream: false, format: "json", think: false,
-          options: { temperature: 0, num_predict: 384, num_ctx: 3072 },
+          model: this.model,
+          stream: false,
+          format: OLLAMA_RESULT_SCHEMA,
+          think: false,
+          options: { temperature: 0, num_predict: 640, num_ctx: 3072 },
           messages: [
-            { role: "system", content: `${input.systemPrompt}\n\nReturn ONE compact JSON object only. Always write a short customer-facing suggestedReply. You are the customer-facing AI for every message. Do not use a hard-coded application intent classifier.\n\nJSON schema:\n${JSON.stringify(input.schema)}` },
+            {
+              role: "system",
+              content: `${input.systemPrompt}\n\nReturn exactly ONE compact JSON object matching the JSON schema. Always include a short customer-facing suggestedReply. You are the customer-facing AI for every message. Do not use a hard-coded application intent classifier.`
+            },
             { role: "user", content: `${input.conversationContext}\nOrder-validation facts only:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
           ]
         })
@@ -145,7 +205,43 @@ export class AiService {
       const body = await response.json() as OllamaResponse;
       const content = body.message?.content?.trim();
       if (!content) throw new Error("Ollama retry returned an empty response");
-      return this.normalizeResult(JSON.parse(content) as AIIntentResult);
+      return this.normalizeResult(this.parseStructuredJson(content) as AIIntentResult);
+    } finally { clearTimeout(timeout); }
+  }
+
+  private async callOllamaReplyRecovery(input: { systemPrompt: string; conversationContext: string; knownFacts: string; message: string }): Promise<AIIntentResult> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal,
+        body: JSON.stringify({
+          model: this.model,
+          stream: false,
+          format: OLLAMA_REPLY_SCHEMA,
+          think: false,
+          options: { temperature: 0.1, num_predict: 192, num_ctx: 3072 },
+          messages: [
+            {
+              role: "system",
+              content: `${input.systemPrompt}\n\nThe structured extraction was invalid. Do NOT discuss this. Answer the customer's current message directly. Return only JSON matching this schema with a single short "reply" string.\n\nDo not let stale conversation/order data override an unrelated current question.`
+            },
+            { role: "user", content: `${input.conversationContext}\nOrder-validation facts only:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
+          ]
+        })
+      });
+      if (!response.ok) throw new Error(`Ollama reply recovery failed: ${response.status} ${await response.text()}`);
+      const body = await response.json() as OllamaResponse;
+      const content = body.message?.content?.trim();
+      if (!content) throw new Error("Ollama reply recovery returned an empty response");
+      const parsed = this.parseStructuredJson(content) as { reply?: string };
+      if (!parsed.reply?.trim()) throw new Error("Ollama reply recovery returned no reply");
+      return this.normalizeResult({
+        intent: "inquiry",
+        confidence: 0,
+        details: { flavors: [], missingFields: [], confirmed: false },
+        suggestedReply: parsed.reply.trim()
+      } as AIIntentResult);
     } finally { clearTimeout(timeout); }
   }
 
@@ -155,7 +251,7 @@ export class AiService {
       input.systemPrompt,
       "You are writing the final customer-facing response for EVERY current customer message.",
       "Answer the customer's actual question first. Do not let stale order facts override an unrelated current question.",
-      "Do not output JSON, labels, analysis, or a fallback message.",
+      "Return exactly one JSON object matching the reply schema.",
       "Use the recent conversation only when it is relevant to the customer's current message.",
       "For order execution, follow the validated details and never claim an order was created unless the application has successfully created it.",
       `Validated order details: ${JSON.stringify(details)}`,
@@ -165,15 +261,26 @@ export class AiService {
     ].join("\n\n");
     const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ model: this.model, stream: false, format: "json", think: false, options: { temperature: 0.1, num_predict: 160, num_ctx: 3072 }, messages: [{ role: "system", content: prompt }, { role: "user", content: input.message }] })
+      body: JSON.stringify({ model: this.model, stream: false, format: OLLAMA_REPLY_SCHEMA, think: false, options: { temperature: 0.1, num_predict: 192, num_ctx: 3072 }, messages: [{ role: "system", content: prompt }, { role: "user", content: input.message }] })
     });
     if (!response.ok) throw new Error(`Ollama reply rewrite failed: ${response.status} ${await response.text()}`);
     const body = await response.json() as OllamaResponse;
     const content = body.message?.content?.trim();
     if (!content) throw new Error("Ollama reply rewrite returned an empty response");
-    const parsed = JSON.parse(content) as { reply?: string };
+    const parsed = this.parseStructuredJson(content) as { reply?: string };
     if (!parsed.reply?.trim()) throw new Error("Ollama reply rewrite returned no reply");
     return parsed.reply.trim();
+  }
+
+  private parseStructuredJson(content: string): unknown {
+    const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    try { return JSON.parse(cleaned); }
+    catch {
+      const first = cleaned.indexOf("{");
+      const last = cleaned.lastIndexOf("}");
+      if (first >= 0 && last > first) return JSON.parse(cleaned.slice(first, last + 1));
+      throw new SyntaxError("Ollama returned invalid JSON");
+    }
   }
 
   private buildKnownFacts(message: string, recentMessages: string[]) {
