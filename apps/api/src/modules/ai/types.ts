@@ -8,9 +8,12 @@ export type CustomerIntent =
   | "pickup_request"
   | "pricing_question";
 
+export type AIResultSource = "fast_path" | "ollama" | "fallback";
+
 export interface AIIntentResult {
   intent: CustomerIntent;
   confidence: number;
+  source?: AIResultSource;
   details: {
     quantity?: number;
     location?: string;
