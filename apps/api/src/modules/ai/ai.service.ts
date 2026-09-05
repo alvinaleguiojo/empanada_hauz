@@ -1,21 +1,22 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AIIntentResult, CustomerIntent } from "./types";
+import { AIIntentResult, CustomerIntent, DeliveryMethodValue } from "./types";
 
 const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
 
 The CURRENT CUSTOMER MESSAGE is highest priority. Answer it directly.
-Use application order facts as authoritative structured state; never override them.
+Interpret the CURRENT CUSTOMER MESSAGE semantically. Do not assume the customer's wording must match predefined aliases.
+The application will merge your interpretation with the previous active order state.
 A greeting starts a fresh conversation unless the customer explicitly refers to an existing order.
 A flavor-only request needs a quantity; ask how many pcs.
 An order with missing required fields is NOT ready for confirmation.
 Never ask for confirmation when required fields are missing.
-For Maxim delivery, collect Address, Landmark, and Contact # before confirmation; if those are missing, ask for them explicitly.
+For Maxim delivery, collect Address, Landmark, and Contact # before confirmation.
 Pickup does not require delivery address details.
-CASH means COD. Only explicit GCash means GCash. Never reinterpret CASH as GCash.
-A summary request means SHOW THE ORDER SUMMARY; it is not itself a confirmation.
-Never expose internal field names, application validation wording, JSON, intent names, tools, or MCP details.
-Never say an order is confirmed/placed/created unless application state says READY and the application actually created it.
+CASH means COD. Only explicit GCash means GCash.
+A summary request means SHOW THE CURRENT ORDER SUMMARY; it is not itself a confirmation.
+Never expose internal field names, JSON, intent names, tools, or MCP details.
+Never say an order is confirmed/placed/created unless the application actually created it.
 Use Cebuano when the customer uses Cebuano, otherwise English.
 Keep replies short, clear, natural, and helpful.
 Do not ask for information already provided.
@@ -41,25 +42,57 @@ Business facts:
 interface OllamaResponse { message?: { content?: string } }
 type Details = AIIntentResult["details"];
 
-const PRICES: Record<string, number> = {
-  "bacon with cheese": 35, "pork regular": 20, "pork regular with egg": 25, "pork asado": 30,
-  "ham & cheese": 25, "ham and cheese": 25, "ham cheese": 25, "chicken": 20, "chicken with egg": 25,
-  "ube": 25, "ube empanada": 25, "mango": 25, "choco": 30, "chocolate": 30, "beef": 35, "beef with egg": 40
+type Flavor = Details["flavors"][number];
+
+type CurrentInterpretation = {
+  intent: CustomerIntent;
+  startsNewConversation: boolean;
+  flavorAction: "none" | "replace" | "add" | "remove";
+  flavors: Array<{ name: string; quantity?: number }>;
+  quantity?: number;
+  location?: string;
+  deliveryMethod?: DeliveryMethodValue;
+  preferredTime?: string;
+  deliveryDate?: string;
+  address?: string;
+  landmark?: string;
+  contactNumber?: string;
+  paymentMethod?: "cod" | "gcash";
+  confirmed: boolean;
 };
 
-const FLAVOR_ALIASES: Array<{ canonical: string; aliases: string[] }> = [
-  { canonical: "Bacon with Cheese", aliases: ["bacon with cheese"] },
-  { canonical: "Pork Regular with Egg", aliases: ["pork regular with egg", "pork with egg"] },
-  { canonical: "Pork Regular", aliases: ["pork regular", "pork"] },
-  { canonical: "Pork Asado", aliases: ["pork asado", "asado"] },
-  { canonical: "Ham & Cheese", aliases: ["ham & cheese", "ham and cheese", "ham cheese"] },
-  { canonical: "Chicken with Egg", aliases: ["chicken with egg", "chicken egg"] },
-  { canonical: "Chicken", aliases: ["chicken"] },
-  { canonical: "Ube Empanada", aliases: ["ube empanada", "ube"] },
-  { canonical: "Mango", aliases: ["mango"] },
-  { canonical: "Choco", aliases: ["choco", "chocolate"] },
-  { canonical: "Beef with Egg", aliases: ["beef with egg", "beef egg"] },
-  { canonical: "Beef", aliases: ["beef"] }
+const PRICES: Record<string, number> = {
+  "bacon with cheese": 35,
+  "pork regular": 20,
+  "pork regular with egg": 25,
+  "pork asado": 30,
+  "ham & cheese": 25,
+  "ham and cheese": 25,
+  "ham cheese": 25,
+  "chicken": 20,
+  "chicken with egg": 25,
+  "ube": 25,
+  "ube empanada": 25,
+  "mango": 25,
+  "choco": 30,
+  "chocolate": 30,
+  "beef": 35,
+  "beef with egg": 40
+};
+
+const CANONICAL_FLAVORS = [
+  "Bacon with Cheese",
+  "Pork Regular",
+  "Pork Regular with Egg",
+  "Pork Asado",
+  "Ham & Cheese",
+  "Chicken",
+  "Chicken with Egg",
+  "Ube Empanada",
+  "Mango",
+  "Choco",
+  "Beef",
+  "Beef with Egg"
 ];
 
 @Injectable()
@@ -76,16 +109,19 @@ export class AiService {
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const recentMessages = (context?.recentMessages ?? []).slice(-6);
-    const lower = message.toLowerCase().trim();
-    const activeOrderState = context?.activeOrderState && (this.isContinuationMessage(lower) || this.isOrderFieldAnswer(lower))
-      ? context.activeOrderState
-      : undefined;
-    const details = this.buildOrderDetails(message, activeOrderState);
+    const current = await this.interpretCurrentMessage(message, now);
+    const details = this.mergeOrderState(context?.activeOrderState, current);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
-    const replyContext = this.buildReplyContext(message, recentMessages, activeOrderState, details);
+    const replyContext = this.buildReplyContext(message, recentMessages, details);
     const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
-    const intent = this.inferIntent(message, details);
-    return { intent, confidence: details.flavors.length || details.confirmed || details.deliveryMethod || details.paymentMethod ? 1 : 0, details, suggestedReply, source: "ollama" };
+    const intent = current.intent ?? this.inferIntent(message, details);
+    return {
+      intent,
+      confidence: current.flavors.length || details.flavors.length || current.confirmed || Boolean(details.deliveryMethod) || Boolean(details.paymentMethod) ? 1 : 0,
+      details,
+      suggestedReply,
+      source: "ollama"
+    };
   }
 
   async generateOrderResultReply(outcome: "created" | "failed", orderNumber?: string): Promise<string> {
@@ -93,7 +129,9 @@ export class AiService {
       ? `APPLICATION RESULT: The application successfully created the customer's confirmed order.${orderNumber ? ` Order number: ${orderNumber}.` : ""}`
       : "APPLICATION RESULT: The application could not create the customer's confirmed order.";
     const response = await this.ollamaChat({
-      model: this.model, stream: false, think: false,
+      model: this.model,
+      stream: false,
+      think: false,
       options: { temperature: 0.2, num_predict: 96, num_ctx: 1536 },
       messages: [
         { role: "system", content: `${CUSTOMER_SYSTEM_PROMPT}\nGenerate only the final short customer-facing reply. Never mention internal tools or MCP.` },
@@ -105,12 +143,308 @@ export class AiService {
     return this.cleanReply(reply);
   }
 
+  private async interpretCurrentMessage(message: string, now: string): Promise<CurrentInterpretation> {
+    const response = await this.ollamaChat({
+      model: this.model,
+      stream: false,
+      think: false,
+      format: "json",
+      options: { temperature: 0.1, num_predict: 256, num_ctx: 2048 },
+      messages: [
+        {
+          role: "system",
+          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY valid JSON for the CURRENT CUSTOMER MESSAGE. Interpret only what the customer says in this message; do not copy fields from prior messages.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nUse an empty string/empty array or omit a field when it is not present in the current message. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace when the customer is giving a new complete flavor selection, add when explicitly adding items to an existing order, and remove when explicitly removing items.`
+        },
+        {
+          role: "user",
+          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nCURRENT DATE/TIME IN ASIA/MANILA:\n${now}`
+        }
+      ]
+    }, "Ollama order interpretation failed");
+
+    const raw = response.message?.content?.trim();
+    if (!raw) throw new Error("Ollama returned an empty order interpretation");
+    try {
+      const parsed = JSON.parse(this.cleanReply(raw)) as Partial<CurrentInterpretation>;
+      return {
+        intent: this.normalizeIntent(parsed.intent),
+        startsNewConversation: Boolean(parsed.startsNewConversation),
+        flavorAction: parsed.flavorAction === "replace" || parsed.flavorAction === "add" || parsed.flavorAction === "remove" ? parsed.flavorAction : "none",
+        flavors: Array.isArray(parsed.flavors)
+          ? parsed.flavors
+              .map((item) => ({ name: this.normalizeFlavorName(item?.name), quantity: Number(item?.quantity ?? 0) }))
+              .filter((item) => item.name && item.quantity > 0)
+          : [],
+        quantity: this.optionalPositiveNumber(parsed.quantity),
+        location: this.optionalText(parsed.location),
+        deliveryMethod: parsed.deliveryMethod === "pickup" || parsed.deliveryMethod === "maxim" ? parsed.deliveryMethod : undefined,
+        preferredTime: this.optionalText(parsed.preferredTime),
+        deliveryDate: this.optionalText(parsed.deliveryDate),
+        address: this.optionalText(parsed.address),
+        landmark: this.optionalText(parsed.landmark),
+        contactNumber: this.normalizePhone(parsed.contactNumber),
+        paymentMethod: parsed.paymentMethod === "cod" || parsed.paymentMethod === "gcash" ? parsed.paymentMethod : undefined,
+        confirmed: Boolean(parsed.confirmed)
+      };
+    } catch (error) {
+      this.logger.error("Qwen returned invalid structured interpretation", error instanceof Error ? error.message : String(error));
+      throw new Error("Qwen returned invalid order interpretation JSON");
+    }
+  }
+
+  private mergeOrderState(previous: Details | undefined, current: CurrentInterpretation): Details {
+    const freshBase: Details = { flavors: [], missingFields: [], confirmed: false };
+    if (current.startsNewConversation) return this.finalizeOrderState(this.applyInterpretation(freshBase, current));
+
+    const base = previous ?? freshBase;
+    const merged = this.applyInterpretation({ ...base, flavors: [...(base.flavors ?? [])] }, current);
+    return this.finalizeOrderState(merged);
+  }
+
+  private applyInterpretation(base: Details, current: CurrentInterpretation): Details {
+    const merged: Details = { ...base, confirmed: false, missingFields: [] };
+
+    if (current.flavorAction === "replace" && current.flavors.length) {
+      merged.flavors = current.flavors.map((item) => this.toFlavor(item));
+    } else if (current.flavorAction === "add" && current.flavors.length) {
+      merged.flavors = this.mergeFlavorAdds(base.flavors ?? [], current.flavors);
+    } else if (current.flavorAction === "remove" && current.flavors.length) {
+      merged.flavors = this.removeFlavors(base.flavors ?? [], current.flavors);
+    } else if (current.flavors.length) {
+      merged.flavors = current.flavors.map((item) => this.toFlavor(item));
+    }
+
+    for (const field of [
+      "quantity",
+      "location",
+      "deliveryMethod",
+      "preferredTime",
+      "deliveryDate",
+      "address",
+      "landmark",
+      "contactNumber",
+      "paymentMethod"
+    ] as const) {
+      const value = current[field];
+      if (value !== undefined && value !== "") (merged as Record<string, unknown>)[field] = value;
+    }
+
+    if (merged.flavors.length && current.flavorAction !== "add" && current.flavorAction !== "remove") {
+      merged.quantity = merged.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    } else if (current.quantity !== undefined && merged.flavors.length === 1) {
+      const only = merged.flavors[0];
+      merged.flavors = [{ ...only, quantity: current.quantity, subtotal: current.quantity * Number(only.unitPrice ?? 0) }];
+      merged.quantity = current.quantity;
+    }
+
+    if (current.confirmed) merged.confirmed = true;
+    return merged;
+  }
+
+  private mergeFlavorAdds(existing: Flavor[], additions: Array<{ name: string; quantity: number }>): Flavor[] {
+    const map = new Map(existing.map((item) => [item.name.toLowerCase(), { ...item }]));
+    for (const addition of additions) {
+      const key = addition.name.toLowerCase();
+      const current = map.get(key);
+      const quantity = Number(current?.quantity ?? 0) + addition.quantity;
+      const unitPrice = current?.unitPrice ?? PRICES[key] ?? 0;
+      map.set(key, { name: addition.name, quantity, unitPrice, subtotal: quantity * unitPrice });
+    }
+    return [...map.values()];
+  }
+
+  private removeFlavors(existing: Flavor[], removals: Array<{ name: string; quantity: number }>): Flavor[] {
+    const map = new Map(existing.map((item) => [item.name.toLowerCase(), { ...item }]));
+    for (const removal of removals) {
+      const key = removal.name.toLowerCase();
+      const current = map.get(key);
+      if (!current) continue;
+      const quantity = Number(current.quantity) - removal.quantity;
+      if (quantity <= 0) map.delete(key);
+      else map.set(key, { ...current, quantity, subtotal: quantity * Number(current.unitPrice ?? 0) });
+    }
+    return [...map.values()];
+  }
+
+  private finalizeOrderState(details: Details): Details {
+    const flavors = (details.flavors ?? []).filter((item) => Number(item.quantity) > 0).map((item) => {
+      const name = this.normalizeFlavorName(item.name);
+      const unitPrice = Number(item.unitPrice ?? PRICES[name.toLowerCase()] ?? 0);
+      return { name, quantity: Number(item.quantity), unitPrice, subtotal: Number(item.quantity) * unitPrice };
+    });
+    const quantity = flavors.reduce((sum, item) => sum + item.quantity, 0);
+    const totalAmount = flavors.reduce((sum, item) => sum + Number(item.subtotal ?? item.quantity * Number(item.unitPrice ?? 0)), 0);
+    const finalized: Details = { ...details, flavors, quantity: quantity || details.quantity, totalAmount, missingFields: [] };
+    finalized.missingFields = this.calculateMissingFields(finalized);
+    return finalized;
+  }
+
+  private buildReplyContext(message: string, recentMessages: string[], details: Details): string {
+    const lower = message.toLowerCase().trim();
+    if (this.isOrderStatusQuestion(lower) && !details.flavors.length) {
+      return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Answer that no current order has been placed.";
+    }
+    if (this.isSummaryRequest(lower) && !details.flavors.length) {
+      return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.";
+    }
+    if (details.flavors.length) {
+      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
+    }
+    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-2).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
+  }
+
+  private buildNextActionDirective(message: string, details: Details): string {
+    const lower = message.toLowerCase().trim();
+    if (this.isOrderStatusQuestion(lower)) return "Answer order status only. Do not claim an order exists unless the application created it.";
+    if (this.isSummaryRequest(lower)) {
+      return details.missingFields.length
+        ? `Provide the current order summary first. Then mention only the missing customer information: ${this.humanMissing(details.missingFields).join(", ")}. Do not ask for confirmation.`
+        : "Provide the complete order summary. Then end exactly with: Please confirm if all the details above are correct. 😊";
+    }
+    if (/\b(total|total cost|how much is the total|how much total)\b/i.test(lower) && details.flavors.length) {
+      return `Answer the total directly. Food total is ₱${details.totalAmount ?? 0}. Do not ask for confirmation unless there are no missing required fields.`;
+    }
+    if (/\b(how long|how much time|delivery time|when will it arrive|when can it arrive|how soon)\b/i.test(lower)) {
+      return "Answer directly that preparation takes about 1 hour. Do not treat this as confirmation.";
+    }
+    if (details.deliveryMethod === "maxim") {
+      const deliveryMissing = details.missingFields.filter((field) => ["address", "landmark", "contactNumber"].includes(field));
+      if (deliveryMissing.length) return `Ask explicitly for these missing Maxim delivery details: ${this.humanMissing(deliveryMissing).join(", ")}. Do not ask for confirmation.`;
+    }
+    if (details.missingFields.length) return `Ask only for the missing required information: ${this.humanMissing(details.missingFields).join(", ")}. Do not present confirmation.`;
+    return "All required order fields are present. Present the complete order summary and end exactly with: Please confirm if all the details above are correct. 😊";
+  }
+
+  private formatOrderContext(details: Details): string {
+    return [
+      `Flavors: ${details.flavors.map((x) => `${x.quantity} pcs ${x.name} (₱${x.unitPrice ?? 0} each)`).join(", ")}`,
+      `Quantity: ${details.quantity ?? details.flavors.reduce((sum, x) => sum + x.quantity, 0)}`,
+      `Total food amount: ₱${details.totalAmount ?? 0}`,
+      `Delivery method: ${details.deliveryMethod ?? "missing"}`,
+      `Payment method: ${details.paymentMethod ?? "missing"}`,
+      `Address: ${details.address ?? "missing"}`,
+      `Landmark: ${details.landmark ?? "missing"}`,
+      `Contact #: ${details.contactNumber ?? "missing"}`,
+      details.deliveryDate ? `Delivery date: ${details.deliveryDate}` : "",
+      details.preferredTime ? `Preferred time: ${details.preferredTime}` : "",
+      `Missing required information: ${details.missingFields.length ? this.humanMissing(details.missingFields).join(", ") : "none"}`,
+      `Placement status: ${details.missingFields.length === 0 && details.flavors.length ? "READY only after explicit confirmation" : "NOT READY"}`
+    ].filter(Boolean).join("\n");
+  }
+
+  private calculateMissingFields(details: Details): string[] {
+    const missing: string[] = [];
+    const quantity = Number(details.quantity ?? 0);
+    const flavorQuantity = details.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    if (!details.flavors.length) missing.push("flavors");
+    if (!quantity || flavorQuantity !== quantity) missing.push("quantity");
+    if (quantity > 0 && quantity < 10) missing.push("minimumOrder");
+    if (!details.deliveryMethod) missing.push("deliveryMethod");
+    if (!details.paymentMethod) missing.push("paymentMethod");
+    if (details.deliveryMethod === "maxim") {
+      if (!details.address?.trim()) missing.push("address");
+      if (!details.landmark?.trim()) missing.push("landmark");
+      if (!details.contactNumber?.trim()) missing.push("contactNumber");
+    }
+    return [...new Set(missing)];
+  }
+
+  private humanMissing(fields: string[]) {
+    return fields.map((field) => field === "deliveryMethod"
+      ? "delivery method (Pickup or Maxim)"
+      : field === "paymentMethod"
+        ? "payment method (GCash or COD)"
+        : field === "address"
+          ? "Address"
+          : field === "landmark"
+            ? "Landmark"
+            : field === "contactNumber"
+              ? "Contact #"
+              : field === "quantity"
+                ? "quantity"
+                : field === "flavors"
+                  ? "flavor"
+                  : field === "minimumOrder"
+                    ? "at least 10 pcs"
+                    : field);
+  }
+
+  private isSummaryRequest(lower: string) { return /\b(summary|summarize|summarize my order|send.*summary|show.*summary)\b/i.test(lower); }
+  private isOrderStatusQuestion(lower: string) { return /\b(did you place my order|have you placed my order|was my order placed|is my order placed|order status|has my order been placed)\b/i.test(lower); }
+  private isConfirmationMessage(lower: string) { return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|yes all are correct|yes all correct|all are correct|everything is correct|place my order|place the order|order it)$/i.test(lower.trim()) || /\b(place my order|place the order|order it)\b/i.test(lower.trim()); }
+  private inferIntent(message: string, details: Details): CustomerIntent {
+    const lower = message.toLowerCase();
+    if (this.isConfirmationMessage(lower)) return "order_confirmation";
+    if (/\b(delivery fee|df)\b/.test(lower)) return "delivery_request";
+    if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request";
+    if (/\b(hm|how much|price|pila|tagpila|presyo)\b/.test(lower) && !details.flavors.length) return "pricing_question";
+    if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(lower)) return "reservation";
+    return "inquiry";
+  }
+
+  private normalizeFlavorName(value?: string) {
+    const raw = this.optionalText(value);
+    if (!raw) return "";
+    const exact = CANONICAL_FLAVORS.find((name) => name.toLowerCase() === raw.toLowerCase());
+    if (exact) return exact;
+    const normalized = raw.toLowerCase().replace(/\s+/g, " ").trim();
+    const aliases: Record<string, string> = {
+      "pork with egg": "Pork Regular with Egg",
+      "pork regular egg": "Pork Regular with Egg",
+      "chicken egg": "Chicken with Egg",
+      "beef egg": "Beef with Egg",
+      "ham and cheese": "Ham & Cheese",
+      "ham cheese": "Ham & Cheese",
+      "ube": "Ube Empanada",
+      "chocolate": "Choco"
+    };
+    return aliases[normalized] ?? raw.trim();
+  }
+
+  private normalizeIntent(value?: CustomerIntent): CustomerIntent {
+    return value === "order_confirmation" || value === "reservation" || value === "delivery_request" || value === "pickup_request" || value === "pricing_question" || value === "inquiry"
+      ? value
+      : "inquiry";
+  }
+
+  private optionalText(value?: unknown) {
+    if (typeof value !== "string") return undefined;
+    const text = value.trim();
+    return text || undefined;
+  }
+
+  private optionalPositiveNumber(value?: unknown) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : undefined;
+  }
+
+  private normalizePhone(value?: unknown) {
+    if (typeof value !== "string") return undefined;
+    const raw = value.trim();
+    const digits = raw.replace(/\s+/g, "");
+    if (/^09\d{9}$/.test(digits)) return digits;
+    if (/^\+?63\d{10}$/.test(digits)) return digits;
+    return raw || undefined;
+  }
+
+  private toFlavor(item: { name: string; quantity: number }): Flavor {
+    const name = this.normalizeFlavorName(item.name);
+    const quantity = Number(item.quantity);
+    const unitPrice = Number(PRICES[name.toLowerCase()] ?? 0);
+    return { name, quantity, unitPrice, subtotal: quantity * unitPrice };
+  }
+
   private async generateCustomerReply(systemPrompt: string, message: string, context: string): Promise<string> {
     const response = await this.ollamaChat({
-      model: this.model, stream: false, think: false,
+      model: this.model,
+      stream: false,
+      think: false,
       options: { temperature: 0.2, num_predict: 160, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. APPLICATION ORDER FACTS and NEXT ACTION DIRECTIVE are authoritative. Answer questions directly. A summary request must return the summary; do not replace it with a confirmation request. If required fields are missing, never ask for confirmation. For Maxim, ask explicitly for any missing Address, Landmark, or Contact #. CASH is COD. Do not output internal field names or meta-commentary.` },
+        {
+          role: "system",
+          content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The APPLICATION ORDER FACTS below are the merged current state and are authoritative. Answer questions directly. A summary request must return the current summary. If required fields are missing, never ask for confirmation. Do not output internal fields, JSON, or meta-commentary.`
+        },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${context}` }
       ]
     }, "Ollama customer reply failed");
@@ -124,146 +458,33 @@ export class AiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 180000);
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify(body)
+      });
       if (!response.ok) throw new Error(`${errorPrefix}: ${response.status} ${await response.text()}`);
       return await response.json() as OllamaResponse;
-    } finally { clearTimeout(timeout); }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
-  private buildReplyContext(message: string, recentMessages: string[], activeOrderState?: Details, currentDetails?: Details): string {
-    const lower = message.toLowerCase().trim();
-    if (this.isOrderStatusQuestion(lower) && !activeOrderState) {
-      return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Answer that no current order has been placed. Do not list missing internal fields.";
-    }
-    if (this.isSummaryRequest(lower) && !activeOrderState && !currentDetails?.flavors.length) {
-      return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.";
-    }
-    if (activeOrderState?.flavors?.length) {
-      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(activeOrderState)}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, activeOrderState)}\n\nCurrent message always wins.`;
-    }
-    if (currentDetails?.flavors?.length) {
-      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(currentDetails)}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, currentDetails)}\n\nTreat this as the current request.`;
-    }
-    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-2).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
+  private manilaDateOffset(days: number) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const date = new Date(`${values.year}-${values.month}-${values.day}T00:00:00+08:00`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
   }
 
-  private hasCurrentOrderContext(recentMessages: string[]) {
-    const customerMessages = recentMessages.filter((m) => /^Customer:/i.test(m)).map((m) => m.replace(/^Customer:\s*/i, "").trim());
-    for (let i = customerMessages.length - 1; i >= 0; i--) {
-      const text = customerMessages[i].toLowerCase();
-      if (/^(hello|hi|hey|good morning|good afternoon|good evening)$/.test(text)) return false;
-      if (/\b(order|pork|asado|bacon|ham|chicken|ube|mango|choco|chocolate|beef)\b|\b\d+\s*(?:pcs?|pieces?)\b|\b(same order|continue my order|place my order|change|remove|add|instead)\b|\b(maxim|pickup|pick up|gcash|cod|cash)\b/i.test(text)) return true;
-    }
-    return false;
+  private cleanReply(reply: string) {
+    return reply.replace(/^```(?:text|json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   }
-
-  private buildNextActionDirective(message: string, details: Details): string {
-    const lower = message.toLowerCase().trim();
-    if (this.isOrderStatusQuestion(lower)) return "Answer order status only. Do not expose internal validation field names.";
-    if (this.isSummaryRequest(lower)) {
-      return details.missingFields.length
-        ? `Provide the current order summary first. Then mention only the customer-facing missing information: ${this.humanMissing(details.missingFields).join(", ")}. Do not ask for confirmation.`
-        : "Provide the complete order summary. Then end exactly with: Please confirm if all the details above are correct. 😊";
-    }
-    if (/\b(total|total cost|how much is the total|how much total)\b/i.test(lower) && details.flavors.length) {
-      const total = details.totalAmount ?? details.flavors.reduce((s, x) => s + (x.subtotal ?? x.quantity * (x.unitPrice ?? 0)), 0);
-      return `Answer the total directly. Food total is ₱${total}. Do not ask for confirmation unless there are no missing required fields.`;
-    }
-    if (/\b(how long|how much time|delivery time|when will it arrive|when can it arrive|how soon)\b/i.test(lower)) return "Answer directly that preparation takes about 1 hour. Do not treat this as confirmation.";
-    if (details.deliveryMethod === "maxim") {
-      const deliveryMissing = details.missingFields.filter((f) => ["address", "landmark", "contactNumber"].includes(f));
-      if (deliveryMissing.length) return `Ask explicitly for these missing Maxim delivery details first: ${this.humanMissing(deliveryMissing).join(", ")}. Do not ask for confirmation. If payment is missing too, collect these delivery details first.`;
-    }
-    if (details.missingFields.length) return `Ask only for the missing required information: ${this.humanMissing(details.missingFields).join(", ")}. Do not present confirmation.`;
-    return "All required order fields are present. Present the complete order summary and end exactly with: Please confirm if all the details above are correct. 😊";
-  }
-
-  private formatOrderContext(details: Details): string {
-    const total = details.totalAmount ?? details.flavors.reduce((s, x) => s + (x.subtotal ?? x.quantity * (x.unitPrice ?? 0)), 0);
-    return [
-      `Flavors: ${details.flavors.map((x) => `${x.quantity} pcs ${x.name} (₱${x.unitPrice ?? 0} each)`).join(", ")}`,
-      `Quantity: ${details.quantity ?? details.flavors.reduce((s, x) => s + x.quantity, 0)}`,
-      `Total food amount: ₱${total}`,
-      `Delivery method: ${details.deliveryMethod ?? "missing"}`,
-      `Payment method: ${details.paymentMethod ?? "missing"}`,
-      `Address: ${details.address ?? "missing"}`,
-      `Landmark: ${details.landmark ?? "missing"}`,
-      `Contact #: ${details.contactNumber ?? "missing"}`,
-      details.deliveryDate ? `Delivery date: ${details.deliveryDate}` : "",
-      details.preferredTime ? `Preferred time: ${details.preferredTime}` : "",
-      `Missing required information: ${details.missingFields.length ? this.humanMissing(details.missingFields).join(", ") : "none"}`,
-      `Placement status: ${details.missingFields.length === 0 && details.flavors.length ? "READY only after explicit confirmation" : "NOT READY"}`
-    ].filter(Boolean).join("\n");
-  }
-
-  private buildOrderDetails(message: string, activeOrderState?: Details): Details {
-    const lower = message.toLowerCase().trim();
-    const continuation = this.isContinuationMessage(lower) || Boolean(activeOrderState?.flavors?.length && this.isOrderFieldAnswer(lower));
-    const parsed = this.parseCurrentMessage(message, activeOrderState, continuation);
-    const base = continuation ? activeOrderState : undefined;
-    const merged: Details = { ...(base ?? { flavors: [], missingFields: [], confirmed: false }), ...parsed, flavors: parsed.flavors.length ? parsed.flavors : (base?.flavors ?? []), missingFields: [] };
-    if (continuation && this.isConfirmationMessage(lower) && base) merged.confirmed = true;
-    else if (!this.isConfirmationMessage(lower)) merged.confirmed = false;
-    if (base?.flavors?.length && !parsed.flavors.length && parsed.quantity && base.flavors.length === 1) {
-      const existing = base.flavors[0]; const quantity = Number(parsed.quantity); const price = existing.unitPrice ?? PRICES[existing.name.toLowerCase()] ?? 0;
-      merged.flavors = [{ name: existing.name, quantity, unitPrice: price, subtotal: quantity * price }]; merged.quantity = quantity;
-    }
-    merged.quantity = merged.flavors.length && merged.flavors.every((x) => x.quantity > 0) ? merged.flavors.reduce((s, x) => s + x.quantity, 0) : merged.quantity;
-    merged.totalAmount = merged.flavors.length && merged.flavors.every((x) => x.quantity > 0) ? merged.flavors.reduce((s, x) => s + (x.subtotal ?? x.quantity * (x.unitPrice ?? 0)), 0) : merged.totalAmount;
-    merged.missingFields = this.calculateMissingFields(merged);
-    return merged;
-  }
-
-  private parseCurrentMessage(message: string, activeOrderState?: Details, continuation = false): Details {
-    const lower = message.toLowerCase(); const details: Details = { flavors: [], missingFields: [], confirmed: false }; const quantities = new Map<string, number>();
-    for (const flavor of FLAVOR_ALIASES) for (const alias of flavor.aliases) {
-      const before = new RegExp(`\\b(\\d+)\\s*(?:pcs?|pieces?)\\s*(?:of\\s+)?${this.escapeRegExp(alias)}\\b`, "i").exec(message);
-      const after = new RegExp(`\\b${this.escapeRegExp(alias)}\\b[^,;\\n]{0,30}?(\\d+)\\s*(?:pcs?|pieces?)\\b`, "i").exec(message);
-      const quantity = before?.[1] ?? after?.[1]; if (quantity) { quantities.set(flavor.canonical, Number(quantity)); break; }
-    }
-    const quantityMatch = message.match(/\b(\d+)\s*(?:pcs?|pieces?)\b/i); if (quantityMatch) details.quantity = Number(quantityMatch[1]);
-    for (const [name, quantity] of quantities) { const unitPrice = PRICES[name.toLowerCase()]; details.flavors.push({ name, quantity, unitPrice, subtotal: unitPrice * quantity }); }
-    if (!details.flavors.length) {
-      const matched = FLAVOR_ALIASES.find((f) => f.aliases.some((a) => new RegExp(`\\b${this.escapeRegExp(a)}\\b`, "i").test(lower)));
-      if (matched) { const unitPrice = PRICES[matched.canonical.toLowerCase()]; const quantity = details.quantity ?? 0; details.flavors = [{ name: matched.canonical, quantity, unitPrice, ...(quantity > 0 ? { subtotal: quantity * unitPrice } : {}) }]; }
-    }
-    if (/\b(maxim|deliver|delivery)\b/i.test(lower)) details.deliveryMethod = "maxim";
-    if (/\b(pickup|pick up|pick-up)\b/i.test(lower)) details.deliveryMethod = "pickup";
-    if (/\bgcash\b/i.test(lower)) details.paymentMethod = "gcash";
-    else if (/\b(cod|cash on delivery|cash)\b/i.test(lower)) details.paymentMethod = "cod";
-    const phone = message.match(/(?:contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\s*[:\-]?\s*(\+?63\s*\d{10}|09\d{9})\b/i); if (phone) details.contactNumber = phone[1].replace(/\s+/g, "");
-    const address = message.match(/(?:address)\s*[:\-]\s*(.*?)(?=\s+(?:landmark|contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\s*[:\-]|$)/i); if (address) details.address = address[1].trim();
-    const landmark = message.match(/(?:landmark)\s*[:\-]\s*(.*?)(?=\s+(?:contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\s*[:\-]|$)/i); if (landmark) details.landmark = landmark[1].trim();
-    if (continuation && activeOrderState) {
-      const dateMatch = message.match(/\b(today|tomorrow|on\s+\w+\s+\d{1,2}(?:,\s*\d{4})?|\d{4}-\d{2}-\d{2})\b/i);
-      const timeMatch = message.match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM)|\d{1,2}\s*(?:AM|PM))\b/i);
-      if (dateMatch) { const raw = dateMatch[1].trim(); details.deliveryDate = /^today$/i.test(raw) ? this.manilaDateOffset(0) : /^tomorrow$/i.test(raw) ? this.manilaDateOffset(1) : this.normalizeDateToken(raw); }
-      if (timeMatch) details.preferredTime = timeMatch[1].replace(/\s+/g, " ").trim();
-      details.deliveryMethod = details.deliveryMethod ?? activeOrderState.deliveryMethod; details.paymentMethod = details.paymentMethod ?? activeOrderState.paymentMethod; details.address = details.address ?? activeOrderState.address; details.landmark = details.landmark ?? activeOrderState.landmark; details.contactNumber = details.contactNumber ?? activeOrderState.contactNumber;
-    }
-    return details;
-  }
-
-  private calculateMissingFields(details: Details): string[] {
-    const missing: string[] = []; const quantity = Number(details.quantity ?? 0); const flavorQuantity = details.flavors.reduce((s, x) => s + Number(x.quantity || 0), 0);
-    if (!details.flavors.length) missing.push("flavors");
-    if (!quantity || (details.flavors.length > 0 && flavorQuantity !== quantity)) missing.push("quantity");
-    if (quantity > 0 && quantity < 10) missing.push("minimumOrder");
-    if (!details.deliveryMethod) missing.push("deliveryMethod");
-    if (!details.paymentMethod) missing.push("paymentMethod");
-    if (details.deliveryMethod === "maxim") { if (!details.address?.trim()) missing.push("address"); if (!details.landmark?.trim()) missing.push("landmark"); if (!details.contactNumber?.trim()) missing.push("contactNumber"); }
-    return [...new Set(missing)];
-  }
-
-  private humanMissing(fields: string[]) { return fields.map((f) => f === "deliveryMethod" ? "delivery method (Pickup or Maxim)" : f === "paymentMethod" ? "payment method (GCash or COD)" : f === "address" ? "Address" : f === "landmark" ? "Landmark" : f === "contactNumber" ? "Contact #" : f === "quantity" ? "quantity" : f === "flavors" ? "flavor" : f === "minimumOrder" ? "at least 10 pcs" : f); }
-  private isSummaryRequest(lower: string) { return /\b(summary|summarize|summarize my order|send.*summary|show.*summary)\b/i.test(lower); }
-  private isOrderStatusQuestion(lower: string) { return /\b(did you place my order|have you placed my order|was my order placed|is my order placed|order status|has my order been placed)\b/i.test(lower); }
-  private isOrderFieldAnswer(lower: string) { return /^\d+\s*(?:pcs?|pieces?)$/i.test(lower) || /\b(pickup|pick up|maxim|gcash|cod|cash)\b/i.test(lower) || this.isConfirmationMessage(lower) || this.isSummaryRequest(lower) || /\b(address|landmark|contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\b/i.test(lower) || /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower); }
-  private isContinuationMessage(lower: string) { return this.isConfirmationMessage(lower) || this.isSummaryRequest(lower) || this.isOrderStatusQuestion(lower) || /\b(place my order|place the order|order it|change|remove|add|instead|same order|total|total cost|delivery date|delivery time|deliver|pickup date|pickup time)\b/i.test(lower) || /\b(pickup|pick up|maxim|gcash|cod|cash)\b/i.test(lower) || /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower); }
-  private isConfirmationMessage(lower: string) { return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|yes all are correct|yes all correct|all are correct|everything is correct|place my order|place the order|order it)$/i.test(lower.trim()) || /\b(place my order|place the order|order it)\b/i.test(lower.trim()); }
-  private inferIntent(message: string, details: Details): CustomerIntent { const lower = message.toLowerCase(); if (this.isConfirmationMessage(lower)) return "order_confirmation"; if (/\b(delivery fee|df)\b/.test(lower)) return "delivery_request"; if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request"; if (/\b(hm|how much|price|pila|tagpila|presyo|total|total cost)\b/.test(lower) && !details.flavors.length) return "pricing_question"; if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(lower)) return "reservation"; return "inquiry"; }
-  private manilaDateOffset(days: number) { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const v = Object.fromEntries(parts.map((p) => [p.type, p.value])); const d = new Date(`${v.year}-${v.month}-${v.day}T00:00:00+08:00`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
-  private normalizeDateToken(value: string) { const cleaned = value.replace(/^on\s+/i, "").trim(); const parsed = new Date(cleaned); return Number.isNaN(parsed.getTime()) ? cleaned : parsed.toISOString().slice(0, 10); }
-  private escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
-  private cleanReply(reply: string) { return reply.replace(/^```(?:text|json)?\s*/i, "").replace(/\s*```$/i, "").trim(); }
 }
