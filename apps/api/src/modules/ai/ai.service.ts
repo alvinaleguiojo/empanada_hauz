@@ -74,12 +74,12 @@ export class AiService {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const customerName = context?.customerName?.trim() || "Customer";
     const recentMessages = (context?.recentMessages ?? []).slice(-4);
-    const replyContext = this.buildReplyContext(message, recentMessages, context?.activeOrderState);
+    const details = this.buildOrderDetails(message, context?.activeOrderState);
+    const replyContext = this.buildReplyContext(message, recentMessages, context?.activeOrderState, details);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${customerName}`;
 
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
     const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
-    const details = this.buildOrderDetails(message, context?.activeOrderState);
     const intent = this.inferIntent(message, details);
     const result: AIIntentResult = {
       intent,
@@ -110,7 +110,7 @@ export class AiService {
     const response = await this.ollamaChat({
       model: this.model, stream: false, think: false, options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use the supplied order context when the current message clearly refers to it, but never let it override a new unrelated request. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied active/current order facts when the current message clearly refers to them, but never let them override a new unrelated request. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     }, "Ollama customer reply failed");
@@ -129,25 +129,31 @@ export class AiService {
     } finally { clearTimeout(timeout); }
   }
 
-  private buildReplyContext(message: string, recentMessages: string[], activeOrderState?: AIIntentResult["details"]): string {
-    if (!recentMessages.length && !activeOrderState?.flavors?.length) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
+  private buildReplyContext(message: string, recentMessages: string[], activeOrderState?: AIIntentResult["details"], currentDetails?: AIIntentResult["details"]): string {
     const lower = message.toLowerCase().trim();
     const explicitFollowUp = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
-      || /\b(change|remove|add|instead|same order)\b/i.test(lower);
+      || /\b(place my order|place the order|order it|change|remove|add|instead|same order)\b/i.test(lower);
     const activeOrderQuestion = /\b(total|total cost|how much is the total|how much total|when should it be delivered|when should it arrive|delivery date|delivery time|deliver it|deliver|pickup date|pickup time)\b/i.test(lower);
+    const scheduleMessage = /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}:\d{2}\s*(?:am|pm)\b|\b\d{1,2}\s*(?:am|pm)\b/i.test(lower);
     const freshRequest = /\b\d+\s*(?:pcs?|pieces?)\b/i.test(lower)
       || /\b(bacon|pork|asado|ham|cheese|chicken|ube|mango|choco|chocolate|beef)\b/i.test(lower)
       || /\b(hello|hi|hey|good morning|good afternoon|good evening)\b/i.test(lower);
 
-    if (activeOrderState?.flavors?.length && (explicitFollowUp || activeOrderQuestion) && (!freshRequest || /\b(same order|change|remove|add|instead)\b/i.test(lower))) {
+    if (activeOrderState?.flavors?.length && (explicitFollowUp || activeOrderQuestion || scheduleMessage) && (!freshRequest || /\b(same order|change|remove|add|instead)\b/i.test(lower))) {
       const orderSummary = this.formatActiveOrderState(activeOrderState);
+      const currentFacts = currentDetails?.flavors?.length ? `\n\nCURRENT MESSAGE FACTS:\n${this.formatActiveOrderState(currentDetails)}` : "";
       const recent = explicitFollowUp ? recentMessages.slice(-2).join("\n") : "";
-      return `ACTIVE ORDER CONTEXT:\n${orderSummary}${recent ? `\n\nRECENT CONVERSATION:\n${recent}` : ""}\n\nUse this only because the current message clearly refers to the active order.`;
+      return `ACTIVE ORDER CONTEXT:\n${orderSummary}${currentFacts}${recent ? `\n\nRECENT CONVERSATION:\n${recent}` : ""}\n\nUse this only because the current message clearly refers to the active order.`;
     }
 
-    if (explicitFollowUp && !freshRequest) {
+    if (explicitFollowUp && !freshRequest && recentMessages.length) {
       return `CONVERSATION CONTEXT (only for the explicit follow-up; current message wins):\n${recentMessages.slice(-2).join("\n")}`;
     }
+
+    if (currentDetails?.flavors?.length) {
+      return `CURRENT ORDER FACTS:\n${this.formatActiveOrderState(currentDetails)}\n\nCONVERSATION CONTEXT: none. Treat this as the current request.`;
+    }
+
     return "CONVERSATION CONTEXT: none. Treat the current message as a fresh request. Do not repeat any previous answer.";
   }
 
@@ -155,7 +161,7 @@ export class AiService {
     const flavors = details.flavors.map((item) => `${item.quantity} pcs ${item.name} (₱${item.unitPrice ?? 0} each)`);
     return [
       `Flavors: ${flavors.join(", ")}`,
-      `Quantity: ${details.quantity ?? flavors.reduce((sum, item) => sum + item.quantity, 0)}`,
+      `Quantity: ${details.quantity ?? details.flavors.reduce((sum, item) => sum + item.quantity, 0)}`,
       `Total food amount: ₱${details.totalAmount ?? details.flavors.reduce((sum, item) => sum + (item.subtotal ?? item.quantity * (item.unitPrice ?? 0)), 0)}`,
       details.deliveryMethod ? `Delivery method: ${details.deliveryMethod}` : "",
       details.paymentMethod ? `Payment method: ${details.paymentMethod}` : "",
@@ -170,7 +176,8 @@ export class AiService {
   private buildOrderDetails(message: string, activeOrderState?: AIIntentResult["details"]): AIIntentResult["details"] {
     const lower = message.toLowerCase().trim();
     const continuation = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
-      || /\b(change|remove|add|instead|same order|total|total cost|when should it be delivered|when should it arrive|delivery date|delivery time|deliver|pickup date|pickup time)\b/i.test(lower);
+      || /\b(place my order|place the order|order it|change|remove|add|instead|same order|total|total cost|when should it be delivered|when should it arrive|delivery date|delivery time|deliver|pickup date|pickup time)\b/i.test(lower)
+      || (/\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}:\d{2}\s*(?:am|pm)\b|\b\d{1,2}\s*(?:am|pm)\b/i.test(lower));
     const parsed = this.parseCurrentMessage(message, activeOrderState, continuation);
     const base = continuation ? activeOrderState : undefined;
     const merged: AIIntentResult["details"] = {
@@ -231,10 +238,10 @@ export class AiService {
     if (address) details.address = address[1].trim();
 
     if (continuation && activeOrderState) {
-      const dateMatch = message.match(/\b(?:today|tomorrow|on\s+\w+\s+\d{1,2}(?:,\s*\d{4})?|\d{4}-\d{2}-\d{2})\b(?:\s+at)?/i);
+      const dateMatch = message.match(/\b(today|tomorrow|on\s+\w+\s+\d{1,2}(?:,\s*\d{4})?|\d{4}-\d{2}-\d{2})\b/i);
       const timeMatch = message.match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM)|\d{1,2}\s*(?:AM|PM))\b/i);
       if (dateMatch) {
-        const rawDate = dateMatch[0].trim().replace(/\s+at\s*$/i, "");
+        const rawDate = dateMatch[1].trim();
         if (/^today$/i.test(rawDate)) details.deliveryDate = this.manilaDateOffset(0);
         else if (/^tomorrow$/i.test(rawDate)) details.deliveryDate = this.manilaDateOffset(1);
         else details.deliveryDate = this.normalizeDateToken(rawDate);
@@ -285,7 +292,9 @@ export class AiService {
   }
 
   private isConfirmationMessage(lower: string) {
-    return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it)$/i.test(lower.trim());
+    const normalized = lower.trim();
+    return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it)$/i.test(normalized)
+      || /\b(place my order|place the order|order it)\b/i.test(normalized);
   }
 
   private inferIntent(message: string, details: AIIntentResult["details"]): CustomerIntent {
@@ -293,7 +302,7 @@ export class AiService {
     if (this.isConfirmationMessage(lower)) return "order_confirmation";
     if (/\b(delivery fee|df|delivery|deliver|maxim)\b/.test(lower)) return "delivery_request";
     if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request";
-    if (/\b(hm|how much|price|pila|tagpila|presyo)\b/.test(lower) && details.flavors.length === 0) return "pricing_question";
+    if (/\b(hm|how much|price|pila|tagpila|presyo|total|total cost)\b/.test(lower) && details.flavors.length === 0) return "pricing_question";
     if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(lower)) return "reservation";
     return "inquiry";
   }
