@@ -142,7 +142,7 @@ export function FloatingMessenger() {
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[80] flex justify-end px-4 sm:bottom-6 sm:right-6 sm:left-auto sm:px-0">
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[110] flex justify-end px-4 sm:bottom-6 sm:right-6 sm:left-auto sm:px-0">
       <div className="pointer-events-auto flex flex-col items-end gap-3">
         {open ? (
           <div className="flex h-[min(680px,calc(100dvh-120px))] w-[min(430px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-[#101827]/95 shadow-2xl shadow-black/45 backdrop-blur-xl">
@@ -218,7 +218,7 @@ export function FloatingMessenger() {
           </div>
         ) : null}
 
-        <button type="button" onClick={() => setOpen((value) => !value)} className="relative flex h-14 w-14 items-center justify-center rounded-full bg-accent text-black shadow-2xl shadow-accent/30 transition hover:scale-105 hover:brightness-110" aria-label="Open Messenger">
+        <button type="button" onClick={() => setOpen((value) => !value)} className="relative mb-16 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-black shadow-2xl shadow-accent/30 transition hover:scale-105 hover:brightness-110" aria-label="Open Messenger" title="Messenger">
           {open ? <ChevronDown size={22} /> : <MessageCircle size={23} />}
           {!open && unread > 0 ? <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#101827] bg-danger px-1 text-[10px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
         </button>
