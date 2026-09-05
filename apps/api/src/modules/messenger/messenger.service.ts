@@ -113,7 +113,7 @@ export class MessengerService {
         if (!participant?.id) { this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`); continue; }
         const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
         let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
-        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) });
+        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
         else conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
         conversationsImported += 1;
         let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
