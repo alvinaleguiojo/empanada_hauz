@@ -3,7 +3,6 @@ import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
 import { AiService } from "../ai/ai.service";
-import { OrdersService } from "../orders/orders.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { MetaAuthService } from "./meta-auth.service";
 
@@ -21,20 +20,48 @@ export class MessengerService {
     private readonly prisma: PrismaService,
     private readonly customersService: CustomersService,
     private readonly aiService: AiService,
-    private readonly ordersService: OrdersService,
     private readonly notificationsService: NotificationsService,
     private readonly metaAuthService: MetaAuthService
   ) {}
 
   async processIncoming(event: { senderId: string; messageId?: string; text: string; rawPayload: unknown }) {
     const stored = await this.persistInbound(event);
-    const ai = await this.aiService.classifyAndExtract(event.text);
-    await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
-    const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId } });
-    if (ai.details.quantity && ai.details.deliveryMethod && ai.details.missingFields.length === 0) {
-      await this.ordersService.createManual({ customerName: `Messenger ${event.senderId}`, quantity: ai.details.quantity, unitPrice: 20, deliveryFee: 0, deliveryMethod: ai.details.deliveryMethod, paymentMethod: "cod", address: ai.details.deliveryMethod === "maxim" ? ai.details.location : undefined, location: ai.details.location, preferredSchedule: ai.details.preferredTime, notes: event.text });
-      this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId });
+    const conversation = await this.prisma.conversation.findUniqueOrThrow({
+      where: { id: stored.conversationId },
+      include: { customer: true }
+    });
+    const recentMessages = await this.prisma.message.findMany({
+      where: { conversationId: stored.conversationId },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { direction: true, content: true }
+    });
+    const contextMessages = recentMessages.reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
+
+    const ai = await this.aiService.classifyAndExtract(event.text, {
+      customerName: conversation.customer?.name ?? undefined,
+      recentMessages: contextMessages
+    });
+
+    await this.prisma.message.update({
+      where: { id: stored.id },
+      data: {
+        aiIntent: ai.intent,
+        aiConfidence: ai.confidence,
+        extractedOrder: ai.details as never,
+        processedAt: new Date()
+      }
+    });
+
+    if (ai.suggestedReply?.trim()) {
+      try {
+        await this.sendText(event.senderId, ai.suggestedReply.trim());
+      } catch (error) {
+        this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error));
+      }
     }
+
+    return ai;
   }
 
   async handleStandbyEvent(event: { senderId: string; messageId?: string; text?: string; rawPayload: unknown }) {
