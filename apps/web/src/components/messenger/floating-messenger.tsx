@@ -143,39 +143,39 @@ export function FloatingMessenger() {
   }
 
   const content = (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[9999] flex justify-end px-4 sm:bottom-6 sm:right-6 sm:left-auto sm:px-0">
-      <div className="pointer-events-auto flex flex-col items-end gap-3">
+    <div className="pointer-events-none fixed bottom-6 right-4 z-[9999] sm:right-6">
+      <div className="pointer-events-auto flex flex-col items-end">
         {open ? (
-          <div className="flex h-[min(560px,calc(100dvh-170px))] w-[min(390px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-[#0f1726] shadow-[0_24px_70px_rgba(0,0,0,0.5)]">
-            <div className="flex shrink-0 items-center gap-3 border-b border-white/[0.08] bg-[#131d2e] px-4 py-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/15 text-accent"><MessageCircle size={18} /></div>
+          <div className="mb-3 flex h-[min(500px,calc(100dvh-150px))] w-[min(340px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-[#0f1726] shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
+            <div className="flex shrink-0 items-center gap-2.5 border-b border-white/[0.08] bg-[#131d2e] px-3 py-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-black"><MessageCircle size={16} /></div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">Messenger</p>
-                <p className="text-[11px] text-foreground/45">Customer replies</p>
+                <p className="text-[10px] text-foreground/45">Customer replies</p>
               </div>
-              <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[10px] text-foreground/45">{conversations.length}</span>
-              <button type="button" onClick={() => setOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground/55 hover:bg-white/[0.07] hover:text-foreground" aria-label="Close Messenger">
-                <X size={17} />
+              <span className="rounded-full bg-white/[0.05] px-2 py-1 text-[10px] text-foreground/45">{conversations.length}</span>
+              <button type="button" onClick={() => setOpen(false)} className="flex h-7 w-7 items-center justify-center rounded-lg text-foreground/55 hover:bg-white/[0.07] hover:text-foreground" aria-label="Close Messenger">
+                <X size={15} />
               </button>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-[138px_1fr]">
+            <div className="grid min-h-0 flex-1 grid-cols-[116px_1fr]">
               <aside className="min-h-0 overflow-y-auto border-r border-white/[0.08] bg-[#0b1321]">
-                <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#0b1321] p-2">
+                <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#0b1321] p-1.5">
                   <div className="relative">
-                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground/35" />
-                    <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-8 border-white/[0.08] bg-white/[0.03] pl-8 pr-2 text-xs" />
+                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/35" />
+                    <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-7 border-white/[0.08] bg-white/[0.03] pl-7 pr-1.5 text-[10px]" />
                   </div>
                 </div>
                 {filtered.map((conversation) => {
                   const active = conversation.id === selectedId;
                   return (
-                    <button key={conversation.id} type="button" onClick={() => chooseConversation(conversation.id)} className={`w-full border-b border-white/[0.04] px-2.5 py-2.5 text-left transition ${active ? "bg-accent/[0.10]" : "hover:bg-white/[0.04]"}`}>
-                      <div className="flex items-center gap-2">
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${active ? "bg-accent/15 text-accent" : "bg-white/[0.06] text-foreground/45"}`}><UserRound size={14} /></div>
+                    <button key={conversation.id} type="button" onClick={() => chooseConversation(conversation.id)} className={`w-full border-b border-white/[0.04] px-2 py-2 text-left transition ${active ? "bg-accent/[0.10]" : "hover:bg-white/[0.04]"}`}>
+                      <div className="flex items-center gap-1.5">
+                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${active ? "bg-accent/15 text-accent" : "bg-white/[0.06] text-foreground/45"}`}><UserRound size={12} /></div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-semibold">{conversation.customer.name}</p>
-                          <p className="mt-0.5 truncate text-[10px] text-foreground/40">{conversation.lastMessage ?? "No messages"}</p>
+                          <p className="truncate text-[10px] font-semibold">{conversation.customer.name}</p>
+                          <p className="mt-0.5 truncate text-[9px] text-foreground/40">{conversation.lastMessage ?? "No messages"}</p>
                         </div>
                       </div>
                     </button>
@@ -184,21 +184,21 @@ export function FloatingMessenger() {
               </aside>
 
               <section className="flex min-w-0 flex-col bg-[#0f1726]">
-                <div className="shrink-0 border-b border-white/[0.08] bg-[#131d2e] px-3.5 py-3">
-                  <p className="truncate text-sm font-semibold">{selected?.customer.name ?? "Select a customer"}</p>
-                  <p className="truncate text-[10px] text-foreground/40">{selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? "Messenger customer"}</p>
+                <div className="shrink-0 border-b border-white/[0.08] bg-[#131d2e] px-3 py-2.5">
+                  <p className="truncate text-xs font-semibold">{selected?.customer.name ?? "Select a customer"}</p>
+                  <p className="truncate text-[9px] text-foreground/40">{selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? "Messenger customer"}</p>
                 </div>
 
-                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3">
-                  {loading ? <div className="flex justify-center p-6"><Loader2 size={18} className="animate-spin text-foreground/40" /></div> : null}
-                  {!loading && !messages.length ? <div className="flex h-full items-center justify-center px-4 text-center text-xs text-foreground/40">No messages yet.</div> : null}
+                <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2.5 py-2.5">
+                  {loading ? <div className="flex justify-center p-6"><Loader2 size={16} className="animate-spin text-foreground/40" /></div> : null}
+                  {!loading && !messages.length ? <div className="flex h-full items-center justify-center px-4 text-center text-[10px] text-foreground/40">No messages yet.</div> : null}
                   {messages.map((message) => {
                     const mine = message.direction === "outbound";
                     return (
                       <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[84%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${mine ? "rounded-br-md bg-accent text-black" : "rounded-bl-md bg-white/[0.07] text-foreground"}`}>
+                        <div className={`max-w-[86%] rounded-xl px-2.5 py-1.5 text-[11px] leading-relaxed ${mine ? "rounded-br-sm bg-accent text-black" : "rounded-bl-sm bg-white/[0.07] text-foreground"}`}>
                           <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                          <p className="mt-1 text-[9px] opacity-45">{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
+                          <p className="mt-0.5 text-[8px] opacity-45">{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
                         </div>
                       </div>
                     );
@@ -206,12 +206,12 @@ export function FloatingMessenger() {
                   <div ref={bottomRef} />
                 </div>
 
-                {error ? <p className="px-3 pb-1 text-[10px] text-danger">{error}</p> : null}
-                <div className="shrink-0 border-t border-white/[0.08] bg-[#131d2e] p-2.5">
-                  <div className="flex items-center gap-2">
-                    <Input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={selected ? "Reply to customer..." : "Select a conversation"} disabled={!selected?.customer.messengerPsid || sending} className="h-10 min-w-0 border-white/[0.08] bg-white/[0.03] text-xs" />
-                    <button type="button" onClick={() => void send()} disabled={!draft.trim() || !selected?.customer.messengerPsid || sending} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-black transition hover:brightness-110 disabled:opacity-40" aria-label="Send reply">
-                      {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+                {error ? <p className="px-2.5 pb-1 text-[9px] text-danger">{error}</p> : null}
+                <div className="shrink-0 border-t border-white/[0.08] bg-[#131d2e] p-2">
+                  <div className="flex items-center gap-1.5">
+                    <Input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={selected ? "Reply..." : "Select a conversation"} disabled={!selected?.customer.messengerPsid || sending} className="h-8 min-w-0 border-white/[0.08] bg-white/[0.03] text-[11px]" />
+                    <button type="button" onClick={() => void send()} disabled={!draft.trim() || !selected?.customer.messengerPsid || sending} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-black transition hover:brightness-110 disabled:opacity-40" aria-label="Send reply">
+                      {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                     </button>
                   </div>
                 </div>
@@ -220,10 +220,9 @@ export function FloatingMessenger() {
           </div>
         ) : null}
 
-        <button type="button" onClick={() => setOpen((value) => !value)} className="relative mb-20 inline-flex h-12 items-center gap-2 rounded-full border border-white/[0.14] bg-accent px-4 text-sm font-semibold text-black shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition hover:scale-[1.02] hover:brightness-110" aria-label="Open Messenger" title="Messenger">
-          {open ? <ChevronDown size={18} /> : <MessageCircle size={18} />}
-          <span>Messenger</span>
-          {!open && unread > 0 ? <span className="ml-0.5 flex min-h-5 min-w-5 items-center justify-center rounded-full border border-black/15 bg-danger px-1 text-[10px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
+        <button type="button" onClick={() => setOpen((value) => !value)} className="relative flex h-14 w-14 items-center justify-center rounded-full border border-white/[0.16] bg-accent text-black shadow-[0_16px_40px_rgba(0,0,0,0.4)] transition hover:scale-105 hover:brightness-110" aria-label="Open Messenger" title="Messenger">
+          {open ? <ChevronDown size={20} /> : <MessageCircle size={21} />}
+          {!open && unread > 0 ? <span className="absolute -right-0.5 -top-0.5 flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#0f1726] bg-danger px-1 text-[9px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
         </button>
       </div>
     </div>
