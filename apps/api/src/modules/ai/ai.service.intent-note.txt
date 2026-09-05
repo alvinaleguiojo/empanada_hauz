@@ -1,0 +1,1 @@
+All customer messages must go through Qwen/Ollama. The application validates order execution only; it does not answer customer queries.
