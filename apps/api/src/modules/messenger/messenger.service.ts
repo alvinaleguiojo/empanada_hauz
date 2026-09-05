@@ -113,7 +113,7 @@ export class MessengerService {
         if (!participant?.id) { this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`); continue; }
         const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
         let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
-        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
+        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) });
         else conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
         conversationsImported += 1;
         let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
@@ -150,7 +150,17 @@ export class MessengerService {
   async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown }) {
     const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text);
     if (payload.messageId) { const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } }); if (existing) return existing; }
-    return this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", content: payload.text, rawPayload: payload.rawPayload as never } });
+    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", content: payload.text, rawPayload: payload.rawPayload as never } });
+
+    this.notificationsService.notify("messenger.message_received", {
+      conversationId: conversation.id,
+      senderId: payload.senderId,
+      messageId: payload.messageId,
+      message: payload.text,
+      createdAt: new Date().toISOString()
+    });
+
+    return message;
   }
   async sendText(recipientPsid: string, text: string) {
     const pageToken = await this.metaAuthService.getPageToken();
