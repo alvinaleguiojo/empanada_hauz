@@ -90,6 +90,14 @@ export class MessengerController {
         continue;
       }
 
+      // Meta can deliver echo events for messages sent by the Page. Those are
+      // already persisted and broadcast by sendText(), so do not turn them
+      // into duplicate inbound/customer messages.
+      if (event.message?.is_echo === true) {
+        this.logger.debug(`Ignoring Messenger echo event: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`);
+        continue;
+      }
+
       if (!text) {
         this.logger.debug(`Ignoring Messenger event without text: sender=${senderId}`);
         continue;
