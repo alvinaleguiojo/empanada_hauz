@@ -37,6 +37,16 @@ interface OllamaResponse { message?: { content?: string } }
 
 type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
 
+type KnownOrderFacts = {
+  product?: { name: string; price: number };
+  quantity?: number;
+  deliveryMethod?: "pickup" | "maxim";
+  paymentMethod?: "cod" | "gcash";
+  address?: string;
+  landmark?: string;
+  contactNumber?: string;
+};
+
 const PRODUCTS: Array<{ aliases: string[]; name: string; price: number }> = [
   { aliases: ["bacon with cheese", "bacon"], name: "New Flavor Bacon with Cheese", price: 35 },
   { aliases: ["pork regular with egg", "pork with egg", "pork egg"], name: "Pork Regular with Egg", price: 25 },
@@ -70,7 +80,7 @@ export class AiService {
       .replaceAll("{{Customer's Name}}", context?.customerName ?? "Customer");
     const recentMessages = (context?.recentMessages ?? []).slice(-6);
     const conversationContext = recentMessages.length ? `\nRecent conversation:\n${recentMessages.join("\n")}` : "";
-    const knownFacts = this.buildKnownFacts(message);
+    const knownFacts = this.buildKnownFacts(message, recentMessages);
     const schema = {
       intent: "inquiry | order_confirmation | reservation | delivery_request | pickup_request | pricing_question",
       confidence: "number from 0 to 1",
@@ -87,8 +97,9 @@ export class AiService {
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
     try {
       const result = await this.callOllama({ systemPrompt, schema, conversationContext, knownFacts, message });
-      this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${result.confidence} intent=${result.intent}`);
-      return { ...result, source: "ollama" };
+      const corrected = this.applyKnownFacts(result, message, recentMessages);
+      this.logger.log(`AI path=OLLAMA_SUCCESS confidence=${corrected.confidence} intent=${corrected.intent}`);
+      return { ...corrected, source: "ollama" };
     } catch (error) {
       this.logger.warn(`AI path=FALLBACK reason=${String(error)} message=${JSON.stringify(message)}`);
       return { ...this.fallbackParse(message), source: "fallback" };
@@ -111,7 +122,7 @@ export class AiService {
       messages: [
         {
           role: "system",
-          content: `${input.systemPrompt}\n\nImportant: YOU are the customer-facing AI. Always generate the suggestedReply yourself. Do not use a canned fallback reply. Use the recent conversation and known facts to maintain context across turns. Treat known facts as extracted hints, not as permission to invent missing information. Never mark an order confirmed when required fields are missing. Never claim an order was created unless the application says it was created.\n\nJSON schema:\n${JSON.stringify(input.schema)}`
+          content: `${input.systemPrompt}\n\nImportant: YOU are the customer-facing AI. Always generate the suggestedReply yourself. Do not use a canned fallback reply. Use the recent conversation and known facts to maintain context across turns. The application facts are authoritative for product names, prices, quantities, delivery method, payment method, and required fields when present. Never invent missing information. Never mark an order confirmed when required fields are missing. Treat statements such as "place my order" as a confirmation request only; the application decides whether the order is complete and eligible for creation. Never claim an order was created unless the application says it was created.\n\nJSON schema:\n${JSON.stringify(input.schema)}`
         },
         {
           role: "user",
@@ -169,7 +180,7 @@ export class AiService {
           messages: [
             {
               role: "system",
-              content: `${input.systemPrompt}\n\nReturn ONE compact JSON object only. Do not explain anything. Always write a customer-facing suggestedReply. Keep suggestedReply short so the JSON cannot be truncated. JSON schema:\n${JSON.stringify(input.schema)}`
+              content: `${input.systemPrompt}\n\nReturn ONE compact JSON object only. Do not explain anything. Always write a customer-facing suggestedReply. Keep suggestedReply short so the JSON cannot be truncated. Treat application facts as authoritative. Never invent missing order information and never mark an incomplete order as confirmed. JSON schema:\n${JSON.stringify(input.schema)}`
             },
             {
               role: "user",
@@ -190,19 +201,106 @@ export class AiService {
     }
   }
 
-  private buildKnownFacts(message: string) {
-    const lower = message.toLowerCase().trim();
+  private buildKnownFacts(message: string, recentMessages: string[]) {
+    const current = this.extractFacts(message);
+    const historical = this.extractFacts(recentMessages.join("\n"));
+    const facts: string[] = [];
+    const product = current.product ?? historical.product;
+    const quantity = current.quantity ?? historical.quantity;
+    const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
+    const paymentMethod = current.paymentMethod ?? historical.paymentMethod;
+    const address = current.address ?? historical.address;
+    const landmark = current.landmark ?? historical.landmark;
+    const contactNumber = current.contactNumber ?? historical.contactNumber;
+    facts.push(product ? `Product: ${product.name} at ₱${product.price}.` : "Product: none confidently detected.");
+    facts.push(quantity ? `Quantity: ${quantity}.` : "Quantity: none confidently detected.");
+    facts.push(deliveryMethod ? `Delivery method: ${deliveryMethod}.` : "Delivery method: none confidently detected.");
+    facts.push(paymentMethod ? `Payment method: ${paymentMethod}.` : "Payment method: none confidently detected.");
+    facts.push(address ? `Address: ${address}.` : "Address: none provided.");
+    facts.push(landmark ? `Landmark: ${landmark}.` : "Landmark: none provided.");
+    facts.push(contactNumber ? `Contact #: ${contactNumber}.` : "Contact #: none provided.");
+    return facts.join("\n");
+  }
+
+  private extractFacts(text: string): KnownOrderFacts {
+    const lower = text.toLowerCase().trim();
     const product = this.findProduct(lower);
     const quantity = this.extractQuantity(lower);
     const deliveryMethod = this.extractDeliveryMethod(lower);
     const paymentMethod = this.extractPaymentMethod(lower);
-    const facts = [
-      product ? `Current-message product candidate: ${product.name} at ₱${product.price}.` : "Current-message product candidate: none.",
-      quantity ? `Current-message quantity candidate: ${quantity}.` : "Current-message quantity candidate: none.",
-      deliveryMethod ? `Current-message delivery method candidate: ${deliveryMethod}.` : "Current-message delivery method candidate: none.",
-      paymentMethod ? `Current-message payment candidate: ${paymentMethod}.` : "Current-message payment candidate: none."
-    ];
-    return facts.join("\n");
+    const address = this.extractField(lower, /address[:\s]+(.+?)(?:\s+landmark[:\s]+|\s+contact(?:\s*#| number)?[:\s]+|$)/i);
+    const landmark = this.extractField(lower, /landmark[:\s]+(.+?)(?:\s+contact(?:\s*#| number)?[:\s]+|$)/i);
+    const contactNumber = this.extractField(lower, /contact(?:\s*#| number)?[:\s]+([+\d][\d\s-]{6,})/i);
+    return { product, quantity, deliveryMethod, paymentMethod, address, landmark, contactNumber };
+  }
+
+  private applyKnownFacts(result: AIIntentResult, message: string, recentMessages: string[]): AIIntentResult {
+    const current = this.extractFacts(message);
+    const historical = this.extractFacts(recentMessages.join("\n"));
+    const details = { ...result.details, missingFields: Array.isArray(result.details?.missingFields) ? [...result.details.missingFields] : [], flavors: Array.isArray(result.details?.flavors) ? [...result.details.flavors] : [] };
+    const product = current.product ?? historical.product;
+    const quantity = current.quantity ?? historical.quantity;
+    const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
+    const paymentMethod = current.paymentMethod ?? historical.paymentMethod;
+    const address = current.address ?? historical.address;
+    const landmark = current.landmark ?? historical.landmark;
+    const contactNumber = current.contactNumber ?? historical.contactNumber;
+
+    if (product && quantity) {
+      details.flavors = [{ name: product.name, quantity, unitPrice: product.price, subtotal: product.price * quantity }];
+      details.quantity = quantity;
+      details.totalAmount = product.price * quantity;
+      details.missingFields = details.missingFields.filter((field) => field !== "flavors" && field !== "quantity");
+    } else if (product && details.flavors.length === 0) {
+      details.flavors = [{ name: product.name, quantity: Number(details.quantity ?? 0), unitPrice: product.price, subtotal: product.price * Number(details.quantity ?? 0) }].filter((item) => item.quantity > 0);
+    }
+    if (deliveryMethod) details.deliveryMethod = deliveryMethod;
+    if (paymentMethod) details.paymentMethod = paymentMethod;
+    if (address) details.address = address;
+    if (landmark) details.landmark = landmark;
+    if (contactNumber) details.contactNumber = contactNumber;
+
+    const complete = this.hasCompleteOrder(details);
+    const explicitConfirmation = this.isExplicitConfirmation(message);
+    if (!complete || !explicitConfirmation) {
+      details.confirmed = false;
+      if (!complete) details.missingFields = this.requiredMissingFields(details);
+    }
+
+    const intent = complete && explicitConfirmation
+      ? "order_confirmation"
+      : details.deliveryMethod === "maxim"
+        ? "delivery_request"
+        : details.deliveryMethod === "pickup"
+          ? "pickup_request"
+          : result.intent;
+
+    return this.normalizeResult({ ...result, intent, details });
+  }
+
+  private hasCompleteOrder(details: AIIntentResult["details"]) {
+    const flavors = details.flavors ?? [];
+    const quantity = Number(details.quantity ?? 0);
+    const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
+    return flavors.length > 0 && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
+  }
+
+  private requiredMissingFields(details: AIIntentResult["details"]) {
+    const missing: string[] = [];
+    if (!details.flavors?.length) missing.push("flavors");
+    if (Number(details.quantity ?? 0) < 10) missing.push("quantity");
+    if (!details.deliveryMethod) missing.push("deliveryMethod");
+    if (!details.paymentMethod) missing.push("paymentMethod");
+    if (details.deliveryMethod === "maxim") {
+      if (!details.address?.trim()) missing.push("address");
+      if (!details.landmark?.trim()) missing.push("landmark");
+      if (!details.contactNumber?.trim()) missing.push("contactNumber");
+    }
+    return missing;
+  }
+
+  private isExplicitConfirmation(message: string) {
+    return /\b(yes|correct|confirmed|confirm|go ahead|place my order|place the order|order it|that's correct|that is correct|okay proceed|proceed)\b/i.test(message);
   }
 
   private findProduct(text: string) {
@@ -224,6 +322,11 @@ export class AiService {
     if (/\b(gcash|g cash)\b/i.test(text)) return "gcash";
     if (/\b(cod|cash on delivery|cash)\b/i.test(text)) return "cod";
     return undefined;
+  }
+
+  private extractField(text: string, pattern: RegExp) {
+    const match = text.match(pattern);
+    return match?.[1]?.trim() || undefined;
   }
 
   private normalizeResult(result: AIIntentResult): AIIntentResult {
