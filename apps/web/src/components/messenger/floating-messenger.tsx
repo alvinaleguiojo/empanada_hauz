@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, MessageCircle, Search, Send, UserRound, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { socket } from "@/lib/socket";
-import { Input } from "@/components/ui/input";
 
 type Customer = {
   id: string;
@@ -37,18 +38,25 @@ export function FloatingMessenger() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [unread, setUnread] = useState(0);
   const [error, setError] = useState("");
+  const messagesRequestId = useRef(0);
   const lastSeenRef = useRef("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  const selected = useMemo(() => conversations.find((item) => item.id === selectedId), [conversations, selectedId]);
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter((item) => `${item.customer.name} ${item.lastMessage ?? ""}`.toLowerCase().includes(q));
+  const selected = useMemo(
+    () => conversations.find((item) => item.id === selectedId),
+    [conversations, selectedId],
+  );
+
+  const filteredConversations = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return conversations;
+    return conversations.filter((conversation) =>
+      `${conversation.customer.name} ${conversation.lastMessage ?? ""}`.toLowerCase().includes(query),
+    );
   }, [conversations, search]);
 
   useEffect(() => {
@@ -79,10 +87,9 @@ export function FloatingMessenger() {
   }, [open, selectedId]);
 
   useEffect(() => {
-    if (open) {
-      setUnread(0);
-      window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: "end" }), 50);
-    }
+    if (!open) return;
+    setUnread(0);
+    window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: "end" }), 50);
   }, [open]);
 
   useEffect(() => {
@@ -93,26 +100,37 @@ export function FloatingMessenger() {
     try {
       const result = await apiFetch<Conversation[]>("/messenger/conversations");
       setConversations(result);
-      setSelectedId((current) => current && result.some((item) => item.id === current) ? current : result[0]?.id ?? "");
+      setSelectedId((current) =>
+        current && result.some((conversation) => conversation.id === current)
+          ? current
+          : result[0]?.id ?? "",
+      );
 
       const newest = result[0]?.updatedAt ?? "";
-      if (lastSeenRef.current && newest > lastSeenRef.current && !open) setUnread((count) => Math.max(count, 1));
+      if (lastSeenRef.current && newest > lastSeenRef.current && !open) {
+        setUnread((count) => Math.max(count, 1));
+      }
       lastSeenRef.current = newest;
     } catch (err) {
-      if (!silent) setError(err instanceof Error ? err.message : "Unable to load Messenger.");
+      if (!silent) setError(err instanceof Error ? err.message : "Unable to load conversations.");
     }
   }
 
   async function loadMessages(id: string, silent = false) {
-    if (!id) return;
-    if (!silent) setLoading(true);
+    const requestId = ++messagesRequestId.current;
+    if (!silent) setLoadingMessages(true);
+
     try {
       const result = await apiFetch<Message[]>(`/messenger/conversations/${id}/messages`);
-      if (id === selectedId) setMessages(result);
+      if (requestId !== messagesRequestId.current || id !== selectedId) return;
+      setMessages(result);
+      if (!silent) setError("");
     } catch (err) {
-      if (!silent) setError(err instanceof Error ? err.message : "Unable to load messages.");
+      if (!silent && requestId === messagesRequestId.current && id === selectedId) {
+        setError(err instanceof Error ? err.message : "Unable to load messages.");
+      }
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && requestId === messagesRequestId.current) setLoadingMessages(false);
     }
   }
 
@@ -120,12 +138,14 @@ export function FloatingMessenger() {
     const text = draft.trim();
     const psid = selected?.customer.messengerPsid;
     if (!text || !psid || sending) return;
+
     setSending(true);
     setError("");
+
     try {
       await apiFetch("/messenger/send", {
         method: "POST",
-        body: JSON.stringify({ recipientPsid: psid, text })
+        body: JSON.stringify({ recipientPsid: psid, text }),
       });
       setDraft("");
       await loadMessages(selectedId, true);
@@ -137,92 +157,174 @@ export function FloatingMessenger() {
     }
   }
 
-  function chooseConversation(id: string) {
-    setSelectedId(id);
-    setError("");
-  }
-
   const content = (
     <div className="pointer-events-none fixed bottom-6 right-4 z-[9999] sm:right-6">
       <div className="pointer-events-auto flex flex-col items-end">
         {open ? (
-          <div className="mb-3 flex h-[min(500px,calc(100dvh-150px))] w-[min(340px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/[0.14] bg-[#0f1726] shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
-            <div className="flex shrink-0 items-center gap-2.5 border-b border-white/[0.08] bg-[#131d2e] px-3 py-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-black"><MessageCircle size={16} /></div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">Messenger</p>
-                <p className="text-[10px] text-foreground/45">Customer replies</p>
-              </div>
-              <span className="rounded-full bg-white/[0.05] px-2 py-1 text-[10px] text-foreground/45">{conversations.length}</span>
-              <button type="button" onClick={() => setOpen(false)} className="flex h-7 w-7 items-center justify-center rounded-lg text-foreground/55 hover:bg-white/[0.07] hover:text-foreground" aria-label="Close Messenger">
-                <X size={15} />
-              </button>
-            </div>
-
-            <div className="grid min-h-0 flex-1 grid-cols-[116px_1fr]">
-              <aside className="min-h-0 overflow-y-auto border-r border-white/[0.08] bg-[#0b1321]">
-                <div className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#0b1321] p-1.5">
-                  <div className="relative">
-                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-foreground/35" />
-                    <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-7 border-white/[0.08] bg-white/[0.03] pl-7 pr-1.5 text-[10px]" />
+          <div className="mb-3 flex h-[min(650px,calc(100dvh-120px))] w-[min(640px,calc(100vw-24px))] overflow-hidden rounded-xl border border-line bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+            <aside className="flex w-[220px] shrink-0 flex-col border-r border-line bg-black/[0.02]">
+              <div className="border-b border-line px-3 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                    <MessageCircle size={17} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">Messenger</p>
+                    <p className="text-[10px] text-foreground/45">{conversations.length} conversations</p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-foreground/45 transition hover:bg-foreground/5 hover:text-foreground"
+                    aria-label="Close Messenger"
+                  >
+                    <X size={17} />
+                  </button>
                 </div>
-                {filtered.map((conversation) => {
-                  const active = conversation.id === selectedId;
-                  return (
-                    <button key={conversation.id} type="button" onClick={() => chooseConversation(conversation.id)} className={`w-full border-b border-white/[0.04] px-2 py-2 text-left transition ${active ? "bg-accent/[0.10]" : "hover:bg-white/[0.04]"}`}>
-                      <div className="flex items-center gap-1.5">
-                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${active ? "bg-accent/15 text-accent" : "bg-white/[0.06] text-foreground/45"}`}><UserRound size={12} /></div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[10px] font-semibold">{conversation.customer.name}</p>
-                          <p className="mt-0.5 truncate text-[9px] text-foreground/40">{conversation.lastMessage ?? "No messages"}</p>
+                <div className="relative mt-3">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground/35" />
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search conversations..."
+                    className="h-9 pl-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                {!filteredConversations.length ? (
+                  <div className="flex h-full flex-col items-center justify-center px-5 text-center">
+                    <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-foreground/5 text-foreground/35">
+                      <MessageCircle size={19} />
+                    </span>
+                    <p className="text-xs font-medium">{search ? "No matches" : "No conversations yet"}</p>
+                  </div>
+                ) : (
+                  filteredConversations.map((conversation) => {
+                    const active = conversation.id === selectedId;
+                    return (
+                      <button
+                        key={conversation.id}
+                        type="button"
+                        onClick={() => setSelectedId(conversation.id)}
+                        className={`group w-full border-b border-line/70 px-3 py-3 text-left transition-colors ${active ? "bg-accent/[0.09]" : "hover:bg-foreground/[0.035]"}`}
+                      >
+                        <div className="flex gap-2.5">
+                          <div className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${active ? "bg-accent/15 text-accent" : "bg-foreground/5 text-foreground/50"}`}>
+                            <UserRound size={15} />
+                            {active ? <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-background bg-accent" /> : null}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-semibold">{conversation.customer.name}</p>
+                            <p className="mt-1 truncate text-[10px] text-foreground/45">{conversation.lastMessage ?? "Start a conversation"}</p>
+                          </div>
                         </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </aside>
+
+            <section className="flex min-w-0 flex-1 flex-col bg-background">
+              <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-3.5 py-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
+                  <UserRound size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{selected?.customer.name ?? "Select a conversation"}</p>
+                  <p className="truncate text-[10px] text-foreground/45">
+                    {selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? ""}
+                    {selected?.customer.totalOrders ? ` · ${selected.customer.totalOrders} orders` : ""}
+                  </p>
+                </div>
+                {selected?.customer.isVip ? (
+                  <span className="rounded-full bg-accent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-black">
+                    VIP
+                  </span>
+                ) : null}
+              </header>
+
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3.5">
+                {loadingMessages ? (
+                  <div className="flex justify-center p-8">
+                    <Loader2 className="animate-spin text-foreground/40" size={20} />
+                  </div>
+                ) : null}
+
+                {!loadingMessages && !messages.length ? (
+                  <div className="flex h-full min-h-[220px] flex-col items-center justify-center text-center">
+                    <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-accent/10 text-accent">
+                      <MessageCircle size={21} />
+                    </span>
+                    <p className="text-sm font-medium">No messages yet</p>
+                    <p className="mt-1 text-xs text-foreground/45">Send a message to start the conversation.</p>
+                  </div>
+                ) : null}
+
+                {messages.map((message) => {
+                  const mine = message.direction === "outbound";
+                  return (
+                    <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[84%] rounded-2xl px-3.5 py-2.5 text-xs shadow-sm ${mine ? "rounded-br-md bg-accent text-black" : "rounded-bl-md bg-foreground/[0.07] text-foreground"}`}>
+                        <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+                        <p className="mt-1.5 text-[9px] opacity-50">
+                          {new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        </p>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
-              </aside>
+                <div ref={bottomRef} />
+              </div>
 
-              <section className="flex min-w-0 flex-col bg-[#0f1726]">
-                <div className="shrink-0 border-b border-white/[0.08] bg-[#131d2e] px-3 py-2.5">
-                  <p className="truncate text-xs font-semibold">{selected?.customer.name ?? "Select a customer"}</p>
-                  <p className="truncate text-[9px] text-foreground/40">{selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? "Messenger customer"}</p>
+              <div className="shrink-0 border-t border-line bg-background/95 p-3 backdrop-blur">
+                {error ? <p className="mb-2 px-1 text-xs text-danger">{error}</p> : null}
+                <div className="flex items-end gap-2">
+                  <Input
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void send();
+                      }
+                    }}
+                    placeholder={selected ? "Reply to this customer..." : "Select a conversation..."}
+                    disabled={!selected?.customer.messengerPsid || sending}
+                    className="h-11 min-w-0"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => void send()}
+                    disabled={!draft.trim() || !selected?.customer.messengerPsid || sending}
+                    className="h-11 shrink-0 px-3"
+                    aria-label="Send message"
+                  >
+                    {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    <span>Send</span>
+                  </Button>
                 </div>
-
-                <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2.5 py-2.5">
-                  {loading ? <div className="flex justify-center p-6"><Loader2 size={16} className="animate-spin text-foreground/40" /></div> : null}
-                  {!loading && !messages.length ? <div className="flex h-full items-center justify-center px-4 text-center text-[10px] text-foreground/40">No messages yet.</div> : null}
-                  {messages.map((message) => {
-                    const mine = message.direction === "outbound";
-                    return (
-                      <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[86%] rounded-xl px-2.5 py-1.5 text-[11px] leading-relaxed ${mine ? "rounded-br-sm bg-accent text-black" : "rounded-bl-sm bg-white/[0.07] text-foreground"}`}>
-                          <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                          <p className="mt-0.5 text-[8px] opacity-45">{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div ref={bottomRef} />
-                </div>
-
-                {error ? <p className="px-2.5 pb-1 text-[9px] text-danger">{error}</p> : null}
-                <div className="shrink-0 border-t border-white/[0.08] bg-[#131d2e] p-2">
-                  <div className="flex items-center gap-1.5">
-                    <Input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={selected ? "Reply..." : "Select a conversation"} disabled={!selected?.customer.messengerPsid || sending} className="h-8 min-w-0 border-white/[0.08] bg-white/[0.03] text-[11px]" />
-                    <button type="button" onClick={() => void send()} disabled={!draft.trim() || !selected?.customer.messengerPsid || sending} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-black transition hover:brightness-110 disabled:opacity-40" aria-label="Send reply">
-                      {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                    </button>
-                  </div>
-                </div>
-              </section>
-            </div>
+                <p className="mt-1.5 px-1 text-[10px] text-foreground/30">Press Enter to send</p>
+              </div>
+            </section>
           </div>
         ) : null}
 
-        <button type="button" onClick={() => setOpen((value) => !value)} className="relative flex h-14 w-14 items-center justify-center rounded-full border border-white/[0.16] bg-accent text-black shadow-[0_16px_40px_rgba(0,0,0,0.4)] transition hover:scale-105 hover:brightness-110" aria-label="Open Messenger" title="Messenger">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="relative flex h-14 w-14 items-center justify-center rounded-full border border-white/[0.16] bg-accent text-black shadow-[0_16px_40px_rgba(0,0,0,0.4)] transition hover:scale-105 hover:brightness-110"
+          aria-label="Open Messenger"
+          title="Messenger"
+        >
           {open ? <ChevronDown size={20} /> : <MessageCircle size={21} />}
-          {!open && unread > 0 ? <span className="absolute -right-0.5 -top-0.5 flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#0f1726] bg-danger px-1 text-[9px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
+          {!open && unread > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#0f1726] bg-danger px-1 text-[9px] font-bold text-white">
+              {unread > 99 ? "99+" : unread}
+            </span>
+          ) : null}
         </button>
       </div>
     </div>
