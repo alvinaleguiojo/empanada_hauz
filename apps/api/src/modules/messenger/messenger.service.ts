@@ -31,7 +31,7 @@ export class MessengerService {
     const stored = await this.persistInbound(event);
     this.logger.log(`Messenger inbound persisted: sender=${event.senderId} messageId=${event.messageId ?? "unknown"} message=${stored.id}`);
     const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId }, include: { customer: true } });
-    const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 12, select: { direction: true, content: true } });
+    const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 4, select: { direction: true, content: true } });
     const contextMessages = recentMessages.reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
 
     this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:8b")}`);
@@ -40,15 +40,20 @@ export class MessengerService {
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
-    if (this.isConfirmedOrder(ai)) {
+    if (this.isConfirmedOrder(ai, event.text)) {
       try {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
-        reply = "We'll let you know once your order is ready.";
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
         this.logger.log(`Created confirmed Messenger order ${created.orderNumber} for ${event.senderId} via MCP order service`);
+        reply = await this.aiService.generateOrderResultReply("created", created.orderNumber);
       } catch (error) {
         this.logger.error(`Confirmed Messenger order could not be created for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
-        reply = "Your order details are confirmed, but I couldn't finish placing the order right now. Please try again in a moment. 😊";
+        try {
+          reply = await this.aiService.generateOrderResultReply("failed");
+        } catch (replyError) {
+          this.logger.error(`Qwen order-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError));
+          reply = ai.suggestedReply?.trim() ?? "";
+        }
       }
     }
 
@@ -60,13 +65,15 @@ export class MessengerService {
     return { ai, reply };
   }
 
-  private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>) {
+  private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, currentMessage: string) {
     const details = ai.details;
     const quantity = Number(details.quantity ?? 0);
     const flavors = details.flavors ?? [];
+    const flavorQuantity = flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const explicitConfirmation = /\b(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|place my order|place the order|order it|that's correct|that is correct|okay proceed)\b/i.test(currentMessage.trim());
     const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
-    const requiredFieldsPresent = flavors.length > 0 && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
-    return details.confirmed === true && requiredFieldsPresent && details.missingFields.length === 0;
+    const requiredFieldsPresent = flavors.length > 0 && flavorQuantity === quantity && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
+    return explicitConfirmation && details.confirmed === true && requiredFieldsPresent && details.missingFields.length === 0;
   }
 
   private async createConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, customerName: string, originalMessage: string) {
