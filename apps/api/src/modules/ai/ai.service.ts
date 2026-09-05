@@ -11,7 +11,10 @@ Do not repeat the previous assistant answer unless the current message asks for 
 A greeting is not an order. A flavor or quantity request is not confirmation.
 A flavor-only request means the customer has selected a flavor but has NOT yet given the quantity.
 When a customer names a flavor without a quantity, ask how many pcs they would like to order. Do not present a complete-order confirmation summary yet.
-When the quantity is known but delivery method or payment method is missing, ask for the missing order information before saying the order is confirmed.
+When an order request has missing required fields, ask for the missing required information before any confirmation summary.
+A confirmation summary is allowed ONLY when application order facts say Missing required fields: none.
+If any required field is missing, DO NOT say the details are correct, DO NOT ask the customer to confirm the order, and DO NOT use the sentence "Please confirm if all the details above are correct. 😊".
+When delivery method or payment method is missing, ask the customer for those missing details.
 For delivery orders, collect Address, Landmark, and Contact # before confirmation. For Maxim, all three are required. Pickup does not require delivery address details.
 Only treat a confirmation as confirmation when the customer clearly confirms the complete order.
 Never say an order is confirmed, placed, submitted, or created unless the application context explicitly says the order is READY and was actually created.
@@ -116,7 +119,7 @@ export class AiService {
       model: this.model, stream: false, think: false,
       options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied application order facts when the current message clearly refers to them. Never claim that an order is confirmed or placed when application validation says NOT READY. Never invent missing delivery or payment information. For an order request, ask only for the next missing required information; do not pretend the order is complete when quantity, delivery method, payment method, or required delivery details are still missing. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied application order facts when the current message clearly refers to them. The application facts contain the authoritative missing-fields list. When Missing required fields is not none, ask for the missing fields and do not ask for order confirmation. A complete confirmation summary is forbidden until Missing required fields is none. Never claim that an order is confirmed or placed when application validation says NOT READY. Never invent missing delivery or payment information. For an order request, ask only for the next missing required information; do not pretend the order is complete when quantity, delivery method, payment method, or required delivery details are still missing. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     }, "Ollama customer reply failed");
@@ -157,7 +160,11 @@ export class AiService {
     }
 
     if (currentDetails?.flavors?.length) {
-      return `CURRENT ORDER FACTS:\n${this.formatOrderContext(currentDetails)}\n\nCONVERSATION CONTEXT: none. Treat this as the current request.`;
+      const missing = currentDetails.missingFields;
+      const nextAction = missing.length
+        ? `NEXT REQUIRED ACTION: Ask the customer for the missing information listed above. Do not ask them to confirm the order yet.`
+        : `NEXT REQUIRED ACTION: The order facts are complete. Only an explicit customer confirmation can move to placement.`;
+      return `CURRENT ORDER FACTS:\n${this.formatOrderContext(currentDetails)}\n${nextAction}\n\nCONVERSATION CONTEXT: none. Treat this as the current request.`;
     }
 
     if (explicitFollowUp && !freshRequest && recentMessages.length) {
@@ -228,7 +235,7 @@ export class AiService {
     for (const flavor of FLAVOR_ALIASES) {
       for (const alias of flavor.aliases) {
         const before = new RegExp(`\\b(\\d+)\\s*(?:pcs?|pieces?)\\s*(?:of\\s+)?${this.escapeRegExp(alias)}\\b`, "i").exec(message);
-        const after = new RegExp(`\\b${this.escapeRegExp(alias)}\\b[^\\n,;]{0,30}?(\\d+)\\s*(?:pcs?|pieces?)\\b`, "i").exec(message);
+        const after = new RegExp(`\\b${this.escapeRegExp(alias)}\\b[^,;]{0,30}?(\\d+)\\s*(?:pcs?|pieces?)\\b`, "i").exec(message);
         const quantity = before?.[1] ?? after?.[1];
         if (quantity) { quantities.set(flavor.canonical, Number(quantity)); break; }
       }
