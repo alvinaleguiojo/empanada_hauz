@@ -21,42 +21,26 @@ export class MessengerController {
 
   @Post("webhook")
   @HttpCode(200)
-  async handleWebhook(
-    @Body() payload: any,
-    @Headers("x-hub-signature-256") signature: string | undefined,
-    @Req() request: RawBodyRequest
-  ) {
+  async handleWebhook(@Body() payload: any, @Headers("x-hub-signature-256") signature: string | undefined, @Req() request: RawBodyRequest) {
     const rawBody = request.rawBody;
     const entries = Array.isArray(payload?.entry) ? payload.entry : [];
     const messagingCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.messaging) ? entry.messaging.length : 0), 0);
     const standbyCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.standby) ? entry.standby.length : 0), 0);
     const handoverCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.messaging_handovers) ? entry.messaging_handovers.length : 0), 0);
-    this.logger.log(
-      `Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0} object=${payload?.object ?? "unknown"} entries=${entries.length} messaging=${messagingCount} standby=${standbyCount} handovers=${handoverCount}`
-    );
+    this.logger.log(`Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0} object=${payload?.object ?? "unknown"} entries=${entries.length} messaging=${messagingCount} standby=${standbyCount} handovers=${handoverCount}`);
 
     if (!this.verifySignature(rawBody, signature)) {
-      this.logger.warn(
-        `Rejected Messenger webhook: invalid signature (signature=${Boolean(signature)}, rawBody=${Boolean(rawBody)}, rawBodyLength=${rawBody?.length ?? 0}, appSecret=${Boolean(process.env.META_APP_SECRET)})`
-      );
+      this.logger.warn(`Rejected Messenger webhook: invalid signature (signature=${Boolean(signature)}, rawBody=${Boolean(rawBody)}, rawBodyLength=${rawBody?.length ?? 0}, appSecret=${Boolean(process.env.META_APP_SECRET)})`);
       return { received: false };
     }
 
     const pageId = this.metaAuthService.getConfiguredPageId();
     const unexpectedEntries = entries.filter((entry: any) => pageId && entry?.id && entry.id !== pageId);
-    if (unexpectedEntries.length > 0) {
-      this.logger.warn(`Ignoring ${unexpectedEntries.length} webhook entr${unexpectedEntries.length === 1 ? "y" : "ies"} for unexpected Page ID`);
-    }
-
+    if (unexpectedEntries.length > 0) this.logger.warn(`Ignoring ${unexpectedEntries.length} webhook entr${unexpectedEntries.length === 1 ? "y" : "ies"} for unexpected Page ID`);
     this.logger.log(`Meta webhook signature verified: entries=${entries.length} messaging=${messagingCount} standby=${standbyCount} handovers=${handoverCount}`);
     if (standbyCount > 0) this.logger.warn(`Meta delivered ${standbyCount} standby event(s): another receiver may control the conversation thread`);
 
-    // Acknowledge Meta immediately after authentication. Do not make Meta wait
-    // for database, AI, notifications, or outbound Messenger API calls.
-    setImmediate(() => {
-      void this.processWebhookEntries(entries.filter((entry: any) => !pageId || !entry?.id || entry.id === pageId));
-    });
-
+    setImmediate(() => { void this.processWebhookEntries(entries.filter((entry: any) => !pageId || !entry?.id || entry.id === pageId)); });
     return { received: true };
   }
 
@@ -64,57 +48,40 @@ export class MessengerController {
     for (const entry of entries) {
       await this.processEvents(entry.messaging ?? [], "messaging");
       await this.processEvents(entry.standby ?? [], "standby");
-      for (const handover of entry.messaging_handovers ?? []) {
-        this.logger.log(`Messenger handover event: sender=${handover.sender?.id ?? "unknown"} appRoles=${JSON.stringify(handover.app_roles ?? handover.appRoles ?? null)}`);
-      }
+      for (const handover of entry.messaging_handovers ?? []) this.logger.log(`Messenger handover event: sender=${handover.sender?.id ?? "unknown"} appRoles=${JSON.stringify(handover.app_roles ?? handover.appRoles ?? null)}`);
     }
   }
 
   private async processEvents(events: any[], channel: "messaging" | "standby") {
     for (const event of events) {
       const text = event.message?.text;
+      const attachments = event.message?.attachments;
+      const hasAttachments = Array.isArray(attachments?.data) ? attachments.data.length > 0 : Array.isArray(attachments) ? attachments.length > 0 : Boolean(attachments);
       const senderId = event.sender?.id;
-      if (!senderId) {
-        this.logger.debug(`Ignoring Messenger ${channel} event without sender`);
-        continue;
-      }
+      if (!senderId) { this.logger.debug(`Ignoring Messenger ${channel} event without sender`); continue; }
 
       if (channel === "standby") {
-        this.logger.warn(`Messenger standby event received: sender=${senderId} messageId=${event.message?.mid ?? "unknown"} text=${Boolean(text)}`);
+        this.logger.warn(`Messenger standby event received: sender=${senderId} messageId=${event.message?.mid ?? "unknown"} text=${Boolean(text)} attachments=${hasAttachments}`);
         try {
           const result = await this.messengerService.handleStandbyEvent({ senderId, messageId: event.message?.mid, text, rawPayload: event });
           this.logger.log(`Messenger standby event handled: sender=${senderId} action=${result.action}`);
-        } catch (err) {
-          this.logger.error(`Failed to handle Messenger standby event from ${senderId}`, err instanceof Error ? err.stack : String(err));
-        }
+        } catch (err) { this.logger.error(`Failed to handle Messenger standby event from ${senderId}`, err instanceof Error ? err.stack : String(err)); }
         continue;
       }
 
-      // Meta can deliver echo events for messages sent by the Page. Those are
-      // already persisted and broadcast by sendText(), so do not turn them
-      // into duplicate inbound/customer messages.
-      if (event.message?.is_echo === true) {
-        this.logger.debug(`Ignoring Messenger echo event: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`);
-        continue;
-      }
+      if (event.message?.is_echo === true) { this.logger.debug(`Ignoring Messenger echo event: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`); continue; }
 
-      if (!text) {
-        this.logger.debug(`Ignoring Messenger event without text: sender=${senderId}`);
-        continue;
-      }
+      if (!text && !hasAttachments) { this.logger.debug(`Ignoring Messenger event without text or attachments: sender=${senderId}`); continue; }
 
       try {
-        this.logger.log(`Processing Messenger message: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`);
-        await this.messengerService.processIncoming({
-          senderId,
-          messageId: event.message?.mid,
-          text,
-          rawPayload: event
-        });
+        this.logger.log(`Processing Messenger message: sender=${senderId} messageId=${event.message?.mid ?? "unknown"} text=${Boolean(text)} attachments=${hasAttachments}`);
+        if (text) {
+          await this.messengerService.processIncoming({ senderId, messageId: event.message?.mid, text, rawPayload: event });
+        } else {
+          await this.messengerService.persistInbound({ senderId, messageId: event.message?.mid, text: "[Attachment]", type: "attachment", rawPayload: event });
+        }
         this.logger.log(`Processed Messenger message: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`);
-      } catch (err) {
-        this.logger.error(`Failed to process message from ${senderId}`, err instanceof Error ? err.stack : String(err));
-      }
+      } catch (err) { this.logger.error(`Failed to process message from ${senderId}`, err instanceof Error ? err.stack : String(err)); }
     }
   }
 
@@ -124,38 +91,24 @@ export class MessengerController {
     const [scheme, received] = signature.split("=");
     if (scheme !== "sha256" || !received || !/^[a-f0-9]{64}$/i.test(received)) return false;
     const expected = createHmac("sha256", appSecret).update(rawBody).digest("hex");
-    const expectedBuffer = Buffer.from(expected, "hex");
-    const receivedBuffer = Buffer.from(received, "hex");
+    const expectedBuffer = Buffer.from(expected, "hex"); const receivedBuffer = Buffer.from(received, "hex");
     return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);
   }
 
   @UseGuards(JwtAuthGuard)
-  @Get("auth")
-  authStatus() { return this.metaAuthService.status(); }
-
-  @Get("auth/connect")
-  async connect(@Res() response: Response) { return response.redirect(await this.metaAuthService.beginOAuth()); }
-
-  @Get("auth/callback")
-  async callback(@Query("code") code: string, @Query("state") state: string, @Query("error") error: string | undefined, @Res() response: Response) {
+  @Get("auth") authStatus() { return this.metaAuthService.status(); }
+  @Get("auth/connect") async connect(@Res() response: Response) { return response.redirect(await this.metaAuthService.beginOAuth()); }
+  @Get("auth/callback") async callback(@Query("code") code: string, @Query("state") state: string, @Query("error") error: string | undefined, @Res() response: Response) {
     if (error) return response.status(400).send(`Meta authorization failed: ${error}`);
-    try {
-      await this.metaAuthService.handleOAuthCallback(code, state);
-      return response.redirect(`${process.env.WEB_APP_URL ?? "http://localhost:3001"}/inbox?meta=connected`);
-    }
+    try { await this.metaAuthService.handleOAuthCallback(code, state); return response.redirect(`${process.env.WEB_APP_URL ?? "http://localhost:3001"}/inbox?meta=connected`); }
     catch (err) { this.logger.error("Meta OAuth callback failed", err); return response.status(400).send(err instanceof Error ? err.message : "Meta authorization failed"); }
   }
-
   @UseGuards(JwtAuthGuard)
-  @Post("send")
-  sendManual(@Body() dto: SendMessageDto) { return this.messengerService.sendText(dto.recipientPsid, dto.text); }
+  @Post("send") sendManual(@Body() dto: SendMessageDto) { return this.messengerService.sendText(dto.recipientPsid, dto.text); }
   @UseGuards(JwtAuthGuard)
-  @Post("sync")
-  syncHistory(@Query("maxConversations") maxConversations?: string, @Query("maxMessagesPerConversation") maxMessagesPerConversation?: string) { return this.messengerService.syncFromMeta({ maxConversations: maxConversations ? Number(maxConversations) : undefined, maxMessagesPerConversation: maxMessagesPerConversation ? Number(maxMessagesPerConversation) : undefined }); }
+  @Post("sync") syncHistory(@Query("maxConversations") maxConversations?: string, @Query("maxMessagesPerConversation") maxMessagesPerConversation?: string) { return this.messengerService.syncFromMeta({ maxConversations: maxConversations ? Number(maxConversations) : undefined, maxMessagesPerConversation: maxMessagesPerConversation ? Number(maxMessagesPerConversation) : undefined }); }
   @UseGuards(JwtAuthGuard)
-  @Get("conversations")
-  listConversations() { return this.messengerService.listConversations(); }
+  @Get("conversations") listConversations() { return this.messengerService.listConversations(); }
   @UseGuards(JwtAuthGuard)
-  @Get("conversations/:id/messages")
-  getConversationMessages(@Param("id") id: string) { return this.messengerService.getConversationMessages(id); }
+  @Get("conversations/:id/messages") getConversationMessages(@Param("id") id: string) { return this.messengerService.getConversationMessages(id); }
 }
