@@ -48,7 +48,7 @@ type CurrentInterpretation = {
   intent: CustomerIntent;
   startsNewConversation: boolean;
   flavorAction: "none" | "replace" | "add" | "remove";
-  flavors: Array<{ name: string; quantity?: number }>;
+  flavors: Array<{ name: string; quantity: number }>;
   quantity?: number;
   location?: string;
   deliveryMethod?: DeliveryMethodValue;
