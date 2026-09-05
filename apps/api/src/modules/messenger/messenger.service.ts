@@ -31,11 +31,13 @@ export class MessengerService {
     const stored = await this.persistInbound(event);
     this.logger.log(`Messenger inbound persisted: sender=${event.senderId} messageId=${event.messageId ?? "unknown"} message=${stored.id}`);
     const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId }, include: { customer: true } });
-    const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 4, select: { direction: true, content: true } });
-    const contextMessages = recentMessages.reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
+    const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 8, select: { direction: true, content: true, extractedOrder: true } });
+    const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
+    const activeOrderMessage = recentMessages.find((item) => item.extractedOrder && typeof item.extractedOrder === "object" && !Array.isArray(item.extractedOrder));
+    const activeOrderState = activeOrderMessage?.extractedOrder as Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"] | undefined;
 
     this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:8b")}`);
-    const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages });
+    const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages, activeOrderState });
     this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
@@ -140,9 +142,7 @@ export class MessengerService {
       const body = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
       return JSON.parse(body) as T;
-    } finally {
-      clearTimeout(timeout);
-    }
+    } finally { clearTimeout(timeout); }
   }
 
   private async metaPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -156,9 +156,7 @@ export class MessengerService {
       const responseBody = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
       return JSON.parse(responseBody) as T;
-    } finally {
-      clearTimeout(timeout);
-    }
+    } finally { clearTimeout(timeout); }
   }
 
   async requestThreadControl(psid: string, metadata?: string) {
@@ -240,9 +238,7 @@ export class MessengerService {
       const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
       this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
       return metaResult;
-    } finally {
-      clearTimeout(timeout);
-    }
+    } finally { clearTimeout(timeout); }
   }
   listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
