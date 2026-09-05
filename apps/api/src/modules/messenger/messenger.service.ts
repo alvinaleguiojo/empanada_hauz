@@ -35,6 +35,19 @@ export class MessengerService {
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
     const activeOrderMessage = recentMessages.find((item) => item.extractedOrder && typeof item.extractedOrder === "object" && !Array.isArray(item.extractedOrder));
     const activeOrderState = activeOrderMessage?.extractedOrder as Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"] | undefined;
+    const latestOrder = conversation.customer?.id
+      ? await this.prisma.order.findFirst({
+          where: { customerId: conversation.customer.id },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, orderNumber: true, status: true, createdAt: true, quantity: true, items: true }
+        })
+      : null;
+    const orderValidation = activeOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
+    const latestOrderContext = latestOrder
+      ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.`
+      : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
+    contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
+    contextMessages.push(latestOrderContext);
 
     this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:8b")}`);
     const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages, activeOrderState });
@@ -65,6 +78,14 @@ export class MessengerService {
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error)); }
     }
     return { ai, reply };
+  }
+
+  private describeOrderValidation(details: Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"]) {
+    const missing = Array.isArray(details.missingFields) ? details.missingFields : [];
+    if (missing.length === 0 && details.flavors.length > 0) {
+      return "READY for MCP placement only if the current customer message is an explicit confirmation. The application has all required order fields.";
+    }
+    return `NOT READY for MCP placement. Missing required fields: ${missing.length ? missing.join(", ") : "order details"}. A customer confirmation must not be described as an order being placed.`;
   }
 
   private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, currentMessage: string) {
@@ -142,7 +163,9 @@ export class MessengerService {
       const body = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
       return JSON.parse(body) as T;
-    } finally { clearTimeout(timeout); }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async metaPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -156,7 +179,9 @@ export class MessengerService {
       const responseBody = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
       return JSON.parse(responseBody) as T;
-    } finally { clearTimeout(timeout); }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async requestThreadControl(psid: string, metadata?: string) {
@@ -238,7 +263,9 @@ export class MessengerService {
       const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
       this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
       return metaResult;
-    } finally { clearTimeout(timeout); }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
