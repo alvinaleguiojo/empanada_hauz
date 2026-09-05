@@ -2,7 +2,38 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AIIntentResult, CustomerIntent } from "./types";
 
-const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.\n\nThe CURRENT CUSTOMER MESSAGE is the highest priority. Answer that message first.\nPrevious conversation is background only and must never override a new or unrelated question.\nTreat each new message as a new question unless the customer clearly refers to an existing order.\nDo not repeat the previous assistant answer unless the current message asks for it.\nA greeting is not an order. A flavor or quantity request is not confirmation.\nOnly treat a confirmation as confirmation when the customer is clearly confirming a complete order.\nKeep replies short, clear, natural, and helpful.\nUse Cebuano when the customer uses Cebuano, otherwise English.\nDo not ask for information already provided.\nDo not ask for a preferred delivery or pickup time.\nDo not invent prices, delivery fees, times, policies, availability, or order details.\nDo not claim an order was created.\n\nBusiness facts:\n- Minimum order: 10 pcs; mixed flavors are allowed.\n- Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30.\n- Ham & Cheese ₱25; Chicken ₱20; Chicken with Egg ₱25; Ube Empanada ₱25.\n- Mango ₱25; Choco ₱30; Beef ₱35; Beef with Egg ₱40.\n- Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.\n- Baked is ₱5 more than the original price. Preparation is about 1 hour.\n- Payment: GCash or COD. GCash: Alvin Aleguiojo, 09453916796.\n- Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.\n- Maxim delivery is available. For Maxim, Address, Landmark, and Contact # are required.\n- Delivery fee varies by location. For the current delivery fee and priority number, direct customers to https://www.empanadahauz.com.\n- Orders of 30 pcs or more get 20% off the delivery fee only when the customer asks about a discount.\n- If today is Sunday in Asia/Manila, the business is closed and Sunday orders must not be created.\n- When presenting a complete order summary before confirmation, end exactly with: Please confirm if all the details above are correct. 😊\n- Do NOT use that confirmation sentence after a greeting, menu/flavor list, price answer, delivery-fee answer, or general inquiry.\n- "hm" means how much. "df" means delivery fee.\n`;
+const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
+
+The CURRENT CUSTOMER MESSAGE is the highest priority. Answer that message first.
+Previous conversation is background only and must never override a new or unrelated question.
+Treat each new message as a new question unless the customer clearly refers to an existing order.
+Do not repeat the previous assistant answer unless the current message asks for it.
+A greeting is not an order. A flavor or quantity request is not confirmation.
+Only treat a confirmation as confirmation when the customer is clearly confirming a complete order.
+Keep replies short, clear, natural, and helpful.
+Use Cebuano when the customer uses Cebuano, otherwise English.
+Do not ask for information already provided.
+Do not ask for a preferred delivery or pickup time.
+Do not invent prices, delivery fees, times, policies, availability, or order details.
+Do not claim an order was created.
+
+Business facts:
+- Minimum order: 10 pcs; mixed flavors are allowed.
+- Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30.
+- Ham & Cheese ₱25; Chicken ₱20; Chicken with Egg ₱25; Ube Empanada ₱25.
+- Mango ₱25; Choco ₱30; Beef ₱35; Beef with Egg ₱40.
+- Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
+- Baked is ₱5 more than the original price. Preparation is about 1 hour.
+- Payment: GCash or COD. GCash: Alvin Aleguiojo, 09453916796.
+- Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.
+- Maxim delivery is available. For Maxim, Address, Landmark, and Contact # are required.
+- Delivery fee varies by location. For the current delivery fee and priority number, direct customers to https://www.empanadahauz.com.
+- Orders of 30 pcs or more get 20% off the delivery fee only when the customer asks about a discount.
+- If today is Sunday in Asia/Manila, the business is closed and Sunday orders must not be created.
+- When presenting a complete order summary before confirmation, end exactly with: Please confirm if all the details above are correct. 😊
+- Do NOT use that confirmation sentence after a greeting, menu/flavor list, price answer, delivery-fee answer, or general inquiry.
+- "hm" means how much. "df" means delivery fee.
+`;
 
 interface OllamaResponse { message?: { content?: string } }
 type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
@@ -43,7 +74,7 @@ export class AiService {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const customerName = context?.customerName?.trim() || "Customer";
     const recentMessages = (context?.recentMessages ?? []).slice(-4);
-    const replyContext = this.buildReplyContext(message, recentMessages);
+    const replyContext = this.buildReplyContext(message, recentMessages, context?.activeOrderState);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${customerName}`;
 
     this.logger.log(`AI path=OLLAMA model=${this.model} message=${JSON.stringify(message)}`);
@@ -79,7 +110,7 @@ export class AiService {
     const response = await this.ollamaChat({
       model: this.model, stream: false, think: false, options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Ignore previous assistant answers unless the current message clearly asks to continue or confirm them. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use the supplied order context when the current message clearly refers to it, but never let it override a new unrelated request. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     }, "Ollama customer reply failed");
@@ -98,26 +129,49 @@ export class AiService {
     } finally { clearTimeout(timeout); }
   }
 
-  private buildReplyContext(message: string, recentMessages: string[]): string {
-    if (!recentMessages.length) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
+  private buildReplyContext(message: string, recentMessages: string[], activeOrderState?: AIIntentResult["details"]): string {
+    if (!recentMessages.length && !activeOrderState?.flavors?.length) return "CONVERSATION CONTEXT: none. Treat this as a new interaction.";
     const lower = message.toLowerCase().trim();
-    const explicitFollowUp = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
+    const explicitFollowUp = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
       || /\b(change|remove|add|instead|same order)\b/i.test(lower);
+    const activeOrderQuestion = /\b(total|total cost|how much is the total|how much total|when should it be delivered|when should it arrive|delivery date|delivery time|deliver it|deliver|pickup date|pickup time)\b/i.test(lower);
     const freshRequest = /\b\d+\s*(?:pcs?|pieces?)\b/i.test(lower)
       || /\b(bacon|pork|asado|ham|cheese|chicken|ube|mango|choco|chocolate|beef)\b/i.test(lower)
-      || /\b(hm|how much|price|pila|tagpila|presyo|df|delivery fee)\b/i.test(lower)
       || /\b(hello|hi|hey|good morning|good afternoon|good evening)\b/i.test(lower);
-    if (explicitFollowUp && (!freshRequest || /\b(same order|change|remove|add|instead)\b/i.test(lower))) {
+
+    if (activeOrderState?.flavors?.length && (explicitFollowUp || activeOrderQuestion) && (!freshRequest || /\b(same order|change|remove|add|instead)\b/i.test(lower))) {
+      const orderSummary = this.formatActiveOrderState(activeOrderState);
+      const recent = explicitFollowUp ? recentMessages.slice(-2).join("\n") : "";
+      return `ACTIVE ORDER CONTEXT:\n${orderSummary}${recent ? `\n\nRECENT CONVERSATION:\n${recent}` : ""}\n\nUse this only because the current message clearly refers to the active order.`;
+    }
+
+    if (explicitFollowUp && !freshRequest) {
       return `CONVERSATION CONTEXT (only for the explicit follow-up; current message wins):\n${recentMessages.slice(-2).join("\n")}`;
     }
     return "CONVERSATION CONTEXT: none. Treat the current message as a fresh request. Do not repeat any previous answer.";
   }
 
+  private formatActiveOrderState(details: AIIntentResult["details"]): string {
+    const flavors = details.flavors.map((item) => `${item.quantity} pcs ${item.name} (₱${item.unitPrice ?? 0} each)`);
+    return [
+      `Flavors: ${flavors.join(", ")}`,
+      `Quantity: ${details.quantity ?? flavors.reduce((sum, item) => sum + item.quantity, 0)}`,
+      `Total food amount: ₱${details.totalAmount ?? details.flavors.reduce((sum, item) => sum + (item.subtotal ?? item.quantity * (item.unitPrice ?? 0)), 0)}`,
+      details.deliveryMethod ? `Delivery method: ${details.deliveryMethod}` : "",
+      details.paymentMethod ? `Payment method: ${details.paymentMethod}` : "",
+      details.address ? `Address: ${details.address}` : "",
+      details.landmark ? `Landmark: ${details.landmark}` : "",
+      details.contactNumber ? `Contact: ${details.contactNumber}` : "",
+      details.deliveryDate ? `Delivery date: ${details.deliveryDate}` : "",
+      details.preferredTime ? `Preferred time: ${details.preferredTime}` : ""
+    ].filter(Boolean).join("\n");
+  }
+
   private buildOrderDetails(message: string, activeOrderState?: AIIntentResult["details"]): AIIntentResult["details"] {
     const lower = message.toLowerCase().trim();
-    const continuation = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
-      || /\b(change|remove|add|instead|same order)\b/i.test(lower);
-    const parsed = this.parseCurrentMessage(message);
+    const continuation = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
+      || /\b(change|remove|add|instead|same order|total|total cost|when should it be delivered|when should it arrive|delivery date|delivery time|deliver|pickup date|pickup time)\b/i.test(lower);
+    const parsed = this.parseCurrentMessage(message, activeOrderState, continuation);
     const base = continuation ? activeOrderState : undefined;
     const merged: AIIntentResult["details"] = {
       ...(base ?? { flavors: [], missingFields: [], confirmed: false }),
@@ -135,7 +189,7 @@ export class AiService {
     return merged;
   }
 
-  private parseCurrentMessage(message: string): AIIntentResult["details"] {
+  private parseCurrentMessage(message: string, activeOrderState?: AIIntentResult["details"], continuation = false): AIIntentResult["details"] {
     const lower = message.toLowerCase();
     const details: AIIntentResult["details"] = { flavors: [], missingFields: [], confirmed: false };
     const quantities = new Map<string, number>();
@@ -176,7 +230,41 @@ export class AiService {
     const address = message.match(/(?:address)\s*[:\-]\s*([^,;\n]+)/i);
     if (address) details.address = address[1].trim();
 
+    if (continuation && activeOrderState) {
+      const dateMatch = message.match(/\b(?:today|tomorrow|on\s+\w+\s+\d{1,2}(?:,\s*\d{4})?|\d{4}-\d{2}-\d{2})\b(?:\s+at)?/i);
+      const timeMatch = message.match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM)|\d{1,2}\s*(?:AM|PM))\b/i);
+      if (dateMatch) {
+        const rawDate = dateMatch[0].trim().replace(/\s+at\s*$/i, "");
+        if (/^today$/i.test(rawDate)) details.deliveryDate = this.manilaDateOffset(0);
+        else if (/^tomorrow$/i.test(rawDate)) details.deliveryDate = this.manilaDateOffset(1);
+        else details.deliveryDate = this.normalizeDateToken(rawDate);
+      }
+      if (timeMatch) details.preferredTime = timeMatch[1].replace(/\s+/g, " ").trim();
+      if (dateMatch || timeMatch) {
+        details.deliveryMethod = activeOrderState.deliveryMethod;
+        details.paymentMethod = activeOrderState.paymentMethod;
+        details.address = details.address ?? activeOrderState.address;
+        details.landmark = details.landmark ?? activeOrderState.landmark;
+        details.contactNumber = details.contactNumber ?? activeOrderState.contactNumber;
+      }
+    }
+
     return details;
+  }
+
+  private manilaDateOffset(days: number) {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const date = new Date(`${values.year}-${values.month}-${values.day}T00:00:00+08:00`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  private normalizeDateToken(value: string) {
+    const cleaned = value.replace(/^on\s+/i, "").trim();
+    const parsed = new Date(cleaned);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    return cleaned;
   }
 
   private calculateMissingFields(details: AIIntentResult["details"]): string[] {
