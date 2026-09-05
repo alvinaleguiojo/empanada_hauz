@@ -14,13 +14,8 @@ const OLLAMA_REPLY_SCHEMA = {
 
 @Injectable()
 export class StrictReplyAiService extends AiService {
-  private readonly baseUrl: string;
-  private readonly model: string;
-
   constructor(config: ConfigService) {
     super(config);
-    this.baseUrl = (config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
-    this.model = config.get<string>("OLLAMA_MODEL", "qwen3:8b");
   }
 
   override async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[] }): Promise<AIIntentResult> {
