@@ -9,6 +9,10 @@ Previous conversation is background only and must never override a new or unrela
 Treat each new message as a new question unless the customer clearly refers to an existing order.
 Do not repeat the previous assistant answer unless the current message asks for it.
 A greeting is not an order. A flavor or quantity request is not confirmation.
+A flavor-only request means the customer has selected a flavor but has NOT yet given the quantity.
+When a customer names a flavor without a quantity, ask how many pcs they would like to order. Do not present a complete-order confirmation summary yet.
+When the quantity is known but delivery method or payment method is missing, ask for the missing order information before saying the order is confirmed.
+For delivery orders, collect Address, Landmark, and Contact # before confirmation. For Maxim, all three are required. Pickup does not require delivery address details.
 Only treat a confirmation as confirmation when the customer clearly confirms the complete order.
 Never say an order is confirmed, placed, submitted, or created unless the application context explicitly says the order is READY and was actually created.
 If the application says NOT READY, explain or ask only for the missing required information.
@@ -32,7 +36,7 @@ Business facts:
 - Orders of 30 pcs or more get 20% off the delivery fee only when the customer asks about a discount.
 - If today is Sunday in Asia/Manila, the business is closed and Sunday orders must not be created.
 - When presenting a complete order summary before confirmation, end exactly with: Please confirm if all the details above are correct. 😊
-- Do NOT use that confirmation sentence after a greeting, menu/flavor list, price answer, delivery-fee answer, or general inquiry.
+- Do NOT use that confirmation sentence after a greeting, flavor-only answer, quantity question, menu/flavor list, price answer, delivery-fee answer, or general inquiry.
 - "hm" means how much. "df" means delivery fee.
 `;
 
@@ -112,7 +116,7 @@ export class AiService {
       model: this.model, stream: false, think: false,
       options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied application order facts when the current message clearly refers to them. Never claim that an order is confirmed or placed when application validation says NOT READY. Never invent missing delivery or payment information. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied application order facts when the current message clearly refers to them. Never claim that an order is confirmed or placed when application validation says NOT READY. Never invent missing delivery or payment information. For an order request, ask only for the next missing required information; do not pretend the order is complete when quantity, delivery method, payment method, or required delivery details are still missing. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     }, "Ollama customer reply failed");
@@ -198,8 +202,19 @@ export class AiService {
     if (continuation && this.isConfirmationMessage(lower) && base) merged.confirmed = true;
     else if (!this.isConfirmationMessage(lower)) merged.confirmed = false;
 
-    merged.quantity = merged.flavors.length ? merged.flavors.reduce((sum, item) => sum + item.quantity, 0) : merged.quantity;
-    merged.totalAmount = merged.flavors.length ? merged.flavors.reduce((sum, item) => sum + (item.subtotal ?? item.quantity * (item.unitPrice ?? 0)), 0) : merged.totalAmount;
+    if (base?.flavors?.length && !parsed.flavors.length && parsed.quantity && base.flavors.length === 1) {
+      const existing = base.flavors[0];
+      const quantity = Number(parsed.quantity);
+      merged.flavors = [{ name: existing.name, quantity, unitPrice: existing.unitPrice ?? PRICES[existing.name.toLowerCase()], subtotal: quantity * (existing.unitPrice ?? PRICES[existing.name.toLowerCase()] ?? 0) }];
+      merged.quantity = quantity;
+    }
+
+    merged.quantity = merged.flavors.length && merged.flavors.every((item) => item.quantity > 0)
+      ? merged.flavors.reduce((sum, item) => sum + item.quantity, 0)
+      : merged.quantity;
+    merged.totalAmount = merged.flavors.length && merged.flavors.every((item) => item.quantity > 0)
+      ? merged.flavors.reduce((sum, item) => sum + (item.subtotal ?? item.quantity * (item.unitPrice ?? 0)), 0)
+      : merged.totalAmount;
     merged.missingFields = this.calculateMissingFields(merged);
     return merged;
   }
@@ -226,11 +241,12 @@ export class AiService {
       details.flavors.push({ name, quantity, unitPrice, subtotal: unitPrice * quantity });
     }
 
-    if (details.flavors.length === 0 && details.quantity && /\b(order|want|like|need)\b/i.test(lower)) {
+    if (details.flavors.length === 0) {
       const matched = FLAVOR_ALIASES.find((item) => item.aliases.some((alias) => new RegExp(`\\b${this.escapeRegExp(alias)}\\b`, "i").test(lower)));
       if (matched) {
         const unitPrice = PRICES[matched.canonical.toLowerCase()];
-        details.flavors = [{ name: matched.canonical, quantity: details.quantity, unitPrice, subtotal: unitPrice * details.quantity }];
+        const quantity = details.quantity ?? 0;
+        details.flavors = [{ name: matched.canonical, quantity, unitPrice, ...(quantity > 0 ? { subtotal: quantity * unitPrice } : {}) }];
       }
     }
 
@@ -271,7 +287,7 @@ export class AiService {
     const quantity = Number(details.quantity ?? 0);
     const flavorQuantity = details.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     if (details.flavors.length === 0) missing.push("flavors");
-    if (!quantity || flavorQuantity !== quantity) missing.push("quantity");
+    if (!quantity || (details.flavors.length > 0 && flavorQuantity !== quantity)) missing.push("quantity");
     if (quantity > 0 && quantity < 10) missing.push("minimumOrder");
     if (!details.deliveryMethod) missing.push("deliveryMethod");
     if (!details.paymentMethod) missing.push("paymentMethod");
