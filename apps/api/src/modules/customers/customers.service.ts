@@ -18,6 +18,12 @@ export class CustomersService {
     });
 
     if (existing) {
+      if (name && name !== "Messenger Customer" && existing.name === "Messenger Customer") {
+        return this.prisma.customer.update({
+          where: { id: existing.id },
+          data: { name }
+        });
+      }
       return existing;
     }
 
