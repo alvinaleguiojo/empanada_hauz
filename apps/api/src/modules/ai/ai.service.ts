@@ -9,13 +9,14 @@ Previous conversation is background only and must never override a new or unrela
 Treat each new message as a new question unless the customer clearly refers to an existing order.
 Do not repeat the previous assistant answer unless the current message asks for it.
 A greeting is not an order. A flavor or quantity request is not confirmation.
-Only treat a confirmation as confirmation when the customer is clearly confirming a complete order.
+Only treat a confirmation as confirmation when the customer clearly confirms the complete order.
+Never say an order is confirmed, placed, submitted, or created unless the application context explicitly says the order is READY and was actually created.
+If the application says NOT READY, explain or ask only for the missing required information.
 Keep replies short, clear, natural, and helpful.
 Use Cebuano when the customer uses Cebuano, otherwise English.
 Do not ask for information already provided.
 Do not ask for a preferred delivery or pickup time.
 Do not invent prices, delivery fees, times, policies, availability, or order details.
-Do not claim an order was created.
 
 Business facts:
 - Minimum order: 10 pcs; mixed flavors are allowed.
@@ -37,10 +38,11 @@ Business facts:
 
 interface OllamaResponse { message?: { content?: string } }
 type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
+type Details = AIIntentResult["details"];
 
 const PRICES: Record<string, number> = {
   "bacon with cheese": 35, "pork regular": 20, "pork regular with egg": 25, "pork asado": 30,
-  "ham & cheese": 25, "ham and cheese": 25, "chicken": 20, "chicken with egg": 25,
+  "ham & cheese": 25, "ham and cheese": 25, "ham cheese": 25, "chicken": 20, "chicken with egg": 25,
   "ube": 25, "ube empanada": 25, "mango": 25, "choco": 30, "chocolate": 30, "beef": 35, "beef with egg": 40
 };
 
@@ -70,10 +72,10 @@ export class AiService {
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:8b");
   }
 
-  async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: AIIntentResult["details"] }): Promise<AIIntentResult> {
+  async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const customerName = context?.customerName?.trim() || "Customer";
-    const recentMessages = (context?.recentMessages ?? []).slice(-4);
+    const recentMessages = (context?.recentMessages ?? []).slice(-6);
     const details = this.buildOrderDetails(message, context?.activeOrderState);
     const replyContext = this.buildReplyContext(message, recentMessages, context?.activeOrderState, details);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${customerName}`;
@@ -88,99 +90,105 @@ export class AiService {
       suggestedReply,
       source: "ollama"
     };
-
     this.logger.log(`AI path=OLLAMA_SUCCESS intent=${result.intent} extraction=APP`);
     return result;
   }
 
   async generateOrderResultReply(outcome: "created" | "failed", orderNumber?: string): Promise<string> {
-    const system = `${CUSTOMER_SYSTEM_PROMPT}\n\nThis is a private order-processing status update. Generate only the final short customer-facing reply. Never invent information. Do not mention internal tools, MCP, application code, or system details.`;
+    const system = `${CUSTOMER_SYSTEM_PROMPT}\n\nThis is a private order-processing status update. Generate only the final short customer-facing reply. Never mention internal tools, MCP, application code, or system details. Only state that an order was placed when the application explicitly says it was created.`;
     const status = outcome === "created"
-      ? `The application successfully created the customer's confirmed order.${orderNumber ? ` Order number: ${orderNumber}.` : ""}`
-      : "The application could not create the customer's confirmed order.";
-    const response = await this.ollamaChat({ model: this.model, stream: false, think: false, options: { temperature: 0.25, num_predict: 96, num_ctx: 1536 }, messages: [
+      ? `APPLICATION RESULT: The application successfully created the customer's confirmed order.${orderNumber ? ` Order number: ${orderNumber}.` : ""}`
+      : "APPLICATION RESULT: The application could not create the customer's confirmed order.";
+    const response = await this.ollamaChat({ model: this.model, stream: false, think: false, options: { temperature: 0.2, num_predict: 96, num_ctx: 1536 }, messages: [
       { role: "system", content: system }, { role: "user", content: status }
     ]}, "Ollama order result reply failed");
     const reply = response.message?.content?.trim();
     if (!reply) throw new Error("Ollama returned an empty order result reply");
-    return reply.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    return this.cleanReply(reply);
   }
 
   private async generateCustomerReply(systemPrompt: string, message: string, conversationContext: string): Promise<string> {
     const response = await this.ollamaChat({
-      model: this.model, stream: false, think: false, options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
+      model: this.model, stream: false, think: false,
+      options: { temperature: 0.2, num_predict: 128, num_ctx: 2048 },
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied active/current order facts when the current message clearly refers to them, but never let them override a new unrelated request. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
+        { role: "system", content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The response will be sent to Messenger exactly as written. Use supplied application order facts when the current message clearly refers to them. Never claim that an order is confirmed or placed when application validation says NOT READY. Never invent missing delivery or payment information. Do not output JSON, labels, analysis, intent names, or meta-commentary.` },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${conversationContext}` }
       ]
     }, "Ollama customer reply failed");
     const reply = response.message?.content?.trim();
     if (!reply) throw new Error("Ollama returned an empty customer reply");
     this.logger.log(`AI customer reply generated model=${this.model} message=${JSON.stringify(message)}`);
-    return reply.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    return this.cleanReply(reply);
   }
 
   private async ollamaChat(body: Record<string, unknown>, errorPrefix: string): Promise<OllamaResponse> {
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 45000);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify(body)
+      });
       if (!response.ok) throw new Error(`${errorPrefix}: ${response.status} ${await response.text()}`);
       return await response.json() as OllamaResponse;
     } finally { clearTimeout(timeout); }
   }
 
-  private buildReplyContext(message: string, recentMessages: string[], activeOrderState?: AIIntentResult["details"], currentDetails?: AIIntentResult["details"]): string {
+  private buildReplyContext(message: string, recentMessages: string[], activeOrderState?: Details, currentDetails?: Details): string {
     const lower = message.toLowerCase().trim();
     const explicitFollowUp = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
       || /\b(place my order|place the order|order it|change|remove|add|instead|same order)\b/i.test(lower);
-    const activeOrderQuestion = /\b(total|total cost|how much is the total|how much total|when should it be delivered|when should it arrive|delivery date|delivery time|deliver it|deliver|pickup date|pickup time)\b/i.test(lower);
+    const activeOrderQuestion = /\b(total|total cost|how much is the total|how much total|when should it be delivered|when should it arrive|delivery date|delivery time|deliver it|deliver|pickup date|pickup time|did you place my order|was my order placed|is my order placed|order status)\b/i.test(lower);
     const scheduleMessage = /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}:\d{2}\s*(?:am|pm)\b|\b\d{1,2}\s*(?:am|pm)\b/i.test(lower);
     const freshRequest = /\b\d+\s*(?:pcs?|pieces?)\b/i.test(lower)
       || /\b(bacon|pork|asado|ham|cheese|chicken|ube|mango|choco|chocolate|beef)\b/i.test(lower)
       || /\b(hello|hi|hey|good morning|good afternoon|good evening)\b/i.test(lower);
 
     if (activeOrderState?.flavors?.length && (explicitFollowUp || activeOrderQuestion || scheduleMessage) && (!freshRequest || /\b(same order|change|remove|add|instead)\b/i.test(lower))) {
-      const orderSummary = this.formatActiveOrderState(activeOrderState);
-      const currentFacts = currentDetails?.flavors?.length ? `\n\nCURRENT MESSAGE FACTS:\n${this.formatActiveOrderState(currentDetails)}` : "";
-      const recent = explicitFollowUp ? recentMessages.slice(-2).join("\n") : "";
-      return `ACTIVE ORDER CONTEXT:\n${orderSummary}${currentFacts}${recent ? `\n\nRECENT CONVERSATION:\n${recent}` : ""}\n\nUse this only because the current message clearly refers to the active order.`;
+      const recent = recentMessages.slice(-2).join("\n");
+      return `ACTIVE ORDER CONTEXT:\n${this.formatOrderContext(activeOrderState)}\n\n${recent ? `RECENT CONVERSATION:\n${recent}\n\n` : ""}Use this only because the current message clearly refers to the active order. Current message always wins.`;
+    }
+
+    if (currentDetails?.flavors?.length) {
+      return `CURRENT ORDER FACTS:\n${this.formatOrderContext(currentDetails)}\n\nCONVERSATION CONTEXT: none. Treat this as the current request.`;
     }
 
     if (explicitFollowUp && !freshRequest && recentMessages.length) {
       return `CONVERSATION CONTEXT (only for the explicit follow-up; current message wins):\n${recentMessages.slice(-2).join("\n")}`;
     }
 
-    if (currentDetails?.flavors?.length) {
-      return `CURRENT ORDER FACTS:\n${this.formatActiveOrderState(currentDetails)}\n\nCONVERSATION CONTEXT: none. Treat this as the current request.`;
-    }
-
     return "CONVERSATION CONTEXT: none. Treat the current message as a fresh request. Do not repeat any previous answer.";
   }
 
-  private formatActiveOrderState(details: AIIntentResult["details"]): string {
-    const flavors = details.flavors.map((item) => `${item.quantity} pcs ${item.name} (₱${item.unitPrice ?? 0} each)`);
+  private formatOrderContext(details: Details): string {
+    const total = details.totalAmount ?? details.flavors.reduce((sum, item) => sum + (item.subtotal ?? item.quantity * (item.unitPrice ?? 0)), 0);
+    const missing = details.missingFields.length ? details.missingFields.join(", ") : "none";
+    const status = details.flavors.length && details.missingFields.length === 0 ? "READY for MCP placement after explicit confirmation" : "NOT READY for placement";
     return [
-      `Flavors: ${flavors.join(", ")}`,
+      `Flavors: ${details.flavors.map((item) => `${item.quantity} pcs ${item.name} (₱${item.unitPrice ?? 0} each)`).join(", ")}`,
       `Quantity: ${details.quantity ?? details.flavors.reduce((sum, item) => sum + item.quantity, 0)}`,
-      `Total food amount: ₱${details.totalAmount ?? details.flavors.reduce((sum, item) => sum + (item.subtotal ?? item.quantity * (item.unitPrice ?? 0)), 0)}`,
-      details.deliveryMethod ? `Delivery method: ${details.deliveryMethod}` : "",
-      details.paymentMethod ? `Payment method: ${details.paymentMethod}` : "",
-      details.address ? `Address: ${details.address}` : "",
-      details.landmark ? `Landmark: ${details.landmark}` : "",
-      details.contactNumber ? `Contact: ${details.contactNumber}` : "",
+      `Total food amount: ₱${total}`,
+      details.deliveryMethod ? `Delivery method: ${details.deliveryMethod}` : "Delivery method: missing",
+      details.paymentMethod ? `Payment method: ${details.paymentMethod}` : "Payment method: missing",
+      details.address ? `Address: ${details.address}` : "Address: missing unless pickup",
+      details.landmark ? `Landmark: ${details.landmark}` : "Landmark: missing unless pickup",
+      details.contactNumber ? `Contact #: ${details.contactNumber}` : "Contact #: missing unless pickup",
       details.deliveryDate ? `Delivery date: ${details.deliveryDate}` : "",
-      details.preferredTime ? `Preferred time: ${details.preferredTime}` : ""
+      details.preferredTime ? `Preferred time: ${details.preferredTime}` : "",
+      `Missing required fields: ${missing}`,
+      `Application placement status: ${status}`
     ].filter(Boolean).join("\n");
   }
 
-  private buildOrderDetails(message: string, activeOrderState?: AIIntentResult["details"]): AIIntentResult["details"] {
+  private buildOrderDetails(message: string, activeOrderState?: Details): Details {
     const lower = message.toLowerCase().trim();
-    const continuation = /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it|same|same order|pickup|pick up|maxim|gcash|cod|continue|continue my order)$/i.test(lower)
-      || /\b(place my order|place the order|order it|change|remove|add|instead|same order|total|total cost|when should it be delivered|when should it arrive|delivery date|delivery time|deliver|pickup date|pickup time)\b/i.test(lower)
-      || (/\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}:\d{2}\s*(?:am|pm)\b|\b\d{1,2}\s*(?:am|pm)\b/i.test(lower));
+    const continuation = this.isContinuationMessage(lower);
     const parsed = this.parseCurrentMessage(message, activeOrderState, continuation);
     const base = continuation ? activeOrderState : undefined;
-    const merged: AIIntentResult["details"] = {
+    const merged: Details = {
       ...(base ?? { flavors: [], missingFields: [], confirmed: false }),
       ...parsed,
       flavors: parsed.flavors.length ? parsed.flavors : (base?.flavors ?? []),
@@ -196,9 +204,9 @@ export class AiService {
     return merged;
   }
 
-  private parseCurrentMessage(message: string, activeOrderState?: AIIntentResult["details"], continuation = false): AIIntentResult["details"] {
+  private parseCurrentMessage(message: string, activeOrderState?: Details, continuation = false): Details {
     const lower = message.toLowerCase();
-    const details: AIIntentResult["details"] = { flavors: [], missingFields: [], confirmed: false };
+    const details: Details = { flavors: [], missingFields: [], confirmed: false };
     const quantities = new Map<string, number>();
 
     for (const flavor of FLAVOR_ALIASES) {
@@ -211,11 +219,12 @@ export class AiService {
     }
 
     const quantityMatch = message.match(/\b(\d+)\s*(?:pcs?|pieces?)\b/i);
+    if (quantityMatch) details.quantity = Number(quantityMatch[1]);
+
     for (const [name, quantity] of quantities) {
       const unitPrice = PRICES[name.toLowerCase()];
       details.flavors.push({ name, quantity, unitPrice, subtotal: unitPrice * quantity });
     }
-    if (quantityMatch) details.quantity = Number(quantityMatch[1]);
 
     if (details.flavors.length === 0 && details.quantity && /\b(order|want|like|need)\b/i.test(lower)) {
       const matched = FLAVOR_ALIASES.find((item) => item.aliases.some((alias) => new RegExp(`\\b${this.escapeRegExp(alias)}\\b`, "i").test(lower)));
@@ -242,14 +251,12 @@ export class AiService {
       const timeMatch = message.match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM)|\d{1,2}\s*(?:AM|PM))\b/i);
       if (dateMatch) {
         const rawDate = dateMatch[1].trim();
-        if (/^today$/i.test(rawDate)) details.deliveryDate = this.manilaDateOffset(0);
-        else if (/^tomorrow$/i.test(rawDate)) details.deliveryDate = this.manilaDateOffset(1);
-        else details.deliveryDate = this.normalizeDateToken(rawDate);
+        details.deliveryDate = /^today$/i.test(rawDate) ? this.manilaDateOffset(0) : /^tomorrow$/i.test(rawDate) ? this.manilaDateOffset(1) : this.normalizeDateToken(rawDate);
       }
       if (timeMatch) details.preferredTime = timeMatch[1].replace(/\s+/g, " ").trim();
       if (dateMatch || timeMatch) {
-        details.deliveryMethod = activeOrderState.deliveryMethod;
-        details.paymentMethod = activeOrderState.paymentMethod;
+        details.deliveryMethod = details.deliveryMethod ?? activeOrderState.deliveryMethod;
+        details.paymentMethod = details.paymentMethod ?? activeOrderState.paymentMethod;
         details.address = details.address ?? activeOrderState.address;
         details.landmark = details.landmark ?? activeOrderState.landmark;
         details.contactNumber = details.contactNumber ?? activeOrderState.contactNumber;
@@ -257,6 +264,45 @@ export class AiService {
     }
 
     return details;
+  }
+
+  private calculateMissingFields(details: Details): string[] {
+    const missing: string[] = [];
+    const quantity = Number(details.quantity ?? 0);
+    const flavorQuantity = details.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    if (details.flavors.length === 0) missing.push("flavors");
+    if (!quantity || flavorQuantity !== quantity) missing.push("quantity");
+    if (quantity > 0 && quantity < 10) missing.push("minimumOrder");
+    if (!details.deliveryMethod) missing.push("deliveryMethod");
+    if (!details.paymentMethod) missing.push("paymentMethod");
+    if (details.deliveryMethod === "maxim") {
+      if (!details.address?.trim()) missing.push("address");
+      if (!details.landmark?.trim()) missing.push("landmark");
+      if (!details.contactNumber?.trim()) missing.push("contactNumber");
+    }
+    return [...new Set(missing)];
+  }
+
+  private isContinuationMessage(lower: string) {
+    return this.isConfirmationMessage(lower)
+      || /^(pickup|pick up|maxim|gcash|cod|same|same order|continue|continue my order)$/i.test(lower)
+      || /\b(place my order|place the order|order it|change|remove|add|instead|same order|total|total cost|when should it be delivered|when should it arrive|delivery date|delivery time|deliver|pickup date|pickup time|did you place my order|was my order placed|is my order placed|order status)\b/i.test(lower)
+      || (/\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}:\d{2}\s*(?:am|pm)\b|\b\d{1,2}\s*(?:am|pm)\b/i.test(lower));
+  }
+
+  private isConfirmationMessage(lower: string) {
+    return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it)$/i.test(lower.trim())
+      || /\b(place my order|place the order|order it)\b/i.test(lower.trim());
+  }
+
+  private inferIntent(message: string, details: Details): CustomerIntent {
+    const lower = message.toLowerCase();
+    if (this.isConfirmationMessage(lower)) return "order_confirmation";
+    if (/\b(delivery fee|df)\b/.test(lower)) return "delivery_request";
+    if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request";
+    if (/\b(hm|how much|price|pila|tagpila|presyo|total|total cost)\b/.test(lower) && details.flavors.length === 0) return "pricing_question";
+    if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(lower)) return "reservation";
+    return "inquiry";
   }
 
   private manilaDateOffset(days: number) {
@@ -274,38 +320,6 @@ export class AiService {
     return cleaned;
   }
 
-  private calculateMissingFields(details: AIIntentResult["details"]): string[] {
-    const missing: string[] = [];
-    const quantity = Number(details.quantity ?? 0);
-    const flavorQuantity = details.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    if (details.flavors.length === 0) missing.push("flavors");
-    if (!quantity || flavorQuantity !== quantity) missing.push("quantity");
-    if (quantity < 10) missing.push("minimumOrder");
-    if (!details.deliveryMethod) missing.push("deliveryMethod");
-    if (!details.paymentMethod) missing.push("paymentMethod");
-    if (details.deliveryMethod === "maxim") {
-      if (!details.address?.trim()) missing.push("address");
-      if (!details.landmark?.trim()) missing.push("landmark");
-      if (!details.contactNumber?.trim()) missing.push("contactNumber");
-    }
-    return [...new Set(missing)];
-  }
-
-  private isConfirmationMessage(lower: string) {
-    const normalized = lower.trim();
-    return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|place my order|place the order|order it)$/i.test(normalized)
-      || /\b(place my order|place the order|order it)\b/i.test(normalized);
-  }
-
-  private inferIntent(message: string, details: AIIntentResult["details"]): CustomerIntent {
-    const lower = message.toLowerCase();
-    if (this.isConfirmationMessage(lower)) return "order_confirmation";
-    if (/\b(delivery fee|df|delivery|deliver|maxim)\b/.test(lower)) return "delivery_request";
-    if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request";
-    if (/\b(hm|how much|price|pila|tagpila|presyo|total|total cost)\b/.test(lower) && details.flavors.length === 0) return "pricing_question";
-    if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(lower)) return "reservation";
-    return "inquiry";
-  }
-
   private escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  private cleanReply(reply: string) { return reply.replace(/^```(?:text|json)?\s*/i, "").replace(/\s*```$/i, "").trim(); }
 }
