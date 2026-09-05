@@ -143,10 +143,10 @@ export function FloatingMessenger() {
   }
 
   const content = (
-    <div className="pointer-events-none fixed bottom-6 right-4 z-[9999] sm:right-6">
+    <div className="pointer-events-none fixed bottom-24 right-4 z-[9999] sm:right-6">
       <div className="pointer-events-auto flex flex-col items-end gap-3">
         {open ? (
-          <div className="flex h-[min(650px,calc(100dvh-120px))] w-[min(640px,calc(100vw-24px))] overflow-hidden rounded-xl border border-line bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+          <div className="flex h-[min(650px,calc(100dvh-180px))] w-[min(640px,calc(100vw-24px))] overflow-hidden rounded-xl border border-line bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
             <aside className="flex w-[220px] shrink-0 flex-col border-r border-line bg-black/[0.02]">
               <div className="border-b border-line px-3 py-3">
                 <div className="flex items-center gap-2">
