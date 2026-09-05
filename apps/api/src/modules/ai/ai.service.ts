@@ -76,7 +76,10 @@ export class AiService {
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const recentMessages = (context?.recentMessages ?? []).slice(-6);
-    const activeOrderState = context?.activeOrderState && this.hasCurrentOrderContext(recentMessages) ? context.activeOrderState : undefined;
+    const lower = message.toLowerCase().trim();
+    const activeOrderState = context?.activeOrderState && (this.isContinuationMessage(lower) || this.isOrderFieldAnswer(lower))
+      ? context.activeOrderState
+      : undefined;
     const details = this.buildOrderDetails(message, activeOrderState);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
     const replyContext = this.buildReplyContext(message, recentMessages, activeOrderState, details);
@@ -119,7 +122,7 @@ export class AiService {
 
   private async ollamaChat(body: Record<string, unknown>, errorPrefix: string): Promise<OllamaResponse> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
+    const timeout = setTimeout(() => controller.abort(), 180000);
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
       if (!response.ok) throw new Error(`${errorPrefix}: ${response.status} ${await response.text()}`);
@@ -228,9 +231,9 @@ export class AiService {
     if (/\b(pickup|pick up|pick-up)\b/i.test(lower)) details.deliveryMethod = "pickup";
     if (/\bgcash\b/i.test(lower)) details.paymentMethod = "gcash";
     else if (/\b(cod|cash on delivery|cash)\b/i.test(lower)) details.paymentMethod = "cod";
-    const phone = message.match(/(?:contact(?: number| #)?|phone(?: number)?|cp|mobile)\s*[:\-]?\s*(\+?63\s*\d{10}|09\d{9})\b/i); if (phone) details.contactNumber = phone[1].replace(/\s+/g, "");
-    const address = message.match(/(?:address)\s*[:\-]\s*(.*?)(?=\s+(?:landmark|contact(?: number| #)?|phone(?: number)?|cp|mobile)\s*[:\-]|$)/i); if (address) details.address = address[1].trim();
-    const landmark = message.match(/(?:landmark)\s*[:\-]\s*(.*?)(?=\s+(?:contact(?: number| #)?|phone(?: number)?|cp|mobile)\s*[:\-]|$)/i); if (landmark) details.landmark = landmark[1].trim();
+    const phone = message.match(/(?:contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\s*[:\-]?\s*(\+?63\s*\d{10}|09\d{9})\b/i); if (phone) details.contactNumber = phone[1].replace(/\s+/g, "");
+    const address = message.match(/(?:address)\s*[:\-]\s*(.*?)(?=\s+(?:landmark|contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\s*[:\-]|$)/i); if (address) details.address = address[1].trim();
+    const landmark = message.match(/(?:landmark)\s*[:\-]\s*(.*?)(?=\s+(?:contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\s*[:\-]|$)/i); if (landmark) details.landmark = landmark[1].trim();
     if (continuation && activeOrderState) {
       const dateMatch = message.match(/\b(today|tomorrow|on\s+\w+\s+\d{1,2}(?:,\s*\d{4})?|\d{4}-\d{2}-\d{2})\b/i);
       const timeMatch = message.match(/\b(\d{1,2}:\d{2}\s*(?:AM|PM)|\d{1,2}\s*(?:AM|PM))\b/i);
@@ -255,7 +258,7 @@ export class AiService {
   private humanMissing(fields: string[]) { return fields.map((f) => f === "deliveryMethod" ? "delivery method (Pickup or Maxim)" : f === "paymentMethod" ? "payment method (GCash or COD)" : f === "address" ? "Address" : f === "landmark" ? "Landmark" : f === "contactNumber" ? "Contact #" : f === "quantity" ? "quantity" : f === "flavors" ? "flavor" : f === "minimumOrder" ? "at least 10 pcs" : f); }
   private isSummaryRequest(lower: string) { return /\b(summary|summarize|summarize my order|send.*summary|show.*summary)\b/i.test(lower); }
   private isOrderStatusQuestion(lower: string) { return /\b(did you place my order|have you placed my order|was my order placed|is my order placed|order status|has my order been placed)\b/i.test(lower); }
-  private isOrderFieldAnswer(lower: string) { return /^\d+\s*(?:pcs?|pieces?)$/i.test(lower) || /\b(pickup|pick up|maxim|gcash|cod|cash)\b/i.test(lower) || this.isConfirmationMessage(lower) || this.isSummaryRequest(lower) || /\b(address|landmark|contact(?: number| #)?|phone(?: number)?|cp|mobile)\b/i.test(lower) || /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower); }
+  private isOrderFieldAnswer(lower: string) { return /^\d+\s*(?:pcs?|pieces?)$/i.test(lower) || /\b(pickup|pick up|maxim|gcash|cod|cash)\b/i.test(lower) || this.isConfirmationMessage(lower) || this.isSummaryRequest(lower) || /\b(address|landmark|contact(?:\s*(?:number|#))?|phone(?:\s*number)?|cp|mobile)\b/i.test(lower) || /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower); }
   private isContinuationMessage(lower: string) { return this.isConfirmationMessage(lower) || this.isSummaryRequest(lower) || this.isOrderStatusQuestion(lower) || /\b(place my order|place the order|order it|change|remove|add|instead|same order|total|total cost|delivery date|delivery time|deliver|pickup date|pickup time)\b/i.test(lower) || /\b(pickup|pick up|maxim|gcash|cod|cash)\b/i.test(lower) || /\b(today|tomorrow)\b/i.test(lower) && /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower); }
   private isConfirmationMessage(lower: string) { return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|yes all are correct|yes all correct|all are correct|everything is correct|place my order|place the order|order it)$/i.test(lower.trim()) || /\b(place my order|place the order|order it)\b/i.test(lower.trim()); }
   private inferIntent(message: string, details: Details): CustomerIntent { const lower = message.toLowerCase(); if (this.isConfirmationMessage(lower)) return "order_confirmation"; if (/\b(delivery fee|df)\b/.test(lower)) return "delivery_request"; if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request"; if (/\b(hm|how much|price|pila|tagpila|presyo|total|total cost)\b/.test(lower) && !details.flavors.length) return "pricing_question"; if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(lower)) return "reservation"; return "inquiry"; }
