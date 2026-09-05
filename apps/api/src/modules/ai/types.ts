@@ -16,6 +16,14 @@ export interface AIIntentResult {
     location?: string;
     deliveryMethod?: DeliveryMethodValue;
     preferredTime?: string;
+    deliveryDate?: string;
+    address?: string;
+    landmark?: string;
+    contactNumber?: string;
+    paymentMethod?: "cod" | "gcash";
+    flavors?: Array<{ name: string; quantity: number; unitPrice?: number; subtotal?: number }>;
+    totalAmount?: number;
+    confirmed?: boolean;
     missingFields: string[];
   };
   suggestedReply: string;
