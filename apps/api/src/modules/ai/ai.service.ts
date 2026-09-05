@@ -75,23 +75,22 @@ const OLLAMA_RESULT_SCHEMA = {
     details: {
       type: "object",
       additionalProperties: false,
-      required: ["quantity", "location", "deliveryMethod", "preferredTime", "deliveryDate", "address", "landmark", "contactNumber", "paymentMethod", "flavors", "totalAmount", "confirmed", "missingFields"],
       properties: {
         quantity: { type: ["number", "null"] },
         location: { type: ["string", "null"] },
-        deliveryMethod: { type: ["string", "null"], enum: ["pickup", "maxim", null] },
+        deliveryMethod: { anyOf: [{ type: "string", enum: ["pickup", "maxim"] }, { type: "null" }] },
         preferredTime: { type: ["string", "null"] },
         deliveryDate: { type: ["string", "null"] },
         address: { type: ["string", "null"] },
         landmark: { type: ["string", "null"] },
         contactNumber: { type: ["string", "null"] },
-        paymentMethod: { type: ["string", "null"], enum: ["cod", "gcash", null] },
+        paymentMethod: { anyOf: [{ type: "string", enum: ["cod", "gcash"] }, { type: "null" }] },
         flavors: {
           type: "array",
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["name", "quantity", "unitPrice", "subtotal"],
+            required: ["name", "quantity"],
             properties: {
               name: { type: "string" },
               quantity: { type: "number" },
@@ -163,7 +162,7 @@ export class AiService {
       messages: [
         {
           role: "system",
-          content: `${input.systemPrompt}\n\nYou are the only customer-facing AI. Every customer message must be answered by you. Do not rely on a hard-coded application intent classifier. Use the customer's current message, recent conversation, and the system prompt to understand the request. The application may validate structured order data after you respond, but it must not replace your customer-facing answer.\n\nReturn exactly one JSON object that matches the provided JSON schema. Keep suggestedReply short.`
+          content: `${input.systemPrompt}\n\nYou are the only customer-facing AI. Every customer message must be answered by you. Do not rely on a hard-coded application intent classifier. Use the customer's current message, recent conversation, and the system prompt to understand the request. The application may validate structured order data after you respond, but it must not replace your customer-facing answer.\n\nReturn exactly one JSON object matching the response schema. Keep suggestedReply short.`
         },
         { role: "user", content: `${input.conversationContext}\nCurrent application facts for order validation only:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
       ]
@@ -195,7 +194,7 @@ export class AiService {
           messages: [
             {
               role: "system",
-              content: `${input.systemPrompt}\n\nReturn exactly ONE compact JSON object matching the JSON schema. Always include a short customer-facing suggestedReply. You are the customer-facing AI for every message. Do not use a hard-coded application intent classifier.`
+              content: `${input.systemPrompt}\n\nReturn exactly ONE compact JSON object matching the response schema. Always include a short customer-facing suggestedReply. You are the customer-facing AI for every message. Do not use a hard-coded application intent classifier.`
             },
             { role: "user", content: `${input.conversationContext}\nOrder-validation facts only:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
           ]
@@ -283,9 +282,20 @@ export class AiService {
     }
   }
 
+  private isOrderRelatedMessage(message: string) {
+    const lower = message.toLowerCase();
+    return Boolean(
+      this.findProduct(lower) ||
+      this.extractQuantity(lower) ||
+      this.extractDeliveryMethod(lower) ||
+      this.extractPaymentMethod(lower) ||
+      /\b(order|orders|ordering|confirm|confirmed|proceed|place|deliver|delivery|pickup|pick up|address|landmark|contact|schedule|scheduled|pcs?|pieces?|buy|get)\b/i.test(lower)
+    );
+  }
+
   private buildKnownFacts(message: string, recentMessages: string[]) {
     const current = this.extractFacts(message);
-    const historical = this.extractHistoricalFacts(recentMessages);
+    const historical = this.isOrderRelatedMessage(message) ? this.extractHistoricalFacts(recentMessages) : {};
     const product = current.product ?? historical.product;
     const quantity = current.quantity ?? historical.quantity;
     const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
@@ -337,7 +347,7 @@ export class AiService {
 
   private applyKnownFacts(result: AIIntentResult, message: string, recentMessages: string[]): AIIntentResult {
     const current = this.extractFacts(message);
-    const historical = this.extractHistoricalFacts(recentMessages);
+    const historical = this.isOrderRelatedMessage(message) ? this.extractHistoricalFacts(recentMessages) : {};
     const details = {
       ...(result.details ?? { missingFields: [] }),
       missingFields: Array.isArray(result.details?.missingFields) ? [...result.details.missingFields] : [],
