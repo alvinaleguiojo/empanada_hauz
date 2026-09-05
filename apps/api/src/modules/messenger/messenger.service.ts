@@ -58,6 +58,19 @@ export class MessengerService {
   private graphVersion() { return this.config.get<string>("META_GRAPH_API_VERSION") ?? "v26.0"; }
   private pageId() { return this.config.get<string>("META_PAGE_ID") ?? ""; }
 
+  private async getMessengerProfileName(psid: string) {
+    try {
+      const profile = await this.metaGet<{ name?: string; first_name?: string; last_name?: string }>(
+        `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(psid)}?fields=name,first_name,last_name`
+      );
+      const name = profile.name?.trim() || [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim();
+      return name || undefined;
+    } catch (err) {
+      this.logger.warn(`Unable to fetch Messenger profile name for ${psid}: ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
+  }
+
   private async metaGet<T>(url: string): Promise<T> {
     const token = await this.metaAuthService.getPageToken();
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
@@ -140,14 +153,15 @@ export class MessengerService {
   private findCustomerParticipant(participants: MetaParticipant[], pageId: string) { return participants.find((participant) => participant.id && participant.id !== pageId); }
   private messageTime(message: MetaMessage) { return message.created_time ? Date.parse(message.created_time) : 0; }
   private messageContent(message: MetaMessage) { if (message.message) return message.message; if (message.attachments) return "[Attachment]"; return "[Messenger message]"; }
-  private async getOrCreateConversationByPsid(psid: string, lastMessage?: string) {
-    const customer = await this.customersService.findOrCreateByMessenger(psid);
+  private async getOrCreateConversationByPsid(psid: string, lastMessage?: string, name?: string) {
+    const customer = await this.customersService.findOrCreateByMessenger(psid, name || "Messenger Customer");
     const existing = await this.prisma.conversation.findFirst({ where: { customerId: customer.id, channel: "messenger" } });
     if (existing) { if (lastMessage !== undefined) return this.prisma.conversation.update({ where: { id: existing.id }, data: { lastMessage, updatedAt: new Date() } }); return existing; }
     return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
   }
   async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown }) {
-    const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text);
+    const profileName = await this.getMessengerProfileName(payload.senderId);
+    const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
     if (payload.messageId) { const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } }); if (existing) return existing; }
     const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", content: payload.text, rawPayload: payload.rawPayload as never } });
 
