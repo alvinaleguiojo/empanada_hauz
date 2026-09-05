@@ -117,7 +117,7 @@ export class AiService {
       messages: [
         {
           role: "system",
-          content: `${input.systemPrompt}\n\nYOU are the customer-facing AI. Always generate suggestedReply yourself. Use the recent conversation and application facts to maintain context. Application facts are authoritative for known product names, prices, quantities, delivery method, payment method, and supplied customer details. Never invent missing information. Never mark an order confirmed when required fields are missing. "Place my order" is only a confirmation request; the application decides whether the order is complete and eligible for creation. Never claim an order was created unless the application says it was created.\n\nJSON schema:\n${JSON.stringify(input.schema)}`
+          content: `${input.systemPrompt}\n\nYOU are the customer-facing AI. Always generate suggestedReply yourself. Use the recent conversation and application facts to maintain context. Application facts are authoritative for known product names, prices, quantities, delivery method, payment method, and supplied customer details. Never invent missing information. Never mark an order confirmed when required fields are missing. "Place my order" is only a confirmation request; the application decides whether the order is complete and eligible for creation. Never claim an order was created unless the application says it was created. Never use placeholder strings such as "none provided" as actual order values; use null or omit the field when information is missing.\n\nJSON schema:\n${JSON.stringify(input.schema)}`
         },
         { role: "user", content: `${input.conversationContext}\nAuthoritative application facts:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
       ]
@@ -150,7 +150,7 @@ export class AiService {
           model: this.model, stream: false, format: "json", think: false,
           options: { temperature: 0, num_predict: 384, num_ctx: 3072 },
           messages: [
-            { role: "system", content: `${input.systemPrompt}\n\nReturn ONE compact JSON object only. Always write a short customer-facing suggestedReply. Treat application facts as authoritative. Never invent missing information and never mark incomplete orders confirmed. JSON schema:\n${JSON.stringify(input.schema)}` },
+            { role: "system", content: `${input.systemPrompt}\n\nReturn ONE compact JSON object only. Always write a short customer-facing suggestedReply. Treat application facts as authoritative. Never invent missing information and never mark incomplete orders confirmed. Never use placeholder strings such as "none provided" as actual order values; use null or omit missing fields. JSON schema:\n${JSON.stringify(input.schema)}` },
             { role: "user", content: `${input.conversationContext}\nApplication facts:\n${input.knownFacts}\nCustomer message:\n${input.message}` }
           ]
         })
@@ -261,9 +261,9 @@ export class AiService {
     const quantity = current.quantity ?? historical.quantity;
     const deliveryMethod = current.deliveryMethod ?? historical.deliveryMethod;
     const paymentMethod = current.paymentMethod ?? historical.paymentMethod;
-    const address = current.address ?? historical.address;
-    const landmark = current.landmark ?? historical.landmark;
-    const contactNumber = current.contactNumber ?? historical.contactNumber;
+    const address = this.cleanText(current.address ?? historical.address);
+    const landmark = this.cleanText(current.landmark ?? historical.landmark);
+    const contactNumber = this.cleanText(current.contactNumber ?? historical.contactNumber);
 
     if (product && quantity) {
       details.flavors = [{ name: product.name, quantity, unitPrice: product.price, subtotal: product.price * quantity }];
@@ -273,8 +273,15 @@ export class AiService {
     if (deliveryMethod) details.deliveryMethod = deliveryMethod;
     if (paymentMethod) details.paymentMethod = paymentMethod;
     if (address) details.address = address;
+    else delete details.address;
     if (landmark) details.landmark = landmark;
+    else delete details.landmark;
     if (contactNumber) details.contactNumber = contactNumber;
+    else delete details.contactNumber;
+
+    details.deliveryMethod = this.normalizeDeliveryMethod(details.deliveryMethod);
+    details.paymentMethod = this.normalizePaymentMethod(details.paymentMethod);
+    details.location = this.cleanText(details.location);
 
     const complete = this.hasCompleteOrder(details);
     const explicitConfirmation = this.isExplicitConfirmation(message);
@@ -297,8 +304,9 @@ export class AiService {
   private hasCompleteOrder(details: AIIntentResult["details"]) {
     const flavors = details.flavors ?? [];
     const quantity = Number(details.quantity ?? 0);
-    const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
-    return flavors.length > 0 && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
+    const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(this.cleanText(details.address) && this.cleanText(details.landmark) && this.cleanText(details.contactNumber)));
+    const paymentComplete = details.paymentMethod === "cod" || details.paymentMethod === "gcash";
+    return flavors.length > 0 && quantity >= 10 && paymentComplete && Boolean(details.deliveryMethod) && deliveryComplete;
   }
 
   private requiredMissingFields(details: AIIntentResult["details"]) {
@@ -308,9 +316,9 @@ export class AiService {
     if (!details.deliveryMethod) missing.push("deliveryMethod");
     if (!details.paymentMethod) missing.push("paymentMethod");
     if (details.deliveryMethod === "maxim") {
-      if (!details.address?.trim()) missing.push("address");
-      if (!details.landmark?.trim()) missing.push("landmark");
-      if (!details.contactNumber?.trim()) missing.push("contactNumber");
+      if (!this.cleanText(details.address)) missing.push("address");
+      if (!this.cleanText(details.landmark)) missing.push("landmark");
+      if (!this.cleanText(details.contactNumber)) missing.push("contactNumber");
     }
     return missing;
   }
@@ -322,9 +330,9 @@ export class AiService {
     if (!facts.deliveryMethod) missing.push("deliveryMethod");
     if (!facts.paymentMethod) missing.push("paymentMethod");
     if (facts.deliveryMethod === "maxim") {
-      if (!facts.address?.trim()) missing.push("address");
-      if (!facts.landmark?.trim()) missing.push("landmark");
-      if (!facts.contactNumber?.trim()) missing.push("contactNumber");
+      if (!this.cleanText(facts.address)) missing.push("address");
+      if (!this.cleanText(facts.landmark)) missing.push("landmark");
+      if (!this.cleanText(facts.contactNumber)) missing.push("contactNumber");
     }
     return missing;
   }
@@ -341,7 +349,9 @@ export class AiService {
     const details = result.details;
     const complete = this.hasCompleteOrder(details);
     const confirmationRequest = this.isExplicitConfirmation(message);
+    const hasOrderState = Boolean(details.flavors?.length || details.quantity || details.deliveryMethod || details.paymentMethod);
     return this.isTotalQuestion(message) ||
+      hasOrderState ||
       (!complete && (confirmationRequest || result.intent === "order_confirmation" || details.confirmed === true)) ||
       (!complete && /please confirm if all the details above are correct/i.test(result.suggestedReply ?? ""));
   }
@@ -369,13 +379,37 @@ export class AiService {
 
   private extractField(text: string, pattern: RegExp) {
     const match = text.match(pattern);
-    return match?.[1]?.trim() || undefined;
+    return this.cleanText(match?.[1]);
+  }
+
+  private cleanText(value?: unknown) {
+    if (typeof value !== "string") return undefined;
+    const normalized = value.trim();
+    if (!normalized) return undefined;
+    if (/^(?:none|none provided|not provided|unknown|n\/a|na|null|undefined|not available)$/i.test(normalized)) return undefined;
+    return normalized;
+  }
+
+  private normalizeDeliveryMethod(value: unknown): "pickup" | "maxim" | undefined {
+    if (value === "pickup" || value === "maxim") return value;
+    return undefined;
+  }
+
+  private normalizePaymentMethod(value: unknown): "cod" | "gcash" | undefined {
+    if (value === "cod" || value === "gcash") return value;
+    return undefined;
   }
 
   private normalizeResult(result: AIIntentResult): AIIntentResult {
     const details = result.details ?? { missingFields: [] };
     details.missingFields = Array.isArray(details.missingFields) ? details.missingFields : [];
     details.flavors = Array.isArray(details.flavors) ? details.flavors : [];
+    details.deliveryMethod = this.normalizeDeliveryMethod(details.deliveryMethod);
+    details.paymentMethod = this.normalizePaymentMethod(details.paymentMethod);
+    details.location = this.cleanText(details.location);
+    details.address = this.cleanText(details.address);
+    details.landmark = this.cleanText(details.landmark);
+    details.contactNumber = this.cleanText(details.contactNumber);
     result.confidence = Math.max(0, Math.min(1, Number(result.confidence) || 0));
     if (!result.intent) result.intent = "inquiry";
     if (!result.suggestedReply?.trim()) throw new Error("Ollama returned no suggestedReply");
