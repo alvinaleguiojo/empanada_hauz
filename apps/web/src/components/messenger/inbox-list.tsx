@@ -203,7 +203,7 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
 
         <section className={`min-w-0 flex-1 flex-col bg-background ${mobileChatOpen ? "flex" : "hidden md:flex"}`}>
           <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5">
-            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 md:hidden" onClick={() => setMobileChatOpen(false)} aria-label="Back to conversations">
+            <Button type="button" variant="ghost" size="sm" className="h-9 w-9 p-0 md:hidden" onClick={() => setMobileChatOpen(false)} aria-label="Back to conversations">
               <ArrowLeft size={18} />
             </Button>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent"><UserRound size={16} /></div>
