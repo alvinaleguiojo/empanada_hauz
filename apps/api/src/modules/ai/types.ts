@@ -24,7 +24,7 @@ export interface AIIntentResult {
     landmark?: string;
     contactNumber?: string;
     paymentMethod?: "cod" | "gcash";
-    flavors?: Array<{ name: string; quantity: number; unitPrice?: number; subtotal?: number }>;
+    flavors: Array<{ name: string; quantity: number; unitPrice?: number; subtotal?: number }>;
     totalAmount?: number;
     confirmed?: boolean;
     missingFields: string[];
