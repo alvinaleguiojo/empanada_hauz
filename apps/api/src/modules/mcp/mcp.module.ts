@@ -10,6 +10,7 @@ import { McpOrdersService } from "./mcp-orders.service";
 @Module({
   imports: [DatabaseModule, OrdersModule, ExpensesModule, DeliveryNetworkModule],
   controllers: [McpController],
-  providers: [McpOrdersService, McpExpensesService]
+  providers: [McpOrdersService, McpExpensesService],
+  exports: [McpOrdersService]
 })
 export class McpModule {}
