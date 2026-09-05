@@ -72,7 +72,9 @@ export function FloatingMessenger() {
     };
 
     socket.on("notifications.created", handleNotification);
-    return () => socket.off("notifications.created", handleNotification);
+    return () => {
+      socket.off("notifications.created", handleNotification);
+    };
   }, [open, selectedId]);
 
   useEffect(() => {
