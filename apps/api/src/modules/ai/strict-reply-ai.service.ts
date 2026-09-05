@@ -37,7 +37,7 @@ export class StrictReplyAiService extends AiService {
     }
 
     const shouldForceReplyCheck =
-      (currentTurnLooksLikeOrderStep || currentTurnSaysDetailsMissing) &&
+      (currentTurnLooksLikeOrderStep || currentTurnSaysDetailsMissing || explicitConfirmation) &&
       (!explicitConfirmation || result.details.missingFields.length > 0 || !result.details.confirmed || suspiciousConfirmation);
 
     if (shouldForceReplyCheck) {
