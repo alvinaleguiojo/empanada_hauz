@@ -2,79 +2,15 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AIIntentResult } from "./types";
 
-const EMPANADA_SYSTEM_PROMPT = `You are a customer support assistant for our empanada business.
+const EMPANADA_SYSTEM_PROMPT = `You are a customer support assistant for Empanada Hauz.
+Keep replies short and clear. Use Cebuano when the customer uses Cebuano, otherwise English.
+Do not invent prices or order details. Minimum order is 10 pcs.
 
-## Current date
-The current date and time is {{CURRENT_DATE_TIME}} in Asia/Manila. If today is Sunday, tell the customer we are closed on Sundays, do not accept orders or reservations for Sunday, and do not create an order for Sunday.
-
-## General Rules
-- Always keep your responses short, clear, and concise.
-- Do not give lengthy explanations.
-- Use Cebuano by default if the customer speaks Cebuano. Otherwise, respond in English.
-- Do not ask for information the customer has already provided.
-- Do not ask for the customer's preferred delivery or pickup time.
-- Do not send additional product images. One image containing all flavors has already been provided.
-- Do not invent prices, flavors, availability, discounts, delivery fees, or order details.
-
-## Customer Greeting
-- If the customer's gender is explicitly known, address them as Ma'am {{Customer's Name}} for female or Sir {{Customer's Name}} for male.
-- If gender is not known, do not guess it. Use the customer's name naturally without Sir/Ma'am.
-
-## Payment Methods
-Available payment methods:
-- GCash
-- Cash on Delivery (COD)
-
-GCash Details:
-- Name: Alvin Aleguiojo
-- Number: 09453916796
-
-## Customer Information
-When customer information is required, always ask using this format:
-- Address:
-- Landmark:
-- Contact #:
-Only ask for the missing information.
-
-## Delivery via Maxim
-After the customer provides their address, landmark, and contact number, the delivery order can proceed through Maxim. Do not ask for a preferred delivery time.
-
-## Pickup
-Pickup Location:
-Cabancalan 2, Bulacao, Cebu City
-Near Cabancalan 2 Chapel, beside Prince Bulacao.
-Google Maps: https://maps.app.goo.gl/pvAveGmj2uXPbNXM7
-Please also tell the customer that we can also deliver via Maxim.
-Only mention the pickup location if the customer chooses pickup.
-If the customer asks whether we have a physical store, answer: "No, we don't have a physical store. Pickup is available at our pickup location."
-
-## Customer Follow-up
-If the customer stops responding for a while, politely ask if they would like to proceed with their order.
-
-## Customer Terminology
-- "hm" = How much?
-- "df" = Delivery fee
-
-## Product Information
-- "Baked?" → Yes, we offer both baked and fried. Baked prices are ₱5 higher than the original price.
-- "Can I mix flavors?" → Yes, assorted or mixed orders are allowed.
-- "How long is the preparation?" → Approximately 1 hour.
-- "Expiration?" → Frozen: good for up to 1 week. All flavors may be left overnight except Chicken, which should not be left overnight.
-
-## Discounts
-- Do not give a discount if the customer did not ask. Only offer a discount if the customer asks.
-- Orders of 30 pieces or more receive a 20% discount on the delivery fee only.
-
-## Ordering
-- Minimum order is 10 pcs.
-- When the customer asks for prices, show the complete price list unless they clearly ask about only one specific flavor.
-- Whenever providing prices, use bullet points.
-
-## Price List
+Prices:
 - New Flavor Bacon with Cheese - ₱35
 - Pork Regular - ₱20
 - Pork Regular with Egg - ₱25
-- Flavor Pork Asado - ₱30
+- Pork Asado - ₱30
 - Ham & Cheese - ₱25
 - Chicken - ₱20
 - Chicken with Egg - ₱25
@@ -83,84 +19,38 @@ If the customer stops responding for a while, politely ask if they would like to
 - Choco - ₱30
 - Beef - ₱35
 - Beef with Egg - ₱40
+Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
 
-Best Sellers: Pork with Egg, Chicken with Egg and Beef with Egg.
-
-## Current Promotion
-If the customer asks about the current promotion, refer to PORK Regular – 30 pcs, priced at ₱580.
-If the customer changes the flavor, calculate a new pricing summary using the actual price of each selected flavor. Do not apply the promotion price to other flavors.
-
-## Resellers
-Customers interested in reselling can sign up here to earn 5-10% or more for the referral program:
-https://www.empanadahauz.com/referrals/signup
-They need at least 50 pcs total orders with us to qualify for the reseller program.
-
-## Scheduled Orders
-If the customer wants an order for tomorrow or another scheduled date, preserve the requested date and time. Always include the Date and Time of delivery in the Order Summary. Never invent a time.
-
-## Pickup Order
-If delivery option is pickup and the customer has not yet provided flavors and quantities, ask what flavors and how many pieces they want. After the customer confirms a pickup order, tell them: "We'll let you know once your order is ready."
-
-## Order Summary
-Before confirming the order, always provide a concise order summary using bullet points, including flavor, quantity, subtotal, total quantity, total amount, order type, payment method, and delivery address for delivery only. Include scheduled Date and Time when provided.
-Use this format:
-Customer's Name: {{Customer's Name}}
-Phone: {{Phone}}
-Flavors:
-  Pork Regular × 2 — ₱40
-  Chicken Special × 1 — ₱20
-Total Quantity: 3 pcs
-Total Amount: ₱60
-Order Type: Delivery / Pickup
-Payment Method: Cash / GCash
-Delivery Address: {{Customer Address}}
-Date: {{Delivery Date}}
-Time: {{Delivery Time}}
-
-End with exactly: "Please confirm if all the details above are correct. 😊"
-
-Always tell customers to place the order at https://www.empanadahauz.com to have priority number. They can also check the delivery fee there.
-Always try to recommend or offer other available flavors.
-
-## Order Confirmation
-After the customer confirms an order, do not claim the order was placed unless the application confirms it was successfully created. For a confirmed order awaiting application/MCP creation, say that the order is being processed. Once the application confirms creation, tell them: "We'll let you know once your order is ready."
-
-## Order Status
-Possible order statuses:
-- Queued
-- Preparing
-- Booked
-- Completed
-
-## Business Hours
-9:00 AM – 11:00 PM
-
-## Important application rule
-You are the conversational layer. Return the structured order details and a customer-facing reply. Never invent an order number or claim an order was created. The application is responsible for validating and creating confirmed orders through its order/MCP integration.
-
+Payment: GCash or Cash on Delivery (COD). GCash: Alvin Aleguiojo, 09453916796.
+Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Maxim delivery is also available.
+For Maxim delivery, collect Address, Landmark, and Contact #. Do not ask for a preferred delivery time.
+Pickup orders only need a flavor, quantity, and payment method before confirmation.
+Baked is ₱5 more than the original price. Mixed flavors are allowed. Preparation is approximately 1 hour.
+Orders of 30 pcs or more get 20% off the delivery fee only, and only when the customer asks about a discount.
+If a customer schedules an order, preserve the date and time in the summary; never invent a time.
+Before confirmation, provide a concise bullet-point summary and end with: "Please confirm if all the details above are correct. 😊"
+After the application successfully creates a confirmed order, the application will send the ready message. Never claim an order was created yourself.
+If today is Sunday in Asia/Manila, tell customers the business is closed and do not create Sunday orders.
 Return ONLY valid JSON matching the requested schema.`;
 
-interface OllamaResponse {
-  message?: { content?: string };
-}
+interface OllamaResponse { message?: { content?: string } }
 
-const PRICE_LIST: Record<string, number> = {
-  "bacon with cheese": 35,
-  "pork regular": 20,
-  "pork regular with egg": 25,
-  "pork with egg": 25,
-  "pork asado": 30,
-  "ham & cheese": 25,
-  "ham and cheese": 25,
-  chicken: 20,
-  "chicken with egg": 25,
-  "ube": 25,
-  "ube empanada": 25,
-  mango: 25,
-  choco: 30,
-  beef: 35,
-  "beef with egg": 40
-};
+type Flavor = { name: string; quantity: number; unitPrice?: number; subtotal?: number };
+
+const PRODUCTS: Array<{ aliases: string[]; name: string; price: number }> = [
+  { aliases: ["bacon with cheese", "bacon"], name: "New Flavor Bacon with Cheese", price: 35 },
+  { aliases: ["pork regular with egg", "pork with egg", "pork egg"], name: "Pork Regular with Egg", price: 25 },
+  { aliases: ["pork regular", "pork"], name: "Pork Regular", price: 20 },
+  { aliases: ["pork asado", "asado"], name: "Pork Asado", price: 30 },
+  { aliases: ["ham & cheese", "ham and cheese", "ham cheese"], name: "Ham & Cheese", price: 25 },
+  { aliases: ["chicken with egg", "chicken egg"], name: "Chicken with Egg", price: 25 },
+  { aliases: ["chicken"], name: "Chicken", price: 20 },
+  { aliases: ["ube empanada", "ube"], name: "Ube Empanada", price: 25 },
+  { aliases: ["mango"], name: "Mango", price: 25 },
+  { aliases: ["choco", "chocolate"], name: "Choco", price: 30 },
+  { aliases: ["beef with egg", "beef egg"], name: "Beef with Egg", price: 40 },
+  { aliases: ["beef"], name: "Beef", price: 35 }
+];
 
 @Injectable()
 export class AiService {
@@ -174,42 +64,24 @@ export class AiService {
   }
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[] }): Promise<AIIntentResult> {
-    const fastPricing = this.tryFastPricingReply(message);
-    if (fastPricing) return fastPricing;
+    const fast = this.tryFastPath(message);
+    if (fast) return fast;
 
-    const now = new Date();
-    const currentDateTime = new Intl.DateTimeFormat("en-PH", {
-      timeZone: "Asia/Manila",
-      dateStyle: "full",
-      timeStyle: "long"
-    }).format(now);
+    const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const systemPrompt = EMPANADA_SYSTEM_PROMPT
-      .replace("{{CURRENT_DATE_TIME}}", currentDateTime)
+      .replace("{{CURRENT_DATE_TIME}}", now)
       .replaceAll("{{Customer's Name}}", context?.customerName ?? "Customer");
-
-    // Keep the CPU inference prompt small. Messenger only needs the most recent turns.
     const recentMessages = (context?.recentMessages ?? []).slice(-6);
-    const conversationContext = recentMessages.length
-      ? `\nRecent conversation:\n${recentMessages.join("\n")}`
-      : "";
-
+    const conversationContext = recentMessages.length ? `\nRecent conversation:\n${recentMessages.join("\n")}` : "";
     const schema = {
       intent: "inquiry | order_confirmation | reservation | delivery_request | pickup_request | pricing_question",
       confidence: "number from 0 to 1",
       details: {
-        quantity: "number or null",
-        location: "string or null",
-        deliveryMethod: "pickup | maxim | null",
-        preferredTime: "string or null",
-        deliveryDate: "YYYY-MM-DD or null",
-        address: "string or null",
-        landmark: "string or null",
-        contactNumber: "string or null",
-        paymentMethod: "cod | gcash | null",
-        flavors: "array of {name, quantity, unitPrice, subtotal} or []",
-        totalAmount: "number or null",
-        confirmed: "boolean",
-        missingFields: "array of strings"
+        quantity: "number or null", location: "string or null", deliveryMethod: "pickup | maxim | null",
+        preferredTime: "string or null", deliveryDate: "YYYY-MM-DD or null", address: "string or null",
+        landmark: "string or null", contactNumber: "string or null", paymentMethod: "cod | gcash | null",
+        flavors: "array of {name, quantity, unitPrice, subtotal} or []", totalAmount: "number or null",
+        confirmed: "boolean", missingFields: "array of strings"
       },
       suggestedReply: "short customer-facing reply string"
     };
@@ -227,62 +99,125 @@ export class AiService {
             model: this.model,
             stream: false,
             format: "json",
-            // Qwen3 thinking is unnecessary for a short customer-support response and
-            // is especially expensive on CPU-only machines.
             think: false,
-            options: {
-              temperature: 0.1,
-              num_predict: 300,
-              num_ctx: 4096
-            },
+            options: { temperature: 0.1, num_predict: 300, num_ctx: 4096 },
             messages: [
-              { role: "system", content: `${systemPrompt}\n\nJSON schema to follow:\n${JSON.stringify(schema)}` },
+              { role: "system", content: `${systemPrompt}\n\nJSON schema:\n${JSON.stringify(schema)}` },
               { role: "user", content: `${conversationContext}\nCustomer message:\n${message}` }
             ]
           })
         });
-      } finally {
-        clearTimeout(timeout);
-      }
-
-      if (!response.ok) {
-        throw new Error(`Ollama request failed: ${response.status} ${await response.text()}`);
-      }
-
+      } finally { clearTimeout(timeout); }
+      if (!response.ok) throw new Error(`Ollama request failed: ${response.status} ${await response.text()}`);
       const body = await response.json() as OllamaResponse;
       const content = body.message?.content?.trim();
       if (!content) throw new Error("Ollama returned an empty response");
-
-      const parsed = JSON.parse(content) as AIIntentResult;
-      return this.normalizeResult(parsed, message);
+      return this.normalizeResult(JSON.parse(content) as AIIntentResult, message);
     } catch (error) {
-      this.logger.warn(`Ollama parse/request failed, using fallback: ${String(error)}`);
+      this.logger.warn(`Ollama parse/request failed, using deterministic fallback: ${String(error)}`);
       return this.fallbackParse(message);
     }
   }
 
-  private tryFastPricingReply(message: string): AIIntentResult | null {
+  private tryFastPath(message: string): AIIntentResult | null {
     const lower = message.toLowerCase().trim();
+    if (/^(hi|hello|hey|good morning|good afternoon|good evening|yo)\b/.test(lower)) {
+      return { intent: "inquiry", confidence: 1, details: { missingFields: [], flavors: [] }, suggestedReply: "Hello! 😊 How can I help you with your empanada order?" };
+    }
+
     const asksPrice = /\b(hm|how much|price|pila|tagpila|presyo)\b/.test(lower);
-    if (!asksPrice) return null;
+    const product = this.findProduct(lower);
+    if (asksPrice && product) {
+      return { intent: "pricing_question", confidence: 1, details: { missingFields: [], flavors: [] }, suggestedReply: `- ${product.name} — ₱${product.price}` };
+    }
+    if (asksPrice && !product) return null;
 
-    const matched = Object.entries(PRICE_LIST).find(([name]) => lower.includes(name));
-    if (!matched) return null;
+    const quantity = this.extractQuantity(lower);
+    if (!quantity) return null;
+    if (!product) {
+      const deliveryMethod = this.extractDeliveryMethod(lower);
+      return {
+        intent: deliveryMethod === "pickup" ? "pickup_request" : deliveryMethod === "maxim" ? "delivery_request" : "inquiry",
+        confidence: 0.95,
+        details: { quantity, deliveryMethod, missingFields: ["flavors"], flavors: [] },
+        suggestedReply: "Sure! 😊 What flavor would you like for the order?"
+      };
+    }
 
-    const [name, price] = matched;
-    const displayName = name
-      .replace("pork with egg", "Pork Regular with Egg")
-      .replace("pork regular", "Pork Regular")
-      .replace("bacon with cheese", "New Flavor Bacon with Cheese")
-      .replace("chicken with egg", "Chicken with Egg")
-      .replace("beef with egg", "Beef with Egg");
-
+    const flavor: Flavor = { name: product.name, quantity, unitPrice: product.price, subtotal: quantity * product.price };
+    const deliveryMethod = this.extractDeliveryMethod(lower);
+    const paymentMethod = this.extractPaymentMethod(lower);
+    const address = this.extractField(lower, /address[:\s]+(.+?)(?:\s+landmark[:\s]+|\s+contact(?:\s*#)?[:\s]+|$)/i);
+    const landmark = this.extractField(lower, /landmark[:\s]+(.+?)(?:\s+contact(?:\s*#)?[:\s]+|$)/i);
+    const contactNumber = this.extractField(lower, /contact(?:\s*#| number)?[:\s]+([+\d][\d\s-]{6,})/i);
+    const missingFields: string[] = [];
+    if (!deliveryMethod) missingFields.push("deliveryMethod");
+    if (!paymentMethod) missingFields.push("paymentMethod");
+    if (deliveryMethod === "maxim") {
+      if (!address) missingFields.push("address");
+      if (!landmark) missingFields.push("landmark");
+      if (!contactNumber) missingFields.push("contactNumber");
+    }
+    const complete = quantity >= 10 && Boolean(deliveryMethod && paymentMethod) && (deliveryMethod === "pickup" || Boolean(address && landmark && contactNumber));
+    const reply = complete
+      ? this.orderSummary(flavor, quantity, deliveryMethod!, paymentMethod!, address)
+      : this.askForMissing(missingFields, deliveryMethod);
     return {
-      intent: "pricing_question",
-      confidence: 1,
-      details: { missingFields: [], flavors: [] },
-      suggestedReply: `- ${displayName} — ₱${price}`
+      intent: complete ? "order_confirmation" : deliveryMethod === "pickup" ? "pickup_request" : deliveryMethod === "maxim" ? "delivery_request" : "inquiry",
+      confidence: 0.95,
+      details: { quantity, deliveryMethod, paymentMethod, address, landmark, contactNumber, flavors: [flavor], totalAmount: flavor.subtotal, confirmed: false, missingFields },
+      suggestedReply: reply
     };
+  }
+
+  private findProduct(text: string) {
+    return PRODUCTS.find((product) => product.aliases.some((alias) => new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i").test(text)));
+  }
+
+  private extractQuantity(text: string) {
+    const match = text.match(/\b(\d+)\s*(?:pcs?|pieces?)?\b/i);
+    return match ? Number(match[1]) : undefined;
+  }
+
+  private extractDeliveryMethod(text: string): "pickup" | "maxim" | undefined {
+    if (/\b(pick ?up|pick-up)\b/i.test(text)) return "pickup";
+    if (/\b(maxim|deliver|delivery)\b/i.test(text)) return "maxim";
+    return undefined;
+  }
+
+  private extractPaymentMethod(text: string): "cod" | "gcash" | undefined {
+    if (/\b(gcash|g cash)\b/i.test(text)) return "gcash";
+    if (/\b(cod|cash on delivery|cash)\b/i.test(text)) return "cod";
+    return undefined;
+  }
+
+  private extractField(text: string, pattern: RegExp) {
+    const match = text.match(pattern);
+    return match?.[1]?.trim() || undefined;
+  }
+
+  private askForMissing(missing: string[], deliveryMethod?: "pickup" | "maxim") {
+    if (!deliveryMethod) return "Would you like pickup or Maxim delivery? 😊";
+    if (missing.includes("paymentMethod")) return "Would you like to pay by GCash or Cash on Delivery (COD)? 😊";
+    if (deliveryMethod === "maxim") {
+      const labels: Record<string, string> = { address: "Address", landmark: "Landmark", contactNumber: "Contact #" };
+      const lines = missing.filter((item) => labels[item]).map((item) => `- ${labels[item]}:`);
+      if (lines.length) return `Please provide the missing details:\n${lines.join("\n")}`;
+    }
+    return "Please provide the remaining order details. 😊";
+  }
+
+  private orderSummary(flavor: Flavor, quantity: number, deliveryMethod: "pickup" | "maxim", paymentMethod: "cod" | "gcash", address?: string) {
+    return [
+      "Order Summary:",
+      `- ${flavor.name} × ${quantity} — ₱${flavor.subtotal}`,
+      `- Total Quantity: ${quantity} pcs`,
+      `- Total Amount: ₱${flavor.subtotal}`,
+      `- Order Type: ${deliveryMethod === "pickup" ? "Pickup" : "Delivery"}`,
+      `- Payment Method: ${paymentMethod === "gcash" ? "GCash" : "Cash on Delivery (COD)"}`,
+      ...(deliveryMethod === "maxim" && address ? [`- Delivery Address: ${address}`] : []),
+      "\nPlease confirm if all the details above are correct. 😊"
+    ].join("\n");
   }
 
   private normalizeResult(result: AIIntentResult, message: string): AIIntentResult {
@@ -291,37 +226,25 @@ export class AiService {
     details.flavors = Array.isArray(details.flavors) ? details.flavors : [];
     result.confidence = Math.max(0, Math.min(1, Number(result.confidence) || 0));
     if (!result.intent) result.intent = "inquiry";
-    if (!result.suggestedReply?.trim()) result.suggestedReply = "Thanks! How can I help with your empanada order?";
-    if (!details.quantity && details.flavors.length > 0) {
-      details.quantity = details.flavors.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
-    }
-    if (details.quantity === undefined && message.match(/\b\d+\b/)) {
-      const match = message.match(/\b(\d+)\b/);
-      if (match) details.quantity = Number(match[1]);
-    }
+    if (!result.suggestedReply?.trim()) result.suggestedReply = this.fallbackParse(message).suggestedReply;
+    if (!details.quantity && details.flavors.length) details.quantity = details.flavors.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     result.details = details;
     return result;
   }
 
   private fallbackParse(message: string): AIIntentResult {
+    const fast = this.tryFastPath(message);
+    if (fast) return fast;
     const lower = message.toLowerCase();
-    const quantityMatch = lower.match(/(\d+)\s*(pcs|pieces|pc)?/);
-    const deliveryMethod = lower.includes("maxim") ? "maxim" : lower.includes("pickup") ? "pickup" : undefined;
-    const intent = lower.includes("price") || lower.includes("hm") || lower.includes("how much") || lower.includes("pila") || lower.includes("tagpila") || lower.includes("presyo")
-      ? "pricing_question"
-      : deliveryMethod === "pickup" ? "pickup_request"
-      : deliveryMethod === "maxim" ? "delivery_request"
-      : "inquiry";
+    const deliveryMethod = this.extractDeliveryMethod(lower);
+    const quantity = this.extractQuantity(lower);
+    const product = this.findProduct(lower);
+    const intent = /\b(price|hm|how much|pila|tagpila|presyo)\b/.test(lower) ? "pricing_question" : deliveryMethod === "pickup" ? "pickup_request" : deliveryMethod === "maxim" ? "delivery_request" : "inquiry";
     return {
       intent,
-      confidence: 0.2,
-      details: {
-        quantity: quantityMatch ? Number(quantityMatch[1]) : undefined,
-        deliveryMethod,
-        missingFields: quantityMatch ? [] : ["quantity"],
-        flavors: []
-      },
-      suggestedReply: "Thanks! How can I help with your empanada order?"
+      confidence: 0.5,
+      details: { quantity, deliveryMethod, missingFields: product ? [] : ["flavors"], flavors: product && quantity ? [{ name: product.name, quantity, unitPrice: product.price, subtotal: product.price * quantity }] : [] },
+      suggestedReply: product && quantity ? `I can help with that. Would you like pickup or Maxim delivery? 😊` : "Sure! 😊 What would you like to order?"
     };
   }
 }
