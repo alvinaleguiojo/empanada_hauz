@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Download,
+  FileText,
+  Image as ImageIcon,
   Inbox,
   Link2,
   Loader2,
@@ -27,7 +30,65 @@ type Customer = {
   totalOrders?: number;
 };
 type Conversation = { id: string; lastMessage?: string | null; updatedAt: string; customer: Customer };
-type Message = { id: string; direction: "inbound" | "outbound"; content: string; aiIntent?: string | null; createdAt: string };
+type MessageAttachment = { type?: string; url?: string; title?: string; name?: string; payload?: { url?: string }; file_url?: string; image_data?: { url?: string } };
+type Message = { id: string; direction: "inbound" | "outbound"; content: string; type?: string; rawPayload?: unknown; aiIntent?: string | null; createdAt: string };
+
+function getAttachments(message: Message): MessageAttachment[] {
+  const raw = message.rawPayload as any;
+  const attachments = raw?.message?.attachments ?? raw?.attachments;
+  if (Array.isArray(attachments)) return attachments;
+  if (Array.isArray(attachments?.data)) return attachments.data;
+  return [];
+}
+
+function attachmentUrl(attachment: MessageAttachment) {
+  return attachment.url ?? attachment.payload?.url ?? attachment.file_url ?? attachment.image_data?.url ?? "";
+}
+
+function attachmentKind(attachment: MessageAttachment) {
+  const type = (attachment.type ?? "").toLowerCase();
+  if (type === "image" || type.startsWith("image/")) return "image";
+  if (type === "video" || type.startsWith("video/")) return "video";
+  if (type === "audio" || type.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+function MessageAttachments({ message }: { message: Message }) {
+  const attachments = getAttachments(message);
+  if (!attachments.length) return null;
+
+  return (
+    <div className="mb-2 space-y-2">
+      {attachments.map((attachment, index) => {
+        const url = attachmentUrl(attachment);
+        const kind = attachmentKind(attachment);
+        if (!url) {
+          return <div key={index} className="rounded-xl border border-current/10 px-3 py-2 text-xs opacity-60"><FileText size={14} className="mr-2 inline" />Attachment</div>;
+        }
+        if (kind === "image") {
+          return (
+            <a key={index} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-current/10">
+              <img src={url} alt={attachment.title ?? attachment.name ?? "Messenger attachment"} className="block max-h-[420px] w-full max-w-[520px] object-contain" loading="lazy" />
+            </a>
+          );
+        }
+        if (kind === "video") {
+          return <video key={index} src={url} controls preload="metadata" className="max-h-[420px] max-w-[520px] rounded-xl" />;
+        }
+        if (kind === "audio") {
+          return <audio key={index} src={url} controls className="max-w-full" />;
+        }
+        return (
+          <a key={index} href={url} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-xl border border-current/10 px-3 py-2.5 text-xs hover:bg-black/5">
+            <FileText size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{attachment.title ?? attachment.name ?? "Attachment"}</span>
+            <Download size={14} className="shrink-0 opacity-60" />
+          </a>
+        );
+      })}
+    </div>
+  );
+}
 
 export function InboxList({ initialConversations }: { initialConversations: Conversation[] }) {
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
@@ -46,9 +107,7 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return conversations;
-    return conversations.filter((conversation) =>
-      `${conversation.customer.name} ${conversation.lastMessage ?? ""}`.toLowerCase().includes(query),
-    );
+    return conversations.filter((conversation) => `${conversation.customer.name} ${conversation.lastMessage ?? ""}`.toLowerCase().includes(query));
   }, [conversations, search]);
 
   useEffect(() => {
@@ -75,21 +134,14 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
 
   async function syncMetaHistory() {
     if (syncing) return;
-    setSyncing(true);
-    setError("");
-    setSyncMessage("");
+    setSyncing(true); setError(""); setSyncMessage("");
     try {
-      const result = await apiFetch<{ conversationsSeen: number; conversationsImported: number; messagesImported: number }>(
-        "/messenger/sync?maxConversations=100&maxMessagesPerConversation=1000",
-        { method: "POST" },
-      );
+      const result = await apiFetch<{ conversationsSeen: number; conversationsImported: number; messagesImported: number }>("/messenger/sync?maxConversations=100&maxMessagesPerConversation=1000", { method: "POST" });
       await loadConversations();
       setSyncMessage(`Synced ${result.conversationsImported} conversations and ${result.messagesImported} messages from Meta.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sync Messenger history.");
-    } finally {
-      setSyncing(false);
-    }
+    } finally { setSyncing(false); }
   }
 
   async function loadMessages(id: string, silent = false) {
@@ -101,12 +153,8 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
       setMessages(result);
       if (!silent) setError("");
     } catch (err) {
-      if (requestId === messagesRequestId.current && id === selectedId && !silent) {
-        setError(err instanceof Error ? err.message : "Unable to load messages.");
-      }
-    } finally {
-      if (!silent) setLoadingMessages(false);
-    }
+      if (requestId === messagesRequestId.current && id === selectedId && !silent) setError(err instanceof Error ? err.message : "Unable to load messages.");
+    } finally { if (!silent) setLoadingMessages(false); }
   }
 
   async function send() {
@@ -116,25 +164,13 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
     setSending(true);
     try {
       await apiFetch("/messenger/send", { method: "POST", body: JSON.stringify({ recipientPsid: psid, text }) });
-      setDraft("");
-      await loadMessages(selectedId, true);
-      await loadConversations(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to send message.");
-    } finally {
-      setSending(false);
-    }
+      setDraft(""); await loadMessages(selectedId, true); await loadConversations(true);
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to send message."); }
+    finally { setSending(false); }
   }
 
-  function selectConversation(id: string) {
-    setSelectedId(id);
-    setMobileChatOpen(true);
-    setError("");
-  }
-
-  function reconnectMeta() {
-    window.location.href = `${API_URL}/messenger/auth/connect`;
-  }
+  function selectConversation(id: string) { setSelectedId(id); setMobileChatOpen(true); setError(""); }
+  function reconnectMeta() { window.location.href = `${API_URL}/messenger/auth/connect`; }
 
   return (
     <Card className="overflow-hidden border-line/80 bg-background/80 p-0 shadow-xl shadow-black/5">
@@ -143,104 +179,25 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
           <div className="flex h-full flex-col">
             <div className="border-b border-line px-4 py-4 sm:px-5">
               <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent"><Inbox size={17} /></span>
-                    <div>
-                      <h2 className="text-sm font-semibold">Inbox</h2>
-                      <p className="text-[11px] text-foreground/45">{conversations.length} conversations</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Button type="button" variant="outline" size="sm" className="h-9 px-2.5 sm:px-3" onClick={reconnectMeta} title="Reconnect the Empanada Hauz Facebook Page">
-                    <Link2 size={14} /><span className="hidden sm:inline">Reconnect</span>
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-9 px-2.5 sm:px-3" onClick={() => void syncMetaHistory()} disabled={syncing} title="Sync historical Messenger conversations and messages from Meta">
-                    {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}<span className="hidden sm:inline">{syncing ? "Syncing..." : "Sync Meta"}</span>
-                  </Button>
-                </div>
+                <div><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent"><Inbox size={17} /></span><div><h2 className="text-sm font-semibold">Inbox</h2><p className="text-[11px] text-foreground/45">{conversations.length} conversations</p></div></div></div>
+                <div className="flex items-center gap-1.5"><Button type="button" variant="outline" size="sm" className="h-9 px-2.5 sm:px-3" onClick={reconnectMeta} title="Reconnect the Empanada Hauz Facebook Page"><Link2 size={14} /><span className="hidden sm:inline">Reconnect</span></Button><Button type="button" variant="outline" size="sm" className="h-9 px-2.5 sm:px-3" onClick={() => void syncMetaHistory()} disabled={syncing} title="Sync historical Messenger conversations and messages from Meta">{syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}<span className="hidden sm:inline">{syncing ? "Syncing..." : "Sync Meta"}</span></Button></div>
               </div>
-              <div className="relative mt-4">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
-                <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations..." className="h-10 pl-9" />
-              </div>
+              <div className="relative mt-4"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations..." className="h-10 pl-9" /></div>
             </div>
-
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {!filteredConversations.length ? (
-                <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-                  <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-foreground/5 text-foreground/35"><MessageCircle size={22} /></span>
-                  <p className="text-sm font-medium">{search ? "No matches" : "No conversations yet"}</p>
-                  <p className="mt-1 text-xs text-foreground/45">{search ? "Try another customer or message." : "Messenger conversations will appear here."}</p>
-                </div>
-              ) : filteredConversations.map((conversation) => {
-                const active = conversation.id === selectedId;
-                return (
-                  <button key={conversation.id} type="button" onClick={() => selectConversation(conversation.id)} className={`group w-full border-b border-line/70 px-4 py-3.5 text-left transition-colors sm:px-5 ${active ? "bg-accent/[0.09]" : "hover:bg-foreground/[0.035]"}`}>
-                    <div className="flex gap-3">
-                      <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${active ? "bg-accent/15 text-accent" : "bg-foreground/5 text-foreground/50"}`}>
-                        <UserRound size={17} />
-                        {active ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-accent" /> : null}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="min-w-0 flex-1 truncate text-sm font-semibold">{conversation.customer.name}</p>
-                          {conversation.customer.isVip ? <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">VIP</span> : null}
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-2">
-                          <p className="min-w-0 truncate text-xs text-foreground/45">{conversation.lastMessage ?? "Start a conversation"}</p>
-                          <span className="shrink-0 text-[10px] text-foreground/30">{new Date(conversation.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+              {!filteredConversations.length ? <div className="flex h-full flex-col items-center justify-center px-8 text-center"><span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-foreground/5 text-foreground/35"><MessageCircle size={22} /></span><p className="text-sm font-medium">{search ? "No matches" : "No conversations yet"}</p><p className="mt-1 text-xs text-foreground/45">{search ? "Try another customer or message." : "Messenger conversations will appear here."}</p></div> : filteredConversations.map((conversation) => { const active = conversation.id === selectedId; return <button key={conversation.id} type="button" onClick={() => selectConversation(conversation.id)} className={`group w-full border-b border-line/70 px-4 py-3.5 text-left transition-colors sm:px-5 ${active ? "bg-accent/[0.09]" : "hover:bg-foreground/[0.035]"}`}><div className="flex gap-3"><div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${active ? "bg-accent/15 text-accent" : "bg-foreground/5 text-foreground/50"}`}><UserRound size={17} />{active ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-accent" /> : null}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="min-w-0 flex-1 truncate text-sm font-semibold">{conversation.customer.name}</p>{conversation.customer.isVip ? <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">VIP</span> : null}</div><div className="mt-1 flex items-center justify-between gap-2"><p className="min-w-0 truncate text-xs text-foreground/45">{conversation.lastMessage ?? "Start a conversation"}</p><span className="shrink-0 text-[10px] text-foreground/30">{new Date(conversation.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span></div></div></div></button>; })}
             </div>
           </div>
         </aside>
 
         <section className={`min-w-0 flex-1 flex-col bg-background ${mobileChatOpen ? "flex" : "hidden md:flex"}`}>
-          <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5">
-            <Button type="button" variant="ghost" size="sm" className="h-9 w-9 p-0 md:hidden" onClick={() => setMobileChatOpen(false)} aria-label="Back to conversations">
-              <ArrowLeft size={18} />
-            </Button>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent"><UserRound size={16} /></div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{selected?.customer.name ?? "Select a conversation"}</p>
-              <p className="truncate text-[11px] text-foreground/45">{selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? ""}{selected?.customer.totalOrders ? ` · ${selected.customer.totalOrders} orders` : ""}</p>
-            </div>
-            {selected?.customer.isVip ? <span className="hidden rounded-full bg-accent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-black sm:inline-flex">VIP customer</span> : null}
-          </header>
-
+          <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5"><Button type="button" variant="ghost" size="sm" className="h-9 w-9 p-0 md:hidden" onClick={() => setMobileChatOpen(false)} aria-label="Back to conversations"><ArrowLeft size={18} /></Button><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent"><UserRound size={16} /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{selected?.customer.name ?? "Select a conversation"}</p><p className="truncate text-[11px] text-foreground/45">{selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? ""}{selected?.customer.totalOrders ? ` · ${selected.customer.totalOrders} orders` : ""}</p></div>{selected?.customer.isVip ? <span className="hidden rounded-full bg-accent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-black sm:inline-flex">VIP customer</span> : null}</header>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5">
             {loadingMessages ? <div className="flex justify-center p-8"><Loader2 className="animate-spin text-foreground/40" size={20} /></div> : null}
             {!loadingMessages && !messages.length ? <div className="flex h-full min-h-[220px] flex-col items-center justify-center text-center"><span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 text-accent"><MessageCircle size={22} /></span><p className="text-sm font-medium">No messages yet</p><p className="mt-1 text-xs text-foreground/45">Send a message to start the conversation.</p></div> : null}
-            {messages.map((message) => {
-              const mine = message.direction === "outbound";
-              return (
-                <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm sm:max-w-[72%] sm:px-4 ${mine ? "rounded-br-md bg-accent text-black" : "rounded-bl-md bg-foreground/[0.07] text-foreground"}`}>
-                    <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
-                    <p className="mt-1.5 text-[10px] opacity-50">{new Date(message.createdAt).toLocaleString()}{message.aiIntent ? ` · ${message.aiIntent}` : ""}</p>
-                  </div>
-                </div>
-              );
-            })}
+            {messages.map((message) => { const mine = message.direction === "outbound"; return <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm sm:max-w-[72%] sm:px-4 ${mine ? "rounded-br-md bg-accent text-black" : "rounded-bl-md bg-foreground/[0.07] text-foreground"}`}><MessageAttachments message={message}/>{message.content && message.content !== "[Attachment]" ? <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p> : null}<p className="mt-1.5 text-[10px] opacity-50">{new Date(message.createdAt).toLocaleString()}{message.aiIntent ? ` · ${message.aiIntent}` : ""}</p></div></div>; })}
           </div>
-
-          <div className="shrink-0 border-t border-line bg-background/95 p-3 backdrop-blur sm:p-4">
-            {syncMessage ? <p className="mb-2 px-1 text-xs text-accent">{syncMessage}</p> : null}
-            {error ? <p className="mb-2 px-1 text-xs text-danger">{error}</p> : null}
-            <div className="flex items-end gap-2">
-              <Input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={selected ? "Reply to this customer..." : "Select a conversation..."} disabled={!selected?.customer.messengerPsid || sending} className="h-11 min-w-0" />
-              <Button type="button" onClick={() => void send()} disabled={!draft.trim() || !selected?.customer.messengerPsid || sending} className="h-11 shrink-0 px-3 sm:px-4" aria-label="Send message">
-                {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}<span className="hidden sm:inline">Send</span>
-              </Button>
-            </div>
-            <p className="mt-1.5 hidden px-1 text-[10px] text-foreground/30 sm:block">Press Enter to send</p>
-          </div>
+          <div className="shrink-0 border-t border-line bg-background/95 p-3 backdrop-blur sm:p-4">{syncMessage ? <p className="mb-2 px-1 text-xs text-accent">{syncMessage}</p> : null}{error ? <p className="mb-2 px-1 text-xs text-danger">{error}</p> : null}<div className="flex items-end gap-2"><Input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={selected ? "Reply to this customer..." : "Select a conversation..."} disabled={!selected?.customer.messengerPsid || sending} className="h-11 min-w-0" /><Button type="button" onClick={() => void send()} disabled={!draft.trim() || !selected?.customer.messengerPsid || sending} className="h-11 shrink-0 px-3 sm:px-4" aria-label="Send message">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}<span className="hidden sm:inline">Send</span></Button></div><p className="mt-1.5 hidden px-1 text-[10px] text-foreground/30 sm:block">Press Enter to send</p></div>
         </section>
       </div>
     </Card>
