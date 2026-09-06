@@ -112,6 +112,17 @@ export class AiService {
   }
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
+    if (this.isOutOfScopeRequest(message)) {
+      this.logger.log(`AI request rejected as out-of-scope: ${JSON.stringify(message)}`);
+      return {
+        intent: "inquiry",
+        confidence: 1,
+        details: context?.activeOrderState ?? { flavors: [], missingFields: [], confirmed: false },
+        suggestedReply: "I’m here to help with Empanada Hauz orders, prices, pickup, delivery, payments, and order status. 😊",
+        source: "ollama"
+      };
+    }
+
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const recentMessages = (context?.recentMessages ?? []).slice(-16);
     const current = await this.interpretCurrentMessage(message, now, recentMessages, context?.activeOrderState);
@@ -461,6 +472,18 @@ export class AiService {
                   : field === "minimumOrder"
                     ? "at least 10 pcs"
                     : field);
+  }
+
+  private isBusinessRelatedMessage(message: string) {
+    return /\b(?:empanada|order|orders|pork|chicken|beef|ube|mango|choco|bacon|ham|cheese|pcs?|pieces?|gcash|cod|cash|pickup|pick\s*up|maxim|delivery|deliver|address|landmark|contact|payment|price|pricing|cost|how much|hm|df|status|summary|book|reserve|buy|availab|available|discount|promo)\b/i.test(message);
+  }
+
+  private isOutOfScopeRequest(message: string) {
+    const lower = message.trim().toLowerCase();
+    if (!lower) return false;
+    if (this.isBusinessRelatedMessage(message)) return false;
+    if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank you|okay|ok|yes|no|sure|alright|bye|goodbye)[!.\s]*$/i.test(lower)) return false;
+    return /\b(?:javascript|typescript|python|java|c\+\+|c#|ruby|php|golang|rust|html|css|sql|react|angular|vue|node(?:\.js)?|coding|code|programming|program|script|software|api|database|algorithm|homework|essay|assignment|write\s+(?:a|an)\s+(?:code|program|script)|debug|debugging|developer|programmer)\b/i.test(lower);
   }
 
   private isSummaryRequest(lower: string) { return /\b(summary|summarize|summarize my order|send.*summary|show.*summary)\b/i.test(lower); }
