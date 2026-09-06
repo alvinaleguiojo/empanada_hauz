@@ -328,29 +328,53 @@ export class AiOrderStatusContextService implements OnModuleInit {
   private formatOrderSummary(order: OrderStatusResult) {
     const items = (order.items ?? [])
       .filter((item) => item?.name && Number(item.quantity) > 0)
-      .map((item) => `${Number(item.quantity)} pcs ${item.name} (₱${Number(item.price ?? PRICES[item.name.toLowerCase()] ?? 0)} each)`);
-    const foodTotal = (order.items ?? []).reduce((sum, item) => {
-      const subtotal = Number(item.subtotal ?? (Number(item.quantity) * Number(item.price ?? PRICES[item.name?.toLowerCase()] ?? 0)));
-      return sum + (Number.isFinite(subtotal) ? subtotal : 0);
-    }, 0) || Number(order.totalAmount ?? 0);
+      .map((item) => {
+        const quantity = Number(item.quantity);
+        const unitPrice = Number(item.price ?? PRICES[item.name.toLowerCase()] ?? 0);
+        const subtotal = Number(item.subtotal ?? quantity * unitPrice);
+        return { quantity, name: String(item.name), unitPrice, subtotal: Number.isFinite(subtotal) ? subtotal : quantity * unitPrice };
+      });
+
+    const foodTotal = items.reduce((sum, item) => sum + item.subtotal, 0) || Number(order.totalAmount ?? 0);
     const lines = [
-      `Here is your current order ${order.orderNumber}:`,
-      `- Flavors: ${items.length ? items.join(", ") : `${order.quantity} pcs`}`,
-      `- Total food amount: ₱${foodTotal.toFixed(0)}`,
-      `- Delivery method: ${order.deliveryMethod === "maxim" ? "Maxim Delivery" : order.deliveryMethod}`,
-      `- Payment method: ${order.paymentMethod === "gcash" ? "GCash (Alvin Aleguiojo, 09453916796)" : "COD"}`
+      "📋 ORDER SUMMARY",
+      "",
+      `Order ID: ${order.orderNumber}`,
+      `Status: ${order.status.charAt(0).toUpperCase()}${order.status.slice(1)}`,
+      "",
+      "ITEMS"
     ];
 
-    if (order.deliveryMethod === "maxim") {
-      if (order.address) lines.push(`- Address: ${order.address}`);
-      if (order.location) lines.push(`- Landmark: ${order.location}`);
-      if (order.customer?.phoneNumber) lines.push(`- Contact #: ${order.customer.phoneNumber}`);
+    if (items.length) {
+      for (const item of items) {
+        lines.push(`• ${item.quantity} pcs ${item.name}`);
+        lines.push(`  ₱${item.unitPrice} each × ${item.quantity} = ₱${item.subtotal}`);
+      }
+    } else {
+      lines.push(`• ${order.quantity} pcs`);
     }
 
+    lines.push("", "TOTAL", `Food: ₱${foodTotal.toFixed(0)}`);
+
+    lines.push("", "DELIVERY");
+    lines.push(`Method: ${order.deliveryMethod === "maxim" ? "Maxim Delivery" : order.deliveryMethod}`);
+    if (order.deliveryMethod === "maxim") {
+      if (order.address) lines.push(`Address: ${order.address}`);
+      if (order.location) lines.push(`Landmark: ${order.location}`);
+      if (order.customer?.phoneNumber) lines.push(`Contact #: ${order.customer.phoneNumber}`);
+    }
+
+    lines.push("", "PAYMENT");
+    lines.push(order.paymentMethod === "gcash" ? "GCash — Alvin Aleguiojo (09453916796)" : "COD");
+
     const schedule = this.formatSummarySchedule(order.preferredSchedule);
-    if (schedule.date) lines.push(`- Delivery date: ${schedule.date}`);
-    if (schedule.time) lines.push(`- Preferred time: ${schedule.time}`);
-    lines.push(`- Status: ${order.status}`);
+    if (schedule.date || schedule.time) {
+      lines.push("", "SCHEDULE");
+      if (schedule.date) lines.push(`Delivery date: ${schedule.date}`);
+      if (schedule.time) lines.push(`Preferred time: ${schedule.time}`);
+    }
+
+    lines.push("", "Thank you! 😊");
     return lines.join("\n");
   }
 
@@ -412,7 +436,7 @@ export class AiOrderStatusContextService implements OnModuleInit {
 
   private isExplicitOrderUpdate(message: string) {
     return /\b(?:change|update|modify|edit|replace|switch|correct|correction)\b.*\b(?:my|the)\s+order\b/i.test(message)
-      || /\b(?:my|the)\s+order\b.*\b(?:change|update|modify|edit|replace|switch)\b/i.test(message)
+      || /\b(?:my|the)\s+order\b.*\b(?:change|update|modify|replace|switch)\b/i.test(message)
       || /\bchange\s+my\s+order\s+to\b/i.test(message)
       || /\bupdate\s+my\s+order\s+to\b/i.test(message);
   }
