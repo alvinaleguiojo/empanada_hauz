@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { AiService } from "../ai/ai.service";
 
- type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
+type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
 type AiResult = Awaited<ReturnType<AiService["classifyAndExtract"]>>;
 
 @Injectable()
@@ -19,7 +19,7 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
       return {
         intent: "inquiry",
         confidence: 1,
-        details: context?.activeOrderState ?? {
+        details: {
           flavors: [],
           missingFields: [],
           confirmed: false
@@ -41,7 +41,6 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
     const lower = message.trim().toLowerCase();
     if (!lower) return false;
 
-    // Existing-order actions must never be treated as a new order.
     if (/\b(?:reschedule|re-schedule|change|update|modify|edit|replace|switch|correct|correction|remove|take\s+out|cancel)\b/i.test(lower)
       && /\border\b/i.test(lower)) {
       return false;
