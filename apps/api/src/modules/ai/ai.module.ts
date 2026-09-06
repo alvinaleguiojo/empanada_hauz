@@ -5,6 +5,7 @@ import { McpModule } from "../mcp/mcp.module";
 import { AiContextGuardService } from "./ai-context-guard.service";
 import { AiControlService } from "./ai-control.service";
 import { AiDeliveryFeeContextService } from "./ai-delivery-fee-context.service";
+import { AiExistingOrderChoiceService } from "./ai-existing-order-choice.service";
 import { AiOrderNormalizationService } from "./ai-order-normalization.service";
 import { AiOrderRescheduleService } from "./ai-order-reschedule.service";
 import { AiOrderStatusContextService } from "./ai-order-status-context.service";
@@ -12,7 +13,7 @@ import { AiService } from "./ai.service";
 
 @Module({
   imports: [DatabaseModule, DeliveryNetworkModule, McpModule],
-  providers: [AiService, AiControlService, AiContextGuardService, AiDeliveryFeeContextService, AiOrderStatusContextService, AiOrderRescheduleService, AiOrderNormalizationService],
+  providers: [AiService, AiControlService, AiContextGuardService, AiDeliveryFeeContextService, AiExistingOrderChoiceService, AiOrderStatusContextService, AiOrderRescheduleService, AiOrderNormalizationService],
   exports: [AiService, AiControlService]
 })
 export class AiModule {}
