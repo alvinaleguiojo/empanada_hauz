@@ -34,7 +34,21 @@ export class MessengerOrderSummaryService {
   ) {}
 
   async tryHandle(senderId: string, message: string): Promise<boolean> {
-    const customer = await this.customersService.findOrCreateByMessenger(senderId, "Messenger Customer");
+    // Summary requests are a deterministic application action. Do not let the
+    // small local LLM accidentally classify "send the summary of my orders"
+    // as a new order and start the ordering flow.
+    if (!this.isSummaryRequest(message)) return false;
+
+    // This handler runs before MessengerService.persistInbound(), so there is
+    // no guarantee that the PSID has already been linked to the existing
+    // customer. Fetch the Meta profile name first so CustomersService can
+    // safely attach the PSID to a uniquely matching legacy customer record.
+    const profileName = await this.messengerService.getMessengerProfileName(senderId);
+    const customer = await this.customersService.findOrCreateByMessenger(
+      senderId,
+      profileName?.trim() || "Messenger Customer"
+    );
+
     const recentOrders = await this.prisma.order.findMany({
       where: { customerId: customer.id },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -59,30 +73,9 @@ export class MessengerOrderSummaryService {
     }) as OrderSummary[];
 
     const latestOrder = recentOrders[0] ?? null;
-    const recentMessages = await this.prisma.message.findMany({
-      where: { conversation: { customerId: customer.id } },
-      orderBy: { createdAt: "desc" },
-      take: 12,
-      select: { direction: true, content: true }
-    });
-    const context = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
-
-    const action = await this.aiOrderActionService.analyze(message, {
-      recentMessages: context,
-      hasActiveOrder: Boolean(latestOrder && !["completed", "cancelled"].includes(latestOrder.status)),
-      hasPendingNewOrder: false,
-      existingDeliveryDetails: latestOrder
-        ? {
-            deliveryMethod: latestOrder.deliveryMethod,
-            address: latestOrder.address,
-            location: latestOrder.location,
-            contactNumber: latestOrder.customer.phoneNumber,
-            paymentMethod: latestOrder.paymentMethod
-          }
-        : undefined
-    });
-
-    if (action.orderAction !== "summary") return false;
+    this.logger.log(
+      `Messenger summary lookup: sender=${senderId} profile=${profileName ?? "none"} customer=${customer.id} customerName=${customer.name} orders=${recentOrders.length}`
+    );
 
     const reply = recentOrders.length
       ? this.formatOrderHistory(recentOrders)
@@ -91,6 +84,19 @@ export class MessengerOrderSummaryService {
     this.logger.log(`Sending recent order summary: sender=${senderId} customer=${customer.id} orders=${recentOrders.length} latest=${latestOrder?.orderNumber ?? "none"}`);
     await this.messengerService.sendText(senderId, reply);
     return true;
+  }
+
+  private isSummaryRequest(message: string) {
+    const normalized = message.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!normalized) return false;
+
+    return (
+      /\b(summary|summarize|summarise)\b/.test(normalized) && /\border(s)?\b/.test(normalized)
+      || /\b(order history|order histories|past orders|previous orders|recent orders)\b/.test(normalized)
+      || /\b(show|send|list|display)\b.*\bmy orders\b/.test(normalized)
+      || /\bwhat did i order\b/.test(normalized)
+      || /\borders? (i|that i) (placed|made|ordered)\b/.test(normalized)
+    );
   }
 
   private formatOrderHistory(orders: OrderSummary[]) {
