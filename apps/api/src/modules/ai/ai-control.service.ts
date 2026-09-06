@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 
 type SettingDocument = { key?: string; customerId?: string; enabled?: boolean };
-type MongoFindResult<T> = { cursor?: { firstBatch?: T[] } };
+type MongoFindResult = { cursor?: { firstBatch?: SettingDocument[] } };
 
 @Injectable()
 export class AiControlService {
@@ -12,11 +12,11 @@ export class AiControlService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getGlobalEnabled() {
-    const result = await this.prisma.$runCommandRaw<MongoFindResult<SettingDocument>>({
+    const result = (await this.prisma.$runCommandRaw({
       find: this.collection,
       filter: { key: this.globalKey },
       limit: 1
-    });
+    })) as unknown as MongoFindResult;
     return result.cursor?.firstBatch?.[0]?.enabled !== false;
   }
 
@@ -35,11 +35,11 @@ export class AiControlService {
   }
 
   async getCustomerOverride(customerId: string) {
-    const result = await this.prisma.$runCommandRaw<MongoFindResult<SettingDocument>>({
+    const result = (await this.prisma.$runCommandRaw({
       find: this.collection,
       filter: { customerId },
       limit: 1
-    });
+    })) as unknown as MongoFindResult;
     const value = result.cursor?.firstBatch?.[0]?.enabled;
     return typeof value === "boolean" ? value : null;
   }
