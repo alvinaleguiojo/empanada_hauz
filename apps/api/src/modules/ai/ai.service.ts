@@ -160,11 +160,11 @@ export class AiService {
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0.1, num_predict: 256, num_ctx: 2048 },
+      options: { temperature: 0.1, num_predict: 384, num_ctx: 2048 },
       messages: [
         {
           role: "system",
-          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY valid JSON for the CURRENT CUSTOMER MESSAGE. Use the recent conversation and current application order state to understand what the current message means, but only return fields that are explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nThe quantity inside a flavor may be omitted when the customer names a flavor without giving its quantity. In that case still return the recognized canonical flavor. Understand abbreviations, typos, shorthand, phonetic spellings, and follow-up answers from the recent conversation. For example, if the conversation is "Pork regular" followed by "10 pcs", interpret "10 pcs" as the quantity for Pork Regular. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace when the customer is giving a new complete flavor selection, add when explicitly adding items to an existing order, and remove when explicitly removing items.`
+          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nThe quantity inside a flavor may be omitted when the customer names a flavor without giving its quantity. Understand abbreviations, typos, shorthand, phonetic spellings, and follow-up answers. If the customer says "Pork regular" then later "10 pcs", interpret 10 pcs as the Pork Regular quantity. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
         },
         {
           role: "user",
@@ -175,32 +175,121 @@ export class AiService {
 
     const raw = response.message?.content?.trim();
     if (!raw) throw new Error("Ollama returned an empty order interpretation");
-    try {
-      const parsed = JSON.parse(this.cleanReply(raw)) as Partial<CurrentInterpretation>;
-      return {
-        intent: this.normalizeIntent(parsed.intent),
-        startsNewConversation: Boolean(parsed.startsNewConversation),
-        flavorAction: parsed.flavorAction === "replace" || parsed.flavorAction === "add" || parsed.flavorAction === "remove" ? parsed.flavorAction : "none",
-        flavors: Array.isArray(parsed.flavors)
-          ? parsed.flavors
-              .map((item) => ({ name: this.normalizeFlavorName(item?.name), quantity: this.optionalPositiveNumber(item?.quantity) }))
-              .filter((item) => item.name)
-          : [],
-        quantity: this.optionalPositiveNumber(parsed.quantity),
-        location: this.optionalText(parsed.location),
-        deliveryMethod: parsed.deliveryMethod === "pickup" || parsed.deliveryMethod === "maxim" ? parsed.deliveryMethod : undefined,
-        preferredTime: this.optionalText(parsed.preferredTime),
-        deliveryDate: this.optionalText(parsed.deliveryDate),
-        address: this.optionalText(parsed.address),
-        landmark: this.optionalText(parsed.landmark),
-        contactNumber: this.normalizePhone(parsed.contactNumber),
-        paymentMethod: parsed.paymentMethod === "cod" || parsed.paymentMethod === "gcash" ? parsed.paymentMethod : undefined,
-        confirmed: Boolean(parsed.confirmed)
-      };
-    } catch (error) {
-      this.logger.error("Qwen returned invalid structured interpretation", error instanceof Error ? error.message : String(error));
-      throw new Error("Qwen returned invalid order interpretation JSON");
+    return this.parseCurrentInterpretation(raw);
+  }
+
+  private parseCurrentInterpretation(raw: string): CurrentInterpretation {
+    const candidates = [this.cleanReply(raw)];
+    const extracted = this.extractJsonObject(raw);
+    if (extracted && extracted !== candidates[0]) candidates.push(extracted);
+
+    for (const candidate of candidates) {
+      try {
+        return this.normalizeCurrentInterpretation(JSON.parse(candidate) as Partial<CurrentInterpretation>);
+      } catch {
+        const repaired = this.repairTruncatedJson(candidate);
+        if (!repaired || repaired === candidate) continue;
+        try {
+          return this.normalizeCurrentInterpretation(JSON.parse(repaired) as Partial<CurrentInterpretation>);
+        } catch {
+          // Continue to next candidate.
+        }
+      }
     }
+
+    this.logger.error("Qwen returned invalid structured interpretation", "Unable to parse or repair JSON");
+    throw new Error("Qwen returned invalid order interpretation JSON");
+  }
+
+  private normalizeCurrentInterpretation(parsed: Partial<CurrentInterpretation>): CurrentInterpretation {
+    return {
+      intent: this.normalizeIntent(parsed.intent),
+      startsNewConversation: Boolean(parsed.startsNewConversation),
+      flavorAction: parsed.flavorAction === "replace" || parsed.flavorAction === "add" || parsed.flavorAction === "remove" ? parsed.flavorAction : "none",
+      flavors: Array.isArray(parsed.flavors)
+        ? parsed.flavors
+            .map((item) => ({ name: this.normalizeFlavorName(item?.name), quantity: this.optionalPositiveNumber(item?.quantity) }))
+            .filter((item) => item.name)
+        : [],
+      quantity: this.optionalPositiveNumber(parsed.quantity),
+      location: this.optionalText(parsed.location),
+      deliveryMethod: parsed.deliveryMethod === "pickup" || parsed.deliveryMethod === "maxim" ? parsed.deliveryMethod : undefined,
+      preferredTime: this.optionalText(parsed.preferredTime),
+      deliveryDate: this.optionalText(parsed.deliveryDate),
+      address: this.optionalText(parsed.address),
+      landmark: this.optionalText(parsed.landmark),
+      contactNumber: this.normalizePhone(parsed.contactNumber),
+      paymentMethod: parsed.paymentMethod === "cod" || parsed.paymentMethod === "gcash" ? parsed.paymentMethod : undefined,
+      confirmed: Boolean(parsed.confirmed)
+    };
+  }
+
+  private extractJsonObject(raw: string) {
+    const text = this.cleanReply(raw);
+    const start = text.indexOf("{");
+    if (start < 0) return undefined;
+    const end = text.lastIndexOf("}");
+    return text.slice(start, end >= start ? end + 1 : text.length).trim();
+  }
+
+  private repairTruncatedJson(value: string) {
+    const text = value.trim();
+    if (!text.startsWith("{")) return undefined;
+
+    let best: string | undefined;
+    for (let end = text.length; end >= Math.max(2, text.length - 500); end -= 1) {
+      const prefix = text.slice(0, end).trimEnd();
+      const repaired = this.closeJson(prefix);
+      if (!repaired) continue;
+      try {
+        JSON.parse(repaired);
+        best = repaired;
+        break;
+      } catch {
+        // Keep trimming until the last complete property can be parsed.
+      }
+    }
+    return best;
+  }
+
+  private closeJson(value: string) {
+    const stack: string[] = [];
+    let inString = false;
+    let escaped = false;
+
+    for (const char of value) {
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+      } else if (char === "{" || char === "[") {
+        stack.push(char);
+      } else if (char === "}" || char === "]") {
+        const expected = char === "}" ? "{" : "[";
+        if (stack.at(-1) !== expected) return undefined;
+        stack.pop();
+      }
+    }
+
+    let result = value.trimEnd();
+    if (inString) result += '"';
+
+    while (stack.length) {
+      const opener = stack.pop();
+      result += opener === "{" ? "}" : "]";
+    }
+    return result;
   }
 
   private mergeOrderState(previous: Details | undefined, current: CurrentInterpretation): Details {
