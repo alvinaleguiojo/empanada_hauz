@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { AiService } from "../ai/ai.service";
 
 type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
@@ -6,12 +6,25 @@ type AiResult = Awaited<ReturnType<AiService["classifyAndExtract"]>>;
 
 @Injectable()
 export class MessengerOrderRoutingGuardService implements OnModuleInit {
+  private readonly logger = new Logger(MessengerOrderRoutingGuardService.name);
+
   constructor(private readonly aiService: AiService) {}
 
   onModuleInit() {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
 
     this.aiService.classifyAndExtract = async (message, context) => {
+      const routingChoice = this.getExistingOrderRoutingChoice(message, context);
+      if (routingChoice === "new") {
+        this.logger.log("Customer selected NEW order; clearing previous order context for AI processing");
+        return original(message, { ...context, activeOrderState: undefined });
+      }
+
+      if (routingChoice === "change") {
+        this.logger.log("Customer selected CHANGE existing order; continuing with existing-order context");
+        return original(message, context);
+      }
+
       if (!this.isNewOrderRequest(message) || !this.hasActiveExistingOrder(context)) {
         return original(message, context);
       }
@@ -28,6 +41,19 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
         source: "ollama"
       } satisfies AiResult;
     };
+  }
+
+  private getExistingOrderRoutingChoice(message: string, context?: AiContext) {
+    const lower = message.trim().toLowerCase();
+    if (!/^(new|change|edit|update|modify|existing|old|same|yes|no)$/i.test(lower)) return undefined;
+
+    const recent = (context?.recentMessages ?? []).slice(-4).map((entry) => String(entry).trim()).join("\n");
+    const askedRouting = /(?:existing order|place a new order|change your existing order)/i.test(recent);
+    if (!askedRouting) return undefined;
+
+    if (/^(new|yes)$/i.test(lower)) return "new" as const;
+    if (/^(change|edit|update|modify|existing|old|same|no)$/i.test(lower)) return "change" as const;
+    return undefined;
   }
 
   private hasActiveExistingOrder(context?: AiContext) {
