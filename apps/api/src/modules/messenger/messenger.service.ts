@@ -34,10 +34,17 @@ export class MessengerService {
     const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
     const activeOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
-    const latestOrder = conversation.customer?.id
+    const customerName = conversation.customer?.name?.trim();
+    const latestOrder = conversation.customer?.id || customerName
       ? await this.prisma.order.findFirst({
-          where: { customerId: conversation.customer.id },
-          orderBy: { createdAt: "desc" },
+          where: {
+            status: { notIn: ["completed", "cancelled"] },
+            OR: [
+              ...(conversation.customer?.id ? [{ customerId: conversation.customer.id }] : []),
+              ...(customerName ? [{ customer: { name: { equals: customerName, mode: "insensitive" } } }] : [])
+            ]
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           select: {
             id: true,
             orderNumber: true,
@@ -87,7 +94,7 @@ export class MessengerService {
           reply = ai.suggestedReply?.trim() ?? "";
         }
       }
-    } else if (latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder, event.text)) {
+    } else if (!this.isExplicitOrderUpdate(event.text) && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder, event.text)) {
       try {
         const updated = await this.updateCustomerOrderFromAi(ai, latestOrder.orderNumber);
         this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
@@ -123,6 +130,13 @@ export class MessengerService {
   private trackingUrl(orderId: string) {
     const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, "");
     return `${baseUrl}/track/${orderId}`;
+  }
+
+  private isExplicitOrderUpdate(message: string) {
+    return /\b(?:change|update|modify|edit|replace|switch|correct|correction)\b.*\b(?:my|the)\s+order\b/i.test(message)
+      || /\b(?:my|the)\s+order\b.*\b(?:change|update|modify|edit|replace|switch)\b/i.test(message)
+      || /\bchange\s+my\s+order\s+to\b/i.test(message)
+      || /\bupdate\s+my\s+order\s+to\b/i.test(message);
   }
 
   private shouldUpdateCustomerOrder(
