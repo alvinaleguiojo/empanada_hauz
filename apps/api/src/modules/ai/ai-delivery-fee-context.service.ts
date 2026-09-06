@@ -54,11 +54,16 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
         dropoffAddress
       });
 
-      recentMessages.push(
-        `APPLICATION DELIVERY FEE TOOL RESULT: For Maxim delivery from ${PICKUP_ADDRESS} to ${dropoffAddress}, the current calculated delivery fee is ₱${quote.estimatedFare}. Distance: ${quote.distanceKm ?? "unknown"} km. Use this tool result as authoritative for the delivery-fee question. Do not invent or replace it with a generic estimate.`
-      );
-
-      this.logger.log(`Delivery fee quote calculated for AI: destination=${JSON.stringify(dropoffAddress)} fee=${quote.estimatedFare}`);
+      if (!Number.isFinite(quote.estimatedFare) || quote.estimatedFare <= 0) {
+        recentMessages.push(
+          `APPLICATION DELIVERY FEE TOOL RESULT: The tool could not calculate a valid delivery fee for ${dropoffAddress}. Do not invent a fee; explain that the fee could not be calculated right now and ask for a more complete delivery address if needed.`
+        );
+      } else {
+        recentMessages.push(
+          `APPLICATION DELIVERY FEE TOOL RESULT: For Maxim delivery from ${PICKUP_ADDRESS} to ${dropoffAddress}, the current calculated delivery fee is ₱${quote.estimatedFare}. Distance: ${quote.distanceKm ?? "unknown"} km. Use this tool result as authoritative for the delivery-fee question. Do not invent or replace it with a generic estimate.`
+        );
+        this.logger.log(`Delivery fee quote calculated for AI: destination=${JSON.stringify(dropoffAddress)} fee=${quote.estimatedFare}`);
+      }
     } catch (error) {
       recentMessages.push(
         "APPLICATION DELIVERY FEE TOOL RESULT: The delivery fee tool could not calculate a quote for the supplied destination. Do not invent a fee; explain that the fee could not be calculated right now and ask for a valid delivery address if needed."
