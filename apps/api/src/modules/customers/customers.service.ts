@@ -18,22 +18,74 @@ export class CustomersService {
       where: { messengerPsid: psid }
     });
 
+    const profileName = name?.trim();
+
     if (existing) {
-      if (name && name !== "Messenger Customer" && existing.name === "Messenger Customer") {
-        return this.prisma.customer.update({
-          where: { id: existing.id },
-          data: { name }
+      // A previous buggy summary request could have created a placeholder
+      // "Messenger Customer" record with the PSID before the real customer
+      // was linked. If Meta now gives us a real name and the PSID record has
+      // no order history, move the PSID to the uniquely matching customer
+      // that actually owns orders.
+      if (profileName && profileName !== "Messenger Customer") {
+        const namedMatches = await this.prisma.customer.findMany({
+          where: {
+            name: {
+              equals: profileName,
+              mode: Prisma.QueryMode.insensitive
+            }
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 3
         });
+
+        const candidatesWithOrders = [];
+        for (const candidate of namedMatches) {
+          const order = await this.prisma.order.findFirst({
+            where: { customerId: candidate.id },
+            select: { id: true }
+          });
+          if (order) candidatesWithOrders.push(candidate);
+        }
+
+        if (candidatesWithOrders.length === 1 && candidatesWithOrders[0].id !== existing.id) {
+          await this.prisma.customer.update({
+            where: { id: existing.id },
+            data: { messengerPsid: null }
+          });
+          return this.prisma.customer.update({
+            where: { id: candidatesWithOrders[0].id },
+            data: { messengerPsid: psid }
+          });
+        }
+
+        if (existing.name === "Messenger Customer") {
+          const uniqueMatch = namedMatches.length === 1 ? namedMatches[0] : undefined;
+          if (uniqueMatch) {
+            await this.prisma.customer.update({
+              where: { id: existing.id },
+              data: { messengerPsid: null }
+            });
+            return this.prisma.customer.update({
+              where: { id: uniqueMatch.id },
+              data: { messengerPsid: psid }
+            });
+          }
+        }
+
+        if (existing.name === "Messenger Customer") {
+          return this.prisma.customer.update({
+            where: { id: existing.id },
+            data: { name: profileName }
+          });
+        }
       }
+
       return existing;
     }
 
-    // Messenger PSIDs are not present on older/manual customer records. If Meta
-    // gives us a real profile name, safely attach the PSID to an existing
-    // customer when that name identifies exactly one customer. This preserves
-    // the customer's existing order history instead of creating a duplicate
-    // "Messenger Customer" record.
-    const profileName = name?.trim();
+    // Messenger PSIDs are not present on older/manual customer records. If
+    // Meta gives us a real profile name, safely attach the PSID to an
+    // existing customer when that name identifies exactly one customer.
     if (profileName && profileName !== "Messenger Customer") {
       const matches = await this.prisma.customer.findMany({
         where: {
