@@ -186,6 +186,8 @@ export class MessengerService {
       reply = this.buildApplicationOrderSummary(activeOrderState, true);
     } else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) {
       reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
+    } else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai, event.text)) {
+      reply = this.buildNewOrderProgressReply(ai.details);
     } else if (this.isConfirmedOrder(ai, event.text)) {
       try {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
@@ -219,6 +221,26 @@ export class MessengerService {
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error)); }
     }
     return { ai, reply, aiEnabled: true };
+  }
+
+  private buildNewOrderProgressReply(details: OrderDetails) {
+    const flavors = details.flavors.length
+      ? details.flavors.map((item) => `${item.quantity} pcs ${item.name}`).join(", ")
+      : "your selected items";
+    const foodTotal = `₱${details.totalAmount ?? 0}`;
+    const missing = new Set(details.missingFields ?? []);
+
+    if (missing.has("flavors")) return "Sure! What flavor would you like to order? 😊";
+    if (missing.has("quantity")) return `Sure! How many pcs of ${details.flavors[0]?.name ?? "that flavor"} would you like? 😊`;
+    if (missing.has("minimumOrder")) return "Our minimum order is 10 pcs. How many would you like? 😊";
+    if (missing.has("deliveryMethod")) return `Sure! ${flavors} is ${foodTotal}. Would you like Pickup or Maxim delivery? 😊`;
+    if (missing.has("address") || missing.has("landmark") || missing.has("contactNumber")) {
+      const deliveryMissing = ["address", "landmark", "contactNumber"].filter((field) => missing.has(field));
+      return `Sure! For Maxim delivery, please send your ${deliveryMissing.map((field) => field === "address" ? "Address" : field === "landmark" ? "Landmark" : "Contact #").join(", ")}. 😊`;
+    }
+    if (missing.has("paymentMethod")) return `Great! Your current order is ${flavors} for ${foodTotal}. Would you like to pay via GCash or COD? 😊`;
+    if (details.missingFields.length === 0) return this.buildApplicationOrderSummary(details, false);
+    return `Sure! Your current order is ${flavors} for ${foodTotal}. What would you like to provide next? 😊`;
   }
 
   private buildApplicationOrderSummary(details: OrderDetails, reusedDelivery: boolean) {
