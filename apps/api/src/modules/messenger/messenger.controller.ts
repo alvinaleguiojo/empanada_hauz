@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Logger, Param, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Logger, Param, Post, Put, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { Request, Response } from "express";
 import { timingSafeEqual, createHmac } from "crypto";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -103,6 +103,16 @@ export class MessengerController {
     try { await this.metaAuthService.handleOAuthCallback(code, state); return response.redirect(`${process.env.WEB_APP_URL ?? "http://localhost:3001"}/inbox?meta=connected`); }
     catch (err) { this.logger.error("Meta OAuth callback failed", err); return response.status(400).send(err instanceof Error ? err.message : "Meta authorization failed"); }
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get("ai/settings") getAiSettings() { return this.messengerService.getAiSettings(); }
+  @UseGuards(JwtAuthGuard)
+  @Put("ai/settings") setAiSettings(@Body() body: { enabled?: boolean }) { return this.messengerService.setGlobalAiEnabled(Boolean(body?.enabled)); }
+  @UseGuards(JwtAuthGuard)
+  @Get("ai/customers/:customerId") getCustomerAiSettings(@Param("customerId") customerId: string) { return this.messengerService.getCustomerAiSettings(customerId); }
+  @UseGuards(JwtAuthGuard)
+  @Put("ai/customers/:customerId") setCustomerAiSettings(@Param("customerId") customerId: string, @Body() body: { enabled?: boolean | null }) { return this.messengerService.setCustomerAiEnabled(customerId, typeof body?.enabled === "boolean" ? body.enabled : null); }
+
   @UseGuards(JwtAuthGuard)
   @Post("send") sendManual(@Body() dto: SendMessageDto) { return this.messengerService.sendText(dto.recipientPsid, dto.text); }
   @UseGuards(JwtAuthGuard)
