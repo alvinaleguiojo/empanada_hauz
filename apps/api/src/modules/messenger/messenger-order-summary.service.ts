@@ -4,7 +4,7 @@ import { CustomersService } from "../customers/customers.service";
 import { AiOrderActionService } from "../ai/ai-order-action.service";
 import { MessengerService } from "./messenger.service";
 
-interface LatestOrder {
+interface OrderSummary {
   orderNumber: string;
   status: string;
   quantity: number;
@@ -35,9 +35,10 @@ export class MessengerOrderSummaryService {
 
   async tryHandle(senderId: string, message: string): Promise<boolean> {
     const customer = await this.customersService.findOrCreateByMessenger(senderId, "Messenger Customer");
-    const latestOrder = await this.prisma.order.findFirst({
+    const recentOrders = await this.prisma.order.findMany({
       where: { customerId: customer.id },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 5,
       select: {
         orderNumber: true,
         status: true,
@@ -55,8 +56,9 @@ export class MessengerOrderSummaryService {
         createdAt: true,
         customer: { select: { name: true, phoneNumber: true } }
       }
-    }) as LatestOrder | null;
+    }) as OrderSummary[];
 
+    const latestOrder = recentOrders[0] ?? null;
     const recentMessages = await this.prisma.message.findMany({
       where: { conversation: { customerId: customer.id } },
       orderBy: { createdAt: "desc" },
@@ -82,56 +84,55 @@ export class MessengerOrderSummaryService {
 
     if (action.orderAction !== "summary") return false;
 
-    const reply = latestOrder
-      ? this.formatLatestOrder(latestOrder)
+    const reply = recentOrders.length
+      ? this.formatOrderHistory(recentOrders)
       : "You don't have any orders yet. 😊";
 
-    this.logger.log(`Sending latest order summary: sender=${senderId} order=${latestOrder?.orderNumber ?? "none"}`);
+    this.logger.log(`Sending recent order summary: sender=${senderId} customer=${customer.id} orders=${recentOrders.length} latest=${latestOrder?.orderNumber ?? "none"}`);
     await this.messengerService.sendText(senderId, reply);
     return true;
   }
 
-  private formatLatestOrder(order: LatestOrder) {
-    const items = this.normalizeItems(order.items);
-    const itemLines = items.length
-      ? items.map((item) => `• ${item.quantity} pcs ${item.name} — ₱${item.price.toFixed(2)} each = ₱${item.subtotal.toFixed(2)}`).join("\n")
-      : `• ${order.quantity} pcs — ₱${order.unitPrice.toFixed(2)} each`;
-
-    const delivery = order.deliveryMethod === "maxim" ? "Maxim" : order.deliveryMethod === "pickup" ? "Pickup" : this.titleCase(order.deliveryMethod);
-    const payment = order.paymentMethod === "gcash" ? "GCash" : order.paymentMethod === "cod" ? "COD" : this.titleCase(order.paymentMethod);
-    const schedule = order.preferredSchedule ? this.formatSchedule(order.preferredSchedule) : "Not specified";
-    const address = order.address?.trim() || "Not specified";
-    const landmark = order.location?.trim() || "Not specified";
-    const contact = order.customer.phoneNumber?.trim() || "Not specified";
+  private formatOrderHistory(orders: OrderSummary[]) {
+    const customerName = orders[0]?.customer.name?.trim() || "Customer";
+    const header = orders.length === 1
+      ? `Here’s your latest order, ${customerName}:`
+      : `Here are your ${orders.length} most recent orders, ${customerName}:`;
 
     return [
-      `Here’s your latest order, ${order.customer.name?.trim() || "Customer"}:`,
+      header,
       "",
-      `Order #: ${order.orderNumber}`,
-      `Status: ${this.titleCase(order.status)}`,
-      "",
+      ...orders.flatMap((order, index) => [
+        `Order ${index + 1}: #${order.orderNumber}`,
+        `Placed: ${this.formatDate(order.createdAt)}`,
+        `Status: ${this.titleCase(order.status)}`,
+        this.formatItems(order),
+        `Total: ₱${Number(order.totalAmount || 0).toFixed(2)}`,
+        `Delivery: ${this.formatDelivery(order.deliveryMethod)}`,
+        `Payment: ${this.formatPayment(order.paymentMethod)}`,
+        `Schedule: ${order.preferredSchedule ? this.formatSchedule(order.preferredSchedule) : "Not specified"}`,
+        ""
+      ]),
+      orders.length > 1 ? "Showing your 5 most recent orders." : ""
+    ].filter(Boolean).join("\n")
+      .trim();
+  }
+
+  private formatItems(order: OrderSummary) {
+    const items = this.normalizeItems(order.items);
+    if (!items.length) return `Items: ${order.quantity} pcs — ₱${Number(order.unitPrice || 0).toFixed(2)} each`;
+    return [
       "Items:",
-      itemLines,
-      "",
-      `Food total: ₱${this.foodTotal(order).toFixed(2)}`,
-      `Delivery fee: ₱${Number(order.deliveryFee || 0).toFixed(2)}`,
-      `Discount: ₱${Number(order.discountAmount || 0).toFixed(2)}`,
-      `Total: ₱${Number(order.totalAmount || 0).toFixed(2)}`,
-      "",
-      `Delivery: ${delivery}`,
-      `Address: ${address}`,
-      `Landmark: ${landmark}`,
-      `Contact #: ${contact}`,
-      `Payment: ${payment}`,
-      `Schedule: ${schedule}`
+      ...items.map((item) => `• ${item.quantity} pcs ${item.name} — ₱${item.price.toFixed(2)} each = ₱${item.subtotal.toFixed(2)}`)
     ].join("\n");
   }
 
-  private foodTotal(order: LatestOrder) {
-    const deliveryFee = Number(order.deliveryFee || 0);
-    const discount = Number(order.discountAmount || 0);
-    const total = Number(order.totalAmount || 0);
-    return Math.max(0, total - deliveryFee + discount);
+  private formatDelivery(value: string) {
+    return value === "maxim" ? "Maxim" : value === "pickup" ? "Pickup" : this.titleCase(value);
+  }
+
+  private formatPayment(value: string) {
+    return value === "gcash" ? "GCash" : value === "cod" ? "COD" : this.titleCase(value);
   }
 
   private normalizeItems(value: unknown) {
@@ -155,6 +156,13 @@ export class MessengerOrderSummaryService {
       timeZone: "Asia/Manila",
       dateStyle: "medium",
       timeStyle: "short"
+    }).format(value);
+  }
+
+  private formatDate(value: Date) {
+    return new Intl.DateTimeFormat("en-PH", {
+      timeZone: "Asia/Manila",
+      dateStyle: "medium"
     }).format(value);
   }
 
