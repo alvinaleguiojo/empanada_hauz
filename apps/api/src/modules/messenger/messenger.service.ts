@@ -33,8 +33,7 @@ export class MessengerService {
     const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId }, include: { customer: true } });
     const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
-    const activeOrderMessage = recentMessages.find((item) => item.extractedOrder && typeof item.extractedOrder === "object" && !Array.isArray(item.extractedOrder));
-    const activeOrderState = activeOrderMessage?.extractedOrder as Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"] | undefined;
+    const activeOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
     const latestOrder = conversation.customer?.id
       ? await this.prisma.order.findFirst({
           where: { customerId: conversation.customer.id },
@@ -66,7 +65,7 @@ export class MessengerService {
     contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
     contextMessages.push(latestOrderContext);
 
-    this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:8b")}`);
+    this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct")}`);
     const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages, activeOrderState });
     this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
@@ -105,6 +104,20 @@ export class MessengerService {
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error)); }
     }
     return { ai, reply };
+  }
+
+  private findLatestValidOrderState(values: unknown[]) {
+    type OrderDetails = Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"];
+    for (const value of values) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const candidate = value as Partial<OrderDetails>;
+      const flavors = Array.isArray(candidate.flavors) ? candidate.flavors : [];
+      const hasOrderData = flavors.length > 0 || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod || candidate.address || candidate.location || candidate.contactNumber;
+      if (!hasOrderData) continue;
+      const hasMeaningfulOrderState = flavors.some((item) => Number((item as Record<string, unknown>)?.quantity ?? 0) > 0) || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod;
+      if (hasMeaningfulOrderState) return candidate as OrderDetails;
+    }
+    return undefined;
   }
 
   private trackingUrl(orderId: string) {
@@ -168,7 +181,7 @@ export class MessengerService {
     const quantity = Number(details.quantity ?? 0);
     const flavors = details.flavors ?? [];
     const flavorQuantity = flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    const explicitConfirmation = /\b(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|place my order|place the order|order it|that's correct|that is correct|okay proceed)\b/i.test(currentMessage.trim());
+    const explicitConfirmation = /\b(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|place my order|place the order|place that order|order it|order that|that's correct|that is correct|okay proceed|okay do it|do it)\b/i.test(currentMessage.trim());
     const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
     const requiredFieldsPresent = flavors.length > 0 && flavorQuantity === quantity && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
     this.logger.log(`Messenger confirmation gate: explicit=${explicitConfirmation} qwenConfirmed=${Boolean(details.confirmed)} requiredFields=${requiredFieldsPresent} missing=${JSON.stringify(details.missingFields)} quantity=${quantity} flavorQuantity=${flavorQuantity} delivery=${details.deliveryMethod ?? "none"} payment=${details.paymentMethod ?? "none"}`);
