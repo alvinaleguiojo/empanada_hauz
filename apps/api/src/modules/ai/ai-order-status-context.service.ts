@@ -75,7 +75,8 @@ export class AiOrderStatusContextService implements OnModuleInit {
     this.aiService.classifyAndExtract = async (message, context) => {
       const isUpdate = this.isExplicitOrderUpdate(message);
       const isStatusQuestion = !isUpdate && this.isOrderStatusQuestion(message);
-      const isConfirmation = !isUpdate && this.isConfirmationMessage(message);
+      const isSummaryQuestion = !isUpdate && this.isOrderSummaryQuestion(message);
+      const isConfirmation = !isUpdate && !isSummaryQuestion && this.isConfirmationMessage(message);
       const orderNumber = this.extractOrderNumber(message) ?? this.extractFollowUpOrderNumber(message, context);
       const usableState = isConfirmation ? (this.reconstructActiveOrderState(context) ?? context?.activeOrderState) : context?.activeOrderState;
 
@@ -97,6 +98,27 @@ export class AiOrderStatusContextService implements OnModuleInit {
           result.suggestedReply = `Your order ${updated.orderNumber} has been updated successfully.`;
         }
         return result;
+      }
+
+      if (isSummaryQuestion) {
+        const enrichedContext = await this.enrichOrderStatusContext({ ...context, activeOrderState: usableState }, orderNumber);
+        if (!enrichedContext.orderStatus) {
+          return {
+            intent: "inquiry",
+            confidence: 1,
+            details: usableState ?? { flavors: [], missingFields: [], confirmed: false },
+            suggestedReply: enrichedContext.missingOrderIdMessage ?? "I couldn't find your order. Please send your order ID so I can generate the summary.",
+            source: "ollama"
+          };
+        }
+
+        return {
+          intent: "inquiry",
+          confidence: 1,
+          details: usableState ?? { flavors: [], missingFields: [], confirmed: false },
+          suggestedReply: this.formatOrderSummary(enrichedContext.orderStatus),
+          source: "ollama"
+        };
       }
 
       if (!isStatusQuestion && !orderNumber) return original(message, { ...context, activeOrderState: usableState });
@@ -283,8 +305,8 @@ export class AiOrderStatusContextService implements OnModuleInit {
       let order: OrderStatusResult | undefined;
       if (orderNumber) order = await this.mcpOrders.getOrder({ orderNumber }) as OrderStatusResult;
       else if (customerName) {
-        const listResult = await this.mcpOrders.listOrders({ customerName, limit: 1 });
-        const latest = listResult.orders?.[0] as OrderStatusResult | undefined;
+        const listResult = await this.mcpOrders.listOrders({ customerName, limit: 100 });
+        const latest = listResult.orders?.find((candidate) => !["completed", "cancelled"].includes(String(candidate.status))) as OrderStatusResult | undefined;
         if (latest?.id) order = await this.mcpOrders.getOrder({ id: latest.id }) as OrderStatusResult;
       }
       if (!order?.id && !order?.orderNumber) {
@@ -301,6 +323,56 @@ export class AiOrderStatusContextService implements OnModuleInit {
       this.logger.warn(`Order status MCP lookup failed for AI: ${error instanceof Error ? error.message : String(error)}`);
       return { context: { ...context, recentMessages }, orderStatus: undefined, missingOrderIdMessage };
     }
+  }
+
+  private formatOrderSummary(order: OrderStatusResult) {
+    const items = (order.items ?? [])
+      .filter((item) => item?.name && Number(item.quantity) > 0)
+      .map((item) => `${Number(item.quantity)} pcs ${item.name} (₱${Number(item.price ?? PRICES[item.name.toLowerCase()] ?? 0)} each)`);
+    const foodTotal = (order.items ?? []).reduce((sum, item) => {
+      const subtotal = Number(item.subtotal ?? (Number(item.quantity) * Number(item.price ?? PRICES[item.name?.toLowerCase()] ?? 0)));
+      return sum + (Number.isFinite(subtotal) ? subtotal : 0);
+    }, 0) || Number(order.totalAmount ?? 0);
+    const lines = [
+      `Here is your current order ${order.orderNumber}:`,
+      `- Flavors: ${items.length ? items.join(", ") : `${order.quantity} pcs`}`,
+      `- Total food amount: ₱${foodTotal.toFixed(0)}`,
+      `- Delivery method: ${order.deliveryMethod === "maxim" ? "Maxim Delivery" : order.deliveryMethod}`,
+      `- Payment method: ${order.paymentMethod === "gcash" ? "GCash (Alvin Aleguiojo, 09453916796)" : "COD"}`
+    ];
+
+    if (order.deliveryMethod === "maxim") {
+      if (order.address) lines.push(`- Address: ${order.address}`);
+      if (order.location) lines.push(`- Landmark: ${order.location}`);
+      if (order.customer?.phoneNumber) lines.push(`- Contact #: ${order.customer.phoneNumber}`);
+    }
+
+    const schedule = this.formatSummarySchedule(order.preferredSchedule);
+    if (schedule.date) lines.push(`- Delivery date: ${schedule.date}`);
+    if (schedule.time) lines.push(`- Preferred time: ${schedule.time}`);
+    lines.push(`- Status: ${order.status}`);
+    return lines.join("\n");
+  }
+
+  private formatSummarySchedule(value?: string | Date | null) {
+    if (!value) return { date: undefined, time: undefined };
+    const date = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(date.getTime())) return { date: String(value), time: undefined };
+    const parts = new Intl.DateTimeFormat("en-PH", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    }).formatToParts(date);
+    const dateText = `${parts.find((part) => part.type === "month")?.value} ${parts.find((part) => part.type === "day")?.value}, ${parts.find((part) => part.type === "year")?.value}`;
+    const timeText = new Intl.DateTimeFormat("en-PH", {
+      timeZone: "Asia/Manila",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }).format(date);
+    const hasExplicitTime = !(date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && !String(value).includes("T"));
+    return { date: dateText, time: hasExplicitTime ? timeText : undefined };
   }
 
   private formatOrderStatusLine(order: OrderStatusResult) {
@@ -331,6 +403,11 @@ export class AiOrderStatusContextService implements OnModuleInit {
 
   private isOrderStatusQuestion(message: string) {
     return /\b(order\s*status|status\s*(?:sa|of|for|my)?\s*order|where(?:'s| is)\s+my\s+order|asa(?:n)?\s+(?:na|ang)\s+(?:akong|my)\s+order|naa na ba\s+(?:ang|akong)\s+order|naabot na ba\s+akong\s+order|has my order been placed|did you place my order|have you placed my order|was my order placed|is my order placed)\b/i.test(message);
+  }
+
+  private isOrderSummaryQuestion(message: string) {
+    return /\b(?:send|show|give|provide|what(?:'s| is))\b.*\b(?:summary|order summary|my order|order details)\b/i.test(message)
+      || /\b(?:summary|order summary)\b/i.test(message);
   }
 
   private isExplicitOrderUpdate(message: string) {
