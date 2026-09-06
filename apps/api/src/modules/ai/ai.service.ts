@@ -72,6 +72,8 @@ const PRICES: Record<string, number> = {
   "ham & cheese": 25,
   "ham and cheese": 25,
   "ham cheese": 25,
+  "ham with cheese": 25,
+  "ham": 25,
   "chicken": 20,
   "chicken with egg": 25,
   "ube": 25,
@@ -175,7 +177,7 @@ export class AiService {
       messages: [
         {
           role: "system",
-          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nThe quantity inside a flavor may be omitted when the customer names a flavor without giving its quantity. Understand abbreviations, typos, shorthand, phonetic spellings, and follow-up answers. If the customer says "Pork regular" then later "10 pcs", interpret 10 pcs as the Pork Regular quantity. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
+          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nThe quantity inside a flavor may be omitted when the customer names a flavor without giving its quantity. Understand abbreviations, typos, shorthand, phonetic spellings, and follow-up answers. If the customer says "Pork regular" then later "10 pcs", interpret 10 pcs as the Pork Regular quantity. If the customer says "Ham", "Ham cheese", "Ham with cheese", or "Ham and cheese", interpret it as "Ham & Cheese". A customer asking "can I order...", "can I get...", "may I order...", or similar wording is a new-order request, not a confirmation. A customer saying what they want to order without an explicit confirmation is not a confirmation. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
         },
         {
           role: "user",
@@ -510,8 +512,10 @@ export class AiService {
       "pork regular egg": "Pork Regular with Egg",
       "chicken egg": "Chicken with Egg",
       "beef egg": "Beef with Egg",
+      "ham": "Ham & Cheese",
       "ham and cheese": "Ham & Cheese",
       "ham cheese": "Ham & Cheese",
+      "ham with cheese": "Ham & Cheese",
       "ube": "Ube Empanada",
       "chocolate": "Choco"
     };
@@ -558,20 +562,20 @@ export class AiService {
       think: false,
       options: { temperature: 0.2, num_predict: 160, num_ctx: 3072 },
       messages: [
-        {
-          role: "system",
-          content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The APPLICATION ORDER FACTS below are the merged current state and are authoritative. The CONVERSATION CONTEXT is supporting context for references and follow-up replies. Answer questions directly. A summary request must return the current summary. For order-status questions, trust the live application order-status result and never invent a status; when no order was found, ask for the order ID. If required fields are missing, never ask for confirmation. Do not output internal fields, JSON, or meta-commentary.`
-        },
-        { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${context}` }
+        { role: "system", content: `${systemPrompt}\nGenerate only the final short customer-facing reply.` },
+        { role: "user", content: `${context}\n\nCURRENT CUSTOMER MESSAGE: ${message}` }
       ]
     }, "Ollama customer reply failed");
     const reply = response.message?.content?.trim();
     if (!reply) throw new Error("Ollama returned an empty customer reply");
-    this.logger.log(`AI customer reply generated model=${this.model} message=${JSON.stringify(message)}`);
     return this.cleanReply(reply);
   }
 
-  private async ollamaChat(body: Record<string, unknown>, errorPrefix: string): Promise<OllamaResponse> {
+  private cleanReply(value: string) {
+    return value.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^```(?:json|text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  }
+
+  private async ollamaChat(body: Record<string, unknown>, errorMessage: string): Promise<OllamaResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 180000);
     try {
@@ -581,22 +585,10 @@ export class AiService {
         signal: controller.signal,
         body: JSON.stringify(body)
       });
-      if (!response.ok) throw new Error(`${errorPrefix}: ${response.status} ${await response.text()}`);
+      if (!response.ok) throw new Error(`${errorMessage}: ${response.status} ${await response.text()}`);
       return await response.json() as OllamaResponse;
     } finally {
       clearTimeout(timeout);
     }
-  }
-
-  private manilaDateOffset(days: number) {
-    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-    const date = new Date(`${values.year}-${values.month}-${values.day}T00:00:00+08:00`);
-    date.setUTCDate(date.getUTCDate() + days);
-    return date.toISOString().slice(0, 10);
-  }
-
-  private cleanReply(reply: string) {
-    return reply.replace(/^```(?:text|json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   }
 }
