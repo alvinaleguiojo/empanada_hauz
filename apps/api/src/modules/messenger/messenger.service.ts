@@ -8,6 +8,7 @@ import { AiService } from "../ai/ai.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { McpOrdersService } from "../mcp/mcp-orders.service";
 import { MetaAuthService } from "./meta-auth.service";
+import { NEW_ORDER_RESET_MARKER } from "./messenger-order-routing-guard.service";
 
 interface MetaParticipant { id?: string; name?: string }
 interface MetaAttachment { type?: string; payload?: { url?: string; sticker_id?: string; [key: string]: unknown }; [key: string]: unknown }
@@ -44,6 +45,7 @@ export class MessengerService {
     const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
     const activeOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
+    const inNewOrderFlow = this.isNewOrderFlow(recentMessages);
     const customerName = conversation.customer?.name?.trim();
     const latestOrder = conversation.customer?.id || customerName
       ? await this.prisma.order.findFirst({
@@ -104,7 +106,7 @@ export class MessengerService {
           reply = ai.suggestedReply?.trim() ?? "";
         }
       }
-    } else if (!this.isExplicitOrderUpdate(event.text) && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder, event.text)) {
+    } else if (!inNewOrderFlow && !this.isExplicitOrderUpdate(event.text) && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder, event.text)) {
       try {
         const updated = await this.updateCustomerOrderFromAi(ai, latestOrder.orderNumber);
         this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
@@ -141,11 +143,28 @@ export class MessengerService {
     return this.aiControl.setCustomerOverride(customerId, enabled);
   }
 
+  private isNewOrderFlow(recentMessages: Array<{ direction: string; content: string; extractedOrder: unknown }>) {
+    let routingPromptSeen = false;
+    for (const message of recentMessages.slice().reverse()) {
+      const content = String(message.content ?? "").trim();
+      if (message.direction === "outbound" && /you already have an active order\.\s*would you like to change your existing order or place a new order\?/i.test(content)) {
+        routingPromptSeen = true;
+        continue;
+      }
+      if (!routingPromptSeen || message.direction !== "inbound") continue;
+      if (/^(?:new|new\s+order(?:\s+(?:please|pls))?)$/i.test(content)) return true;
+      if (/^(?:change|edit|update|modify|existing|old|same|yes|no)$/i.test(content)) return false;
+    }
+    return false;
+  }
+
   private findLatestValidOrderState(values: unknown[]) {
     type OrderDetails = Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"];
     for (const value of values) {
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
       const candidate = value as Partial<OrderDetails>;
+      const missingFields = Array.isArray(candidate.missingFields) ? candidate.missingFields : [];
+      if (missingFields.includes(NEW_ORDER_RESET_MARKER)) return undefined;
       const flavors = Array.isArray(candidate.flavors) ? candidate.flavors : [];
       const hasOrderData = flavors.length > 0 || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod || candidate.address || candidate.location || candidate.contactNumber;
       if (!hasOrderData) continue;
