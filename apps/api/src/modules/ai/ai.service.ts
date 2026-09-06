@@ -18,6 +18,7 @@ For Maxim delivery, collect Address, Landmark, and Contact # before confirmation
 Pickup does not require delivery address details.
 CASH means COD. Only explicit GCash means GCash.
 A summary request means SHOW THE CURRENT ORDER SUMMARY; it is not itself a confirmation.
+When the customer asks for order status, use the live order-status application/tool result when available. If no order can be found, ask for the order ID. Never invent an order status.
 Never expose internal field names, JSON, intent names, tools, or MCP details.
 Never say an order is confirmed/placed/created unless the application actually created it.
 Use Cebuano when the customer uses Cebuano, otherwise English.
@@ -106,13 +107,13 @@ export class AiService {
 
   constructor(private readonly config: ConfigService) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
-    this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:8b");
+    this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
     this.interpretationModel = this.config.get<string>("OLLAMA_INTERPRET_MODEL", "qwen2.5:0.5b");
   }
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
-    const recentMessages = (context?.recentMessages ?? []).slice(-8);
+    const recentMessages = (context?.recentMessages ?? []).slice(-16);
     const current = await this.interpretCurrentMessage(message, now, recentMessages, context?.activeOrderState);
     const details = this.mergeOrderState(context?.activeOrderState, current);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
@@ -159,7 +160,7 @@ export class AiService {
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0.1, num_predict: 256, num_ctx: 1536 },
+      options: { temperature: 0.1, num_predict: 256, num_ctx: 2048 },
       messages: [
         {
           role: "system",
@@ -292,14 +293,14 @@ export class AiService {
       return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.";
     }
     if (details.flavors.length) {
-      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-8).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
+      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
     }
-    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-8).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
+    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
   }
 
   private buildNextActionDirective(message: string, details: Details): string {
     const lower = message.toLowerCase().trim();
-    if (this.isOrderStatusQuestion(lower)) return "Answer order status only. Do not claim an order exists unless the application created it.";
+    if (this.isOrderStatusQuestion(lower)) return "Answer order status only. Use the live application order-status result when present. If no order was found, ask the customer for their order ID. Do not invent an order status.";
     if (this.isSummaryRequest(lower)) {
       return details.missingFields.length
         ? `Provide the current order summary first. Then mention only the missing customer information: ${this.humanMissing(details.missingFields).join(", ")}. Do not ask for confirmation.`
@@ -443,11 +444,11 @@ export class AiService {
       model: this.model,
       stream: false,
       think: false,
-      options: { temperature: 0.2, num_predict: 160, num_ctx: 2048 },
+      options: { temperature: 0.2, num_predict: 160, num_ctx: 3072 },
       messages: [
         {
           role: "system",
-          content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The APPLICATION ORDER FACTS below are the merged current state and are authoritative. The CONVERSATION CONTEXT is supporting context for references and follow-up replies. Answer questions directly. A summary request must return the current summary. If required fields are missing, never ask for confirmation. Do not output internal fields, JSON, or meta-commentary.`
+          content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The APPLICATION ORDER FACTS below are the merged current state and are authoritative. The CONVERSATION CONTEXT is supporting context for references and follow-up replies. Answer questions directly. A summary request must return the current summary. For order-status questions, trust the live application order-status result and never invent a status; when no order was found, ask for the order ID. If required fields are missing, never ask for confirmation. Do not output internal fields, JSON, or meta-commentary.`
         },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${context}` }
       ]
