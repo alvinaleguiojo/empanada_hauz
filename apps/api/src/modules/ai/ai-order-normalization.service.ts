@@ -11,6 +11,16 @@ export class AiOrderNormalizationService implements OnModuleInit {
   onModuleInit() {
     const originalClassify = this.aiService.classifyAndExtract.bind(this.aiService);
     this.aiService.classifyAndExtract = async (message, context) => {
+      if (this.isOtherCustomerDataRequest(message)) {
+        return {
+          intent: "inquiry",
+          confidence: 1,
+          details: context?.activeOrderState ?? { flavors: [], missingFields: [], confirmed: false },
+          suggestedReply: "Sorry, I can only provide information about your own orders and Empanada Hauz. I can't share other customers' information.",
+          source: "ollama"
+        };
+      }
+
       const result = await originalClassify(message, context);
       return this.normalize(result, message);
     };
@@ -28,6 +38,15 @@ export class AiOrderNormalizationService implements OnModuleInit {
         return "I couldn't place your order right now. Please try again.";
       }
     };
+  }
+
+  private isOtherCustomerDataRequest(message: string) {
+    const lower = message.trim().toLowerCase();
+    return /\b(?:other|another|different)\s+customer\b/i.test(lower)
+      || /\b(?:someone\s+else(?:'s)?|another\s+person(?:'s)?)\b/i.test(lower)
+      || /\b(?:customer(?:'s)?\s+(?:info|information|details|phone|number|address|order)|orders?\s+(?:of|from|for)\s+(?:other|another|someone))\b/i.test(lower)
+      || /\b(?:list|show|give|tell)\b.*\bcustomer(?:s)?\b.*\b(?:info|information|details|orders?|phone|number|address)\b/i.test(lower)
+      || /\bwhat\s+did\s+(?:the\s+)?(?:other|another)\s+customer\s+order\b/i.test(lower);
   }
 
   private normalize(result: AiResult, message: string): AiResult {
