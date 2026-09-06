@@ -124,19 +124,25 @@ export class MessengerService {
         : undefined
     });
 
-    const inNewOrderFlow = actionContext.orderAction === "new_order" && actionContext.newOrderFlowActive;
+    const hasPendingNewOrder = Boolean(
+      persistedActiveOrderState?.flavors?.some((item) => Number(item.quantity ?? 0) > 0)
+    );
+    const inNewOrderFlow =
+      actionContext.newOrderFlowActive ||
+      (actionContext.reuseExistingDelivery && hasPendingNewOrder);
+    const effectiveOrderAction = inNewOrderFlow ? "new_order" : actionContext.orderAction;
+
     const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && Boolean(latestOrder);
     const reusedDeliveryState: Partial<OrderDetails> = shouldReuseExistingDelivery && latestOrder
       ? {
           deliveryMethod: latestOrder.deliveryMethod === "pickup" || latestOrder.deliveryMethod === "maxim" ? latestOrder.deliveryMethod : undefined,
           address: latestOrder.address ?? undefined,
           landmark: latestOrder.location ?? undefined,
-          contactNumber: latestOrder.customer?.phoneNumber ?? undefined,
-          paymentMethod: latestOrder.paymentMethod === "cod" || latestOrder.paymentMethod === "gcash" ? latestOrder.paymentMethod : undefined
+          contactNumber: latestOrder.customer?.phoneNumber ?? undefined
         }
       : {};
 
-    const baseState = inNewOrderFlow ? undefined : persistedActiveOrderState;
+    const baseState = persistedActiveOrderState;
     const activeOrderState: OrderDetails = {
       ...(baseState ?? {}),
       ...reusedDeliveryState,
@@ -160,7 +166,7 @@ export class MessengerService {
 
     contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
     contextMessages.push(latestOrderContext);
-    contextMessages.push(`APPLICATION AI ORDER ACTION: ${actionContext.orderAction}; newOrderFlowActive=${actionContext.newOrderFlowActive}; reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
+    contextMessages.push(`APPLICATION AI ORDER ACTION: ${effectiveOrderAction}; newOrderFlowActive=${inNewOrderFlow}; reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
     if (shouldReuseExistingDelivery) {
       contextMessages.push(`APPLICATION REUSED DELIVERY FACTS: deliveryMethod=${activeOrderState.deliveryMethod ?? "none"}; address=${activeOrderState.address ?? "none"}; landmark=${activeOrderState.landmark ?? "none"}; contactNumber=${activeOrderState.contactNumber ?? "none"}; paymentMethod=${activeOrderState.paymentMethod ?? "none"}`);
     }
@@ -171,11 +177,11 @@ export class MessengerService {
       recentMessages: contextMessages,
       activeOrderState: hasActiveOrderState ? activeOrderState : undefined
     });
-    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${actionContext.orderAction} newOrderFlowActive=${actionContext.newOrderFlowActive} reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
+    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${effectiveOrderAction} newOrderFlowActive=${inNewOrderFlow} reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
-    if (actionContext.orderAction === "new_order" && latestOrder && !actionContext.newOrderFlowActive) {
+    if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) {
       reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
     } else if (this.isConfirmedOrder(ai, event.text)) {
       try {
@@ -193,7 +199,7 @@ export class MessengerService {
           reply = ai.suggestedReply?.trim() ?? "";
         }
       }
-    } else if (actionContext.orderAction === "modify_existing" && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder)) {
+    } else if (effectiveOrderAction === "modify_existing" && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder)) {
       try {
         const updated = await this.updateCustomerOrderFromAi(ai, latestOrder.orderNumber);
         this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
