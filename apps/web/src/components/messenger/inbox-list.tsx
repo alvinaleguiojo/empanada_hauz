@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Bot,
   Download,
   FileText,
   Image as ImageIcon,
@@ -32,6 +33,7 @@ type Customer = {
 type Conversation = { id: string; lastMessage?: string | null; updatedAt: string; customer: Customer };
 type MessageAttachment = { type?: string; url?: string; title?: string; name?: string; payload?: { url?: string }; file_url?: string; image_data?: { url?: string } };
 type Message = { id: string; direction: "inbound" | "outbound"; content: string; type?: string; rawPayload?: unknown; aiIntent?: string | null; createdAt: string };
+type CustomerAiState = { globalEnabled: boolean; customerOverride: boolean | null; effectiveEnabled: boolean };
 
 function getAttachments(message: Message): MessageAttachment[] {
   const raw = message.rawPayload as any;
@@ -102,6 +104,8 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
+  const [customerAiState, setCustomerAiState] = useState<CustomerAiState | null>(null);
+  const [savingAi, setSavingAi] = useState(false);
   const messagesRequestId = useRef(0);
   const selected = useMemo(() => conversations.find((item) => item.id === selectedId), [conversations, selectedId]);
   const filteredConversations = useMemo(() => {
@@ -114,6 +118,14 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
     const timer = window.setInterval(() => void loadConversations(true), 5000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setCustomerAiState(null);
+      return;
+    }
+    void loadCustomerAiState(selected?.customer.id ?? "");
+  }, [selectedId, selected?.customer.id]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -130,6 +142,32 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
     } catch (err) {
       if (!silent) setError(err instanceof Error ? err.message : "Unable to load conversations.");
     }
+  }
+
+  async function loadCustomerAiState(customerId: string) {
+    if (!customerId) return;
+    try {
+      const result = await apiFetch<CustomerAiState>(`/messenger/ai/customers/${customerId}`);
+      setCustomerAiState(result);
+    } catch (err) {
+      setCustomerAiState(null);
+      setError(err instanceof Error ? err.message : "Unable to load customer AI state.");
+    }
+  }
+
+  async function toggleCustomerAi() {
+    if (!selected?.customer.id || !customerAiState || savingAi) return;
+    setSavingAi(true); setError("");
+    const nextEnabled = !customerAiState.effectiveEnabled;
+    try {
+      const result = await apiFetch<CustomerAiState>(`/messenger/ai/customers/${selected.customer.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled: nextEnabled })
+      });
+      setCustomerAiState(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update customer AI switch.");
+    } finally { setSavingAi(false); }
   }
 
   async function syncMetaHistory() {
@@ -191,7 +229,29 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
         </aside>
 
         <section className={`min-w-0 flex-1 flex-col bg-background ${mobileChatOpen ? "flex" : "hidden md:flex"}`}>
-          <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5"><Button type="button" variant="ghost" size="sm" className="h-9 w-9 p-0 md:hidden" onClick={() => setMobileChatOpen(false)} aria-label="Back to conversations"><ArrowLeft size={18} /></Button><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent"><UserRound size={16} /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{selected?.customer.name ?? "Select a conversation"}</p><p className="truncate text-[11px] text-foreground/45">{selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? ""}{selected?.customer.totalOrders ? ` · ${selected.customer.totalOrders} orders` : ""}</p></div>{selected?.customer.isVip ? <span className="hidden rounded-full bg-accent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-black sm:inline-flex">VIP customer</span> : null}</header>
+          <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5">
+            <Button type="button" variant="ghost" size="sm" className="h-9 w-9 p-0 md:hidden" onClick={() => setMobileChatOpen(false)} aria-label="Back to conversations"><ArrowLeft size={18} /></Button>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent"><UserRound size={16} /></div>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{selected?.customer.name ?? "Select a conversation"}</p><p className="truncate text-[11px] text-foreground/45">{selected?.customer.phoneNumber ?? selected?.customer.messengerPsid ?? ""}{selected?.customer.totalOrders ? ` · ${selected.customer.totalOrders} orders` : ""}</p></div>
+            {selected?.customer.isVip ? <span className="hidden rounded-full bg-accent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-black sm:inline-flex">VIP customer</span> : null}
+            {selected && customerAiState ? (
+              <button
+                type="button"
+                onClick={() => void toggleCustomerAi()}
+                disabled={savingAi}
+                aria-label={`${customerAiState.effectiveEnabled ? "Turn off" : "Turn on"} AI for ${selected.customer.name}`}
+                title={customerAiState.effectiveEnabled ? "AI is replying automatically. Click to take manual control." : "AI is off for this customer. Click to enable automatic replies."}
+                className={`flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1.5 text-[10px] font-semibold transition-colors ${customerAiState.effectiveEnabled ? "border-accent/30 bg-accent/10 text-foreground" : "border-line bg-foreground/[0.04] text-foreground/55"}`}
+              >
+                <Bot size={13} className={customerAiState.effectiveEnabled ? "text-accent" : "text-foreground/45"} />
+                <span className="hidden sm:inline">AI</span>
+                <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${customerAiState.effectiveEnabled ? "bg-accent" : "bg-foreground/20"}`}>
+                  <span className={`h-3.5 w-3.5 rounded-full bg-background shadow-sm transition-transform ${customerAiState.effectiveEnabled ? "translate-x-4" : "translate-x-1"}`} />
+                </span>
+                <span className="hidden text-[10px] sm:inline">{savingAi ? "..." : customerAiState.effectiveEnabled ? "ON" : "OFF"}</span>
+              </button>
+            ) : null}
+          </header>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5">
             {loadingMessages ? <div className="flex justify-center p-8"><Loader2 className="animate-spin text-foreground/40" size={20} /></div> : null}
             {!loadingMessages && !messages.length ? <div className="flex h-full min-h-[220px] flex-col items-center justify-center text-center"><span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 text-accent"><MessageCircle size={22} /></span><p className="text-sm font-medium">No messages yet</p><p className="mt-1 text-xs text-foreground/45">Send a message to start the conversation.</p></div> : null}
