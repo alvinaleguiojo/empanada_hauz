@@ -51,6 +51,7 @@ export class AiOrderNormalizationService implements OnModuleInit {
 
   private normalize(result: AiResult, message: string): AiResult {
     this.recoverExplicitOrderFacts(result, message);
+    this.normalizeFlavors(result);
 
     const preferredTime = result.details.preferredTime?.trim();
     if (!preferredTime || this.looksLikeDateOnly(preferredTime)) {
@@ -58,6 +59,24 @@ export class AiOrderNormalizationService implements OnModuleInit {
       result.suggestedReply = this.removeInvalidPreferredTime(result.suggestedReply);
     }
     return result;
+  }
+
+  private normalizeFlavors(result: AiResult) {
+    const flavors = result.details.flavors ?? [];
+    if (!flavors.length) return;
+
+    const normalized = flavors.map((item) => {
+      const rawName = String(item.name ?? "").trim();
+      const name = /^ham$/i.test(rawName) ? "Ham & Cheese" : rawName;
+      const unitPrice = name.toLowerCase() === "ham & cheese" ? 25 : Number(item.unitPrice ?? 0);
+      const quantity = Number(item.quantity ?? 0);
+      return { ...item, name, unitPrice, subtotal: quantity * unitPrice };
+    });
+
+    result.details.flavors = normalized;
+    const quantity = normalized.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+    result.details.quantity = quantity || result.details.quantity;
+    result.details.totalAmount = normalized.reduce((sum, item) => sum + Number(item.subtotal ?? 0), 0);
   }
 
   private recoverExplicitOrderFacts(result: AiResult, message: string) {
