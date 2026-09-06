@@ -27,13 +27,21 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
   onModuleInit() {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
     this.aiService.classifyAndExtract = async (message, context) => {
-      const enrichedContext = await this.enrichDeliveryFeeContext(message, context);
-      return original(message, enrichedContext);
+      const enriched = await this.enrichDeliveryFeeContext(message, context);
+      const result = await original(message, enriched.context);
+
+      if (enriched.estimatedFare !== undefined && this.isDeliveryFeeQuestion(message)) {
+        const feeLine = `Delivery fee to your location is ₱${enriched.estimatedFare}.`;
+        const reply = result.suggestedReply?.trim() ?? "";
+        result.suggestedReply = reply ? `${reply}\n${feeLine}` : feeLine;
+      }
+
+      return result;
     };
   }
 
   private async enrichDeliveryFeeContext(message: string, context?: AiContext) {
-    if (!this.isDeliveryFeeQuestion(message)) return context;
+    if (!this.isDeliveryFeeQuestion(message)) return { context, estimatedFare: undefined };
 
     const state = context?.activeOrderState;
     const dropoffAddress = [state?.address?.trim(), state?.landmark?.trim(), state?.location?.trim()].filter(Boolean).join(", ");
@@ -43,7 +51,7 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
       recentMessages.push(
         "APPLICATION DELIVERY FEE TOOL RESULT: No destination address is available yet. Ask the customer for their delivery address (and landmark when needed for Maxim) before quoting the delivery fee. Never invent a fee."
       );
-      return { ...context, recentMessages };
+      return { context: { ...context, recentMessages }, estimatedFare: undefined };
     }
 
     try {
@@ -58,20 +66,22 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
         recentMessages.push(
           `APPLICATION DELIVERY FEE TOOL RESULT: The tool could not calculate a valid delivery fee for ${dropoffAddress}. Do not invent a fee; explain that the fee could not be calculated right now and ask for a more complete delivery address if needed.`
         );
-      } else {
-        recentMessages.push(
-          `APPLICATION DELIVERY FEE TOOL RESULT: For Maxim delivery from ${PICKUP_ADDRESS} to ${dropoffAddress}, the current calculated delivery fee is ₱${quote.estimatedFare}. Distance: ${quote.distanceKm ?? "unknown"} km. Use this tool result as authoritative for the delivery-fee question. Do not invent or replace it with a generic estimate.`
-        );
-        this.logger.log(`Delivery fee quote calculated for AI: destination=${JSON.stringify(dropoffAddress)} fee=${quote.estimatedFare}`);
+        return { context: { ...context, recentMessages }, estimatedFare: undefined };
       }
+
+      recentMessages.push(
+        `APPLICATION DELIVERY FEE TOOL RESULT: For Maxim delivery from ${PICKUP_ADDRESS} to ${dropoffAddress}, the current calculated delivery fee is ₱${quote.estimatedFare}. Distance: ${quote.distanceKm ?? "unknown"} km. Use this tool result as authoritative for the delivery-fee question. The final customer reply MUST state the calculated delivery fee. Do not invent or replace it with a generic estimate.`
+      );
+
+      this.logger.log(`Delivery fee quote calculated for AI: destination=${JSON.stringify(dropoffAddress)} fee=${quote.estimatedFare}`);
+      return { context: { ...context, recentMessages }, estimatedFare: quote.estimatedFare };
     } catch (error) {
       recentMessages.push(
         "APPLICATION DELIVERY FEE TOOL RESULT: The delivery fee tool could not calculate a quote for the supplied destination. Do not invent a fee; explain that the fee could not be calculated right now and ask for a valid delivery address if needed."
       );
       this.logger.warn(`Delivery fee quote failed for AI: ${error instanceof Error ? error.message : String(error)}`);
+      return { context: { ...context, recentMessages }, estimatedFare: undefined };
     }
-
-    return { ...context, recentMessages };
   }
 
   private isDeliveryFeeQuestion(message: string) {
