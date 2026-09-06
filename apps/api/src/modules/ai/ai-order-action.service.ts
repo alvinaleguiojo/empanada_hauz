@@ -66,17 +66,16 @@ Return ONLY valid JSON with this schema:
 }
 
 Rules:
-- new_order means the customer wants to create a separate order, or has selected that they want a new/separate order after being asked about an existing order.
-- modify_existing means the customer wants to change, add to, remove from, correct, or otherwise modify an existing order.
-- status means asking where/how the existing order is or whether it has been placed.
+- new_order means the customer wants to create a separate order, or is continuing a separate/new order that they have already started in this conversation.
+- modify_existing means the customer wants to change, add to, remove from, correct, or otherwise modify an existing database order.
+- status means asking where/how an existing order is or whether it has been placed, but NOT when the customer is merely reusing details for a new order.
 - summary means asking to see the current order summary.
 - inquiry means general business questions or messages that are not an order action.
-- newOrderFlowActive=true when the recent conversation shows that the customer chose a new/separate order and the CURRENT CUSTOMER MESSAGE should continue building that new order. This stays true for follow-up item messages such as “choco 10 pcs” after the customer chose a new order.
-- reuseExistingDelivery=true when the customer asks to use, reuse, keep, use again, copy, or retain the delivery/payment/contact details from the previous/current order for the order being built now. Examples include “please use the existing delivery details”, “same address and delivery”, “use my usual delivery info”, “same delivery details please”, “use the details from my last order”.
-- If the customer asks to reuse existing delivery details, do not convert the request into modify_existing merely because an old database order exists. It normally applies to the new order being built.
-- reuseExistingDelivery is only an interpretation flag. The application will decide whether usable previous details exist and will copy only verified database fields.
-- For the first message “I want to order 15 pcs of beef with egg” when an active database order exists, return new_order with newOrderFlowActive=false. The application may ask whether to change the existing order or create a separate one.
-- For “I want a new order please”, “new”, “new order”, “I want a new”, or natural paraphrases immediately after that routing question, return new_order with newOrderFlowActive=true.
+- newOrderFlowActive=true when the recent conversation shows that the customer is currently building a separate/new order. This stays true for follow-up messages while completing that new order, including when the customer says to reuse information from an older order.
+- reuseExistingDelivery=true when the customer asks to use, reuse, keep, use again, copy, or retain delivery/payment/contact details from the previous/current order for the order being built now. This is a data-reuse request, not an existing-order modification.
+- IMPORTANT: If the conversation already contains a newly requested order that is waiting for delivery/payment details, then a message such as “please use the existing delivery details” is part of that NEW order flow. Return orderAction=new_order and newOrderFlowActive=true, with reuseExistingDelivery=true. Do NOT return status.
+- If the customer first starts a new order while an active database order exists, return new_order with newOrderFlowActive=false; the application will ask whether they want to change the existing order or place a separate new order.
+- If the customer has already selected the new/separate order and the conversation is now collecting its remaining fields, keep newOrderFlowActive=true across follow-up messages.
 - Never let the existence of an old database order turn a clearly new-order request into modify_existing.
 - Do not decide pricing, required fields, ownership, confirmation, or database actions here.`
         },
