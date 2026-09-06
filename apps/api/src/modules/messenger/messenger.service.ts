@@ -4,11 +4,11 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
 import { AiControlService } from "../ai/ai-control.service";
+import { AiOrderActionService } from "../ai/ai-order-action.service";
 import { AiService } from "../ai/ai.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { McpOrdersService } from "../mcp/mcp-orders.service";
 import { MetaAuthService } from "./meta-auth.service";
-import { NEW_ORDER_RESET_MARKER } from "./messenger-order-routing-guard.service";
 
 interface MetaParticipant { id?: string; name?: string }
 interface MetaAttachment { type?: string; payload?: { url?: string; sticker_id?: string; [key: string]: unknown }; [key: string]: unknown }
@@ -25,6 +25,7 @@ export class MessengerService {
     private readonly customersService: CustomersService,
     private readonly aiControl: AiControlService,
     private readonly aiService: AiService,
+    private readonly aiOrderActionService: AiOrderActionService,
     private readonly notificationsService: NotificationsService,
     private readonly mcpOrdersService: McpOrdersService,
     private readonly metaAuthService: MetaAuthService
@@ -44,18 +45,11 @@ export class MessengerService {
 
     const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
-    const activeOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
-    const inNewOrderFlow = this.isNewOrderFlow(recentMessages);
+    const persistedActiveOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
     const customerName = conversation.customer?.name?.trim();
-    const latestOrder = conversation.customer?.id || customerName
+    const latestOrder = conversation.customer?.id
       ? await this.prisma.order.findFirst({
-          where: {
-            status: { notIn: ["completed", "cancelled"] },
-            OR: [
-              ...(conversation.customer?.id ? [{ customerId: conversation.customer.id }] : []),
-              ...(customerName ? [{ customer: { name: { equals: customerName, mode: Prisma.QueryMode.insensitive } } }] : [])
-            ]
-          },
+          where: { customerId: conversation.customer.id, status: { notIn: ["completed", "cancelled"] } },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           select: {
             id: true,
@@ -76,21 +70,54 @@ export class MessengerService {
             customer: { select: { phoneNumber: true } }
           }
         })
-      : null;
+      : customerName
+        ? await this.prisma.order.findFirst({
+            where: { status: { notIn: ["completed", "cancelled"] }, customer: { name: { equals: customerName, mode: Prisma.QueryMode.insensitive } } },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            select: {
+              id: true,
+              orderNumber: true,
+              status: true,
+              createdAt: true,
+              quantity: true,
+              unitPrice: true,
+              totalAmount: true,
+              deliveryFee: true,
+              discountAmount: true,
+              deliveryMethod: true,
+              paymentMethod: true,
+              location: true,
+              address: true,
+              preferredSchedule: true,
+              items: true,
+              customer: { select: { phoneNumber: true } }
+            }
+          })
+        : null;
+
+    const actionContext = await this.aiOrderActionService.analyze(event.text, {
+      recentMessages: contextMessages,
+      hasActiveOrder: Boolean(latestOrder)
+    });
+    const inNewOrderFlow = actionContext.orderAction === "new_order" && actionContext.newOrderFlowActive;
+    const activeOrderState = inNewOrderFlow ? undefined : persistedActiveOrderState;
     const orderValidation = activeOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
     const latestOrderContext = latestOrder
       ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.`
       : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
     contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
     contextMessages.push(latestOrderContext);
+    contextMessages.push(`APPLICATION AI ORDER ACTION: ${actionContext.orderAction}; newOrderFlowActive=${actionContext.newOrderFlowActive}`);
 
     this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct")}`);
     const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages, activeOrderState });
-    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)}`);
+    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${actionContext.orderAction} newOrderFlowActive=${actionContext.newOrderFlowActive}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
-    if (this.isConfirmedOrder(ai, event.text)) {
+    if (actionContext.orderAction === "new_order" && latestOrder && !actionContext.newOrderFlowActive) {
+      reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
+    } else if (this.isConfirmedOrder(ai, event.text)) {
       try {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
@@ -106,11 +133,11 @@ export class MessengerService {
           reply = ai.suggestedReply?.trim() ?? "";
         }
       }
-    } else if (!inNewOrderFlow && !this.isExplicitOrderUpdate(event.text) && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder, event.text)) {
+    } else if (actionContext.orderAction === "modify_existing" && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder)) {
       try {
         const updated = await this.updateCustomerOrderFromAi(ai, latestOrder.orderNumber);
         this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
-        reply = `${ai.suggestedReply?.trim() || "Your order has been updated."}\nOrder ${updated.orderNumber} is updated.`;
+        reply = ai.suggestedReply?.trim() || "Your order has been updated successfully.";
       } catch (error) {
         this.logger.error(`Customer order update failed for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
         reply = ai.suggestedReply?.trim() || "I couldn't update the order right now. Please try again.";
@@ -125,46 +152,16 @@ export class MessengerService {
     return { ai, reply, aiEnabled: true };
   }
 
-  async getAiSettings() {
-    return this.aiControl.getState();
-  }
-
-  async setGlobalAiEnabled(enabled: boolean) {
-    this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`);
-    return this.aiControl.setGlobalEnabled(enabled);
-  }
-
-  async getCustomerAiSettings(customerId: string) {
-    return this.aiControl.getCustomerState(customerId);
-  }
-
-  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) {
-    this.logger.warn(`Messenger AI customer switch changed: customer=${customerId} override=${enabled}`);
-    return this.aiControl.setCustomerOverride(customerId, enabled);
-  }
-
-  private isNewOrderFlow(recentMessages: Array<{ direction: string; content: string; extractedOrder: unknown }>) {
-    let routingPromptSeen = false;
-    for (const message of recentMessages.slice().reverse()) {
-      const content = String(message.content ?? "").trim();
-      if (message.direction === "outbound" && /you already have an active order\.\s*would you like to change your existing order or place a new order\?/i.test(content)) {
-        routingPromptSeen = true;
-        continue;
-      }
-      if (!routingPromptSeen || message.direction !== "inbound") continue;
-      if (/^(?:new|new\s+order(?:\s+(?:please|pls))?)$/i.test(content)) return true;
-      if (/^(?:change|edit|update|modify|existing|old|same|yes|no)$/i.test(content)) return false;
-    }
-    return false;
-  }
+  async getAiSettings() { return this.aiControl.getState(); }
+  async setGlobalAiEnabled(enabled: boolean) { this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`); return this.aiControl.setGlobalEnabled(enabled); }
+  async getCustomerAiSettings(customerId: string) { return this.aiControl.getCustomerState(customerId); }
+  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) { this.logger.warn(`Messenger AI customer switch changed: customer=${customerId} override=${enabled}`); return this.aiControl.setCustomerOverride(customerId, enabled); }
 
   private findLatestValidOrderState(values: unknown[]) {
     type OrderDetails = Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"];
     for (const value of values) {
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
       const candidate = value as Partial<OrderDetails>;
-      const missingFields = Array.isArray(candidate.missingFields) ? candidate.missingFields : [];
-      if (missingFields.includes(NEW_ORDER_RESET_MARKER)) return undefined;
       const flavors = Array.isArray(candidate.flavors) ? candidate.flavors : [];
       const hasOrderData = flavors.length > 0 || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod || candidate.address || candidate.location || candidate.contactNumber;
       if (!hasOrderData) continue;
@@ -179,18 +176,10 @@ export class MessengerService {
     return `${baseUrl}/track/${orderId}`;
   }
 
-  private isExplicitOrderUpdate(message: string) {
-    return /\b(?:change|update|modify|edit|replace|switch|correct|correction)\b.*\b(?:my|the)\s+order\b/i.test(message)
-      || /\b(?:my|the)\s+order\b.*\b(?:change|update|modify|edit|replace|switch)\b/i.test(message)
-      || /\bchange\s+my\s+order\s+to\b/i.test(message)
-      || /\bupdate\s+my\s+order\s+to\b/i.test(message);
-  }
-
   private shouldUpdateCustomerOrder(
     intent: string,
     details: Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"],
-    latestOrder: { status: string; quantity: number; deliveryMethod: string; paymentMethod: string; location: string | null; address: string | null; preferredSchedule: Date | null; items: unknown; customer: { phoneNumber: string | null } },
-    currentMessage: string
+    latestOrder: { status: string; quantity: number; deliveryMethod: string; paymentMethod: string; location: string | null; address: string | null; preferredSchedule: Date | null; items: unknown; customer: { phoneNumber: string | null } }
   ) {
     if (["completed", "cancelled"].includes(latestOrder.status)) return false;
     if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length) return false;
@@ -209,8 +198,7 @@ export class MessengerService {
     const contactChanged = details.contactNumber !== undefined && details.contactNumber !== (latestOrder.customer.phoneNumber ?? undefined);
     const proposedSchedule = details.deliveryDate && details.preferredTime ? this.toManilaIso(details.deliveryDate, details.preferredTime) : undefined;
     const scheduleChanged = proposedSchedule !== undefined && proposedSchedule !== (latestOrder.preferredSchedule?.toISOString() ?? undefined);
-    const updateLanguage = /\b(add|remove|change|update|replace|switch|modify|edit|increase|decrease|more|less|instead|make it|make my|wrong|correction|dugang|ilis|usba|kuhaon|pa)\b/i.test(currentMessage);
-    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged || updateLanguage;
+    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged;
   }
 
   private async updateCustomerOrderFromAi(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, orderNumber: string) {
@@ -231,9 +219,7 @@ export class MessengerService {
 
   private describeOrderValidation(details: Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"]) {
     const missing = Array.isArray(details.missingFields) ? details.missingFields : [];
-    if (missing.length === 0 && details.flavors.length > 0) {
-      return "READY for MCP placement only if the current customer message is an explicit confirmation. The application has all required order fields.";
-    }
+    if (missing.length === 0 && details.flavors.length > 0) return "READY for MCP placement only if the current customer message is an explicit confirmation. The application has all required order fields.";
     return `NOT READY for MCP placement. Missing required fields: ${missing.length ? missing.join(", ") : "order details"}. A customer confirmation must not be described as an order being placed.`;
   }
 
@@ -312,25 +298,20 @@ export class MessengerService {
       const body = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
       return JSON.parse(body) as T;
-    } finally {
-      clearTimeout(timeout);
-    }
+    } finally { clearTimeout(timeout); }
   }
 
   private async metaPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
     const token = await this.metaAuthService.getPageToken();
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
     const endpoint = `https://graph.facebook.com/${this.graphVersion()}${path}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal });
       const responseBody = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
       return JSON.parse(responseBody) as T;
-    } finally {
-      clearTimeout(timeout);
-    }
+    } finally { clearTimeout(timeout); }
   }
 
   async requestThreadControl(psid: string, metadata?: string) {
@@ -412,9 +393,7 @@ export class MessengerService {
       const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
       this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
       return metaResult;
-    } finally {
-      clearTimeout(timeout);
-    }
+    } finally { clearTimeout(timeout); }
   }
   listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
