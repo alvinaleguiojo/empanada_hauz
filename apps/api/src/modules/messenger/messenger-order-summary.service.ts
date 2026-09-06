@@ -48,10 +48,6 @@ export class MessengerOrderSummaryService {
     let lookupMode = "customer";
 
     if (orderNumber) {
-      // An explicit order number is the most precise lookup. If it belongs to
-      // the Messenger-linked customer, return it directly. Otherwise fall
-      // through to the customer's history instead of exposing another
-      // customer's order.
       const directOrder = await this.prisma.order.findFirst({
         where: {
           orderNumber,
@@ -64,10 +60,10 @@ export class MessengerOrderSummaryService {
         recentOrders = [directOrder];
         lookupMode = "order-number";
       } else {
-        recentOrders = await this.findOrdersByCustomer(customer.id, profileName);
+        recentOrders = await this.findOrdersByCustomer(customer.id, profileName ?? null);
       }
     } else {
-      recentOrders = await this.findOrdersByCustomer(customer.id, profileName);
+      recentOrders = await this.findOrdersByCustomer(customer.id, profileName ?? null);
     }
 
     const latestOrder = recentOrders[0] ?? null;
@@ -96,10 +92,6 @@ export class MessengerOrderSummaryService {
 
     if (directOrders.length) return directOrders as OrderSummary[];
 
-    // Legacy/manual orders may belong to a different Customer row even though
-    // Messenger now identifies the person by PSID. When the profile name is
-    // available, search all exact case-insensitive name matches and combine
-    // their orders. This handles duplicate customer rows created over time.
     const normalizedName = profileName?.trim();
     if (!normalizedName || normalizedName === "Messenger Customer") return [];
 
@@ -153,8 +145,6 @@ export class MessengerOrderSummaryService {
   }
 
   private extractOrderNumber(message: string) {
-    // Supports common forms such as "order EMP-123", "#EMP-123", and
-    // "order number EMP123" without assuming a single database format.
     const match = message.match(/(?:order(?:\s+(?:number|id))?\s*)?#?([A-Z]{2,10}-?\d{2,})\b/i);
     return match?.[1]?.toUpperCase() ?? null;
   }
@@ -164,7 +154,7 @@ export class MessengerOrderSummaryService {
     if (!normalized) return false;
 
     return (
-      /\b(summary|summarize|summarise)\b/.test(normalized) && /\border(s)?\b/.test(normalized)
+      (/\b(summary|summarize|summarise)\b/.test(normalized) && /\border(s)?\b/.test(normalized))
       || /\b(order history|order histories|past orders|previous orders|recent orders)\b/.test(normalized)
       || /\b(show|send|list|display|check)\b.*\bmy orders\b/.test(normalized)
       || /\bwhat did i order\b/.test(normalized)
