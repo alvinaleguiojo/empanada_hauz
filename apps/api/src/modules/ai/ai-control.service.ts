@@ -71,7 +71,7 @@ export class AiControlService {
     return {
       globalEnabled,
       customerOverride,
-      effectiveEnabled: customerOverride ?? globalEnabled
+      effectiveEnabled: globalEnabled && customerOverride !== false
     };
   }
 
