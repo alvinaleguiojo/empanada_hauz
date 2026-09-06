@@ -5,13 +5,18 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MessengerService } from "./messenger.service";
 import { SendMessageDto } from "./dto";
 import { MetaAuthService } from "./meta-auth.service";
+import { MessengerOrderSummaryService } from "./messenger-order-summary.service";
 
 interface RawBodyRequest extends Request { rawBody?: Buffer }
 
 @Controller("messenger")
 export class MessengerController {
   private readonly logger = new Logger(MessengerController.name);
-  constructor(private readonly messengerService: MessengerService, private readonly metaAuthService: MetaAuthService) {}
+  constructor(
+    private readonly messengerService: MessengerService,
+    private readonly metaAuthService: MetaAuthService,
+    private readonly messengerOrderSummaryService: MessengerOrderSummaryService
+  ) {}
 
   @Get("webhook")
   verify(@Query("hub.mode") mode?: string, @Query("hub.verify_token") token?: string, @Query("hub.challenge") challenge?: string) {
@@ -76,7 +81,12 @@ export class MessengerController {
       try {
         this.logger.log(`Processing Messenger message: sender=${senderId} messageId=${event.message?.mid ?? "unknown"} text=${Boolean(text)} attachments=${hasAttachments}`);
         if (text) {
-          await this.messengerService.processIncoming({ senderId, messageId: event.message?.mid, text, rawPayload: event });
+          const handledAsSummary = await this.messengerOrderSummaryService.tryHandle(senderId, text);
+          if (!handledAsSummary) {
+            await this.messengerService.processIncoming({ senderId, messageId: event.message?.mid, text, rawPayload: event });
+          } else {
+            this.logger.log(`Processed Messenger summary request: sender=${senderId} messageId=${event.message?.mid ?? "unknown"}`);
+          }
         } else {
           await this.messengerService.persistInbound({ senderId, messageId: event.message?.mid, text: "[Attachment]", type: "attachment", rawPayload: event });
         }
