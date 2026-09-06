@@ -67,8 +67,10 @@ Return ONLY valid JSON with this schema:
 
 Rules:
 - new_order means the customer wants to create a separate order, or is continuing a separate/new order that they have already started in this conversation.
+- A customer asking whether they can order something (for example, "can I order 24 pcs of ham?") is a NEW order request, not a status question and not a modification of the previous database order.
+- A customer stating a quantity and flavor to start or continue an order is a NEW order request unless they clearly say they are changing an existing database order.
 - modify_existing means the customer wants to change, add to, remove from, correct, or otherwise modify an existing database order.
-- status means asking where/how an existing order is or whether it has been placed, but NOT when the customer is merely reusing details for a new order.
+- status means asking where/how an existing order is or whether it has been placed, but NOT when the customer is starting or continuing a new order.
 - summary means asking to see the current order summary.
 - inquiry means general business questions or messages that are not an order action.
 - newOrderFlowActive=true when the recent conversation shows that the customer is currently building a separate/new order. This remains true while the customer completes missing fields.
@@ -76,7 +78,7 @@ Rules:
 - IMPORTANT: If the recent conversation shows a new order is being built and the current message asks to reuse existing delivery details, return orderAction=new_order, newOrderFlowActive=true, reuseExistingDelivery=true. Do NOT return status or modify_existing.
 - If the customer first starts a new order while an active database order exists, return new_order with newOrderFlowActive=false; the application may ask whether they want to change the existing order or place a separate new order.
 - If the customer has already selected the new/separate order and the conversation is now collecting its remaining fields, keep newOrderFlowActive=true across follow-up messages.
-- Never let the existence of an old database order turn a clearly new-order request into modify_existing.
+- Never let the existence of an old database order turn a clearly new-order request into modify_existing or status.
 - Do not decide pricing, required fields, ownership, confirmation, or database actions here.`
         },
         {
@@ -102,8 +104,6 @@ Rules:
 
       // Reusing delivery details is a continuation of the order currently being
       // built, never a request to inspect or modify the previous database order.
-      // Once Qwen identifies that semantic request, keep the turn in the new
-      // order flow even if a smaller model mislabeled the action as status.
       const effectiveNewOrderFlow = newOrderFlowActive || reuseExistingDelivery;
       const orderAction = reuseExistingDelivery ? "new_order" : requestedAction;
       const confidence = Number(parsed.confidence);
