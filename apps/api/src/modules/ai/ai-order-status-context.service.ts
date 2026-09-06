@@ -145,7 +145,8 @@ export class AiOrderStatusContextService implements OnModuleInit {
 
       const details = result.details;
       const update: Parameters<McpOrdersService["updateOrder"]>[0] = { orderNumber: order.orderNumber };
-      const flavors = details.flavors ?? [];
+      const explicitItems = this.extractExplicitOrderItems(message);
+      const flavors = explicitItems.length ? explicitItems : (details.flavors ?? []);
       if (flavors.length) {
         update.items = flavors.map((item) => ({
           name: item.name,
@@ -153,8 +154,11 @@ export class AiOrderStatusContextService implements OnModuleInit {
           price: item.unitPrice,
           subtotal: item.subtotal
         }));
+        update.quantity = flavors.reduce((sum, item) => sum + Number(item.quantity), 0);
+        this.logger.log(`Explicit Messenger flavor override: ${flavors.map((item) => `${item.quantity}x ${item.name}`).join(", ")}`);
+      } else if (details.quantity !== undefined) {
+        update.quantity = Number(details.quantity);
       }
-      if (details.quantity !== undefined) update.quantity = Number(details.quantity);
 
       const lower = message.toLowerCase();
       if (details.deliveryMethod && /\b(?:maxim(?:\s+delivery)?|pickup|pick\s+up)\b/i.test(lower)) update.deliveryMethod = details.deliveryMethod;
@@ -179,6 +183,26 @@ export class AiOrderStatusContextService implements OnModuleInit {
       this.logger.warn(`Explicit order update failed via MCP: ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
     }
+  }
+
+  private extractExplicitOrderItems(message: string) {
+    const sortedFlavors = [...FLAVORS].sort((a, b) => b.length - a.length);
+    const items = new Map<string, { name: string; quantity: number; unitPrice: number; subtotal: number }>();
+
+    for (const flavor of sortedFlavors) {
+      const escaped = flavor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const beforeFlavor = message.match(new RegExp(`(?:^|\\bto\\b|[-•,;\\n])\\s*(\\d+)\\s*(?:pcs?|pieces?)\\s+${escaped}\\b`, "i"));
+      const afterFlavor = message.match(new RegExp(`\\b${escaped}\\b\\s*(?:x|[-:]|for)?\\s*(\\d+)\\s*(?:pcs?|pieces?)\\b`, "i"));
+      const match = beforeFlavor ?? afterFlavor;
+      if (!match) continue;
+      const quantity = Number(match[1]);
+      if (!Number.isFinite(quantity) || quantity < 1) continue;
+      const key = flavor.toLowerCase();
+      const unitPrice = PRICES[key] ?? 0;
+      items.set(key, { name: flavor, quantity, unitPrice, subtotal: quantity * unitPrice });
+    }
+
+    return [...items.values()];
   }
 
   private reconstructActiveOrderState(context?: AiContext): OrderDetails | undefined {
