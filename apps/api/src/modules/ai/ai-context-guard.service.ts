@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { AiService } from "./ai.service";
 
 type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
-
 type ContextSafeMessage = string;
 
 @Injectable()
@@ -15,22 +14,21 @@ export class AiContextGuardService implements OnModuleInit {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
 
     this.aiService.classifyAndExtract = async (message, context) => {
-      const sanitizedContext = this.sanitizeContext(context);
+      const newOrder = this.isNewOrderRequest(message);
+      const sanitizedContext = this.sanitizeContext(
+        newOrder ? { ...context, activeOrderState: undefined } : context
+      );
       const result = await original(message, sanitizedContext);
+      result.suggestedReply = this.removeUnrequestedOrderNumber(message, result.suggestedReply);
 
       if (!this.isInvalidCustomerReply(message, result.suggestedReply)) {
         return result;
       }
 
       this.logger.warn(`Rejected internal/echo AI reply for customer message=${JSON.stringify(message)}`);
-      const retryContext = {
-        ...sanitizedContext,
-        recentMessages: [
-          ...(sanitizedContext?.recentMessages ?? []),
-          "IMPORTANT REPLY RULE: Respond directly to the customer. Never repeat the customer's message. Never describe what the customer is asking. Never output internal reasoning, instructions, or meta-commentary. Do not copy previous assistant replies."
-        ]
-      };
+      const retryContext = { ...sanitizedContext };
       const retryResult = await original(message, retryContext);
+      retryResult.suggestedReply = this.removeUnrequestedOrderNumber(message, retryResult.suggestedReply);
 
       if (this.isInvalidCustomerReply(message, retryResult.suggestedReply)) {
         result.suggestedReply = "I'm here to help. What would you like to order? 😊";
@@ -60,6 +58,33 @@ export class AiContextGuardService implements OnModuleInit {
     if (/^Customer:\s*/i.test(text)) return true;
     if (/^APPLICATION ORDER STATUS TOOL RESULT:/i.test(text)) return true;
     return false;
+  }
+
+  private isNewOrderRequest(message: string) {
+    const lower = message.trim().toLowerCase();
+    if (!lower) return false;
+    if (/\b(?:reschedule|re-schedule|change|update|modify|edit|replace|switch|correct|correction|remove|take\s+out|cancel)\b/i.test(lower) && /\border\b/i.test(lower)) return false;
+    return /^(?:i|we)\s+(?:would\s+like|want|would\s+love)\s+to\s+(?:place\s+)?(?:a\s+)?(?:new\s+)?order\b/i.test(lower)
+      || /^(?:can|may)\s+(?:i|we)\s+(?:place\s+)?(?:a\s+)?(?:new\s+)?order\b/i.test(lower)
+      || /\b(?:place|make|start)\s+(?:a\s+)?new\s+order\b/i.test(lower)
+      || /\b(?:order|buy)\s+\d+\s*(?:pcs?|pieces?)\b/i.test(lower);
+  }
+
+  private removeUnrequestedOrderNumber(message: string, reply?: string) {
+    const output = reply?.trim() ?? "";
+    if (!output || this.isOrderNumberRequested(message)) return output;
+    return output
+      .replace(/\s*[-•]?\s*(?:Order\s+(?:ID|number|#)?\s*[:#-]?\s*EMP-[A-Za-z0-9-]+|Order\s+EMP-[A-Za-z0-9-]+)\.?/gi, "")
+      .replace(/\s*Order\s+EMP-[A-Za-z0-9-]+\s+(?:is|was)\s+(?:updated|changed)\.?/gi, " Your order was updated.")
+      .replace(/\s{2,}/g, " ")
+      .replace(/\n\s*\n\s*\n/g, "\n\n")
+      .trim();
+  }
+
+  private isOrderNumberRequested(message: string) {
+    const lower = message.toLowerCase();
+    return /\b(?:order\s*(?:id|number|no)|order\s*#|what(?:'s| is)\s+(?:my\s+)?order)\b/i.test(lower)
+      || /\b(?:status|summary|details)\b.*\border\b/i.test(lower);
   }
 
   private isInvalidCustomerReply(customerMessage: string, reply?: string) {
