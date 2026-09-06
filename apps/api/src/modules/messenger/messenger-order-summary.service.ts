@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
 import { AiOrderActionService } from "../ai/ai-order-action.service";
@@ -34,56 +35,128 @@ export class MessengerOrderSummaryService {
   ) {}
 
   async tryHandle(senderId: string, message: string): Promise<boolean> {
-    // Summary requests are a deterministic application action. Do not let the
-    // small local LLM accidentally classify "send the summary of my orders"
-    // as a new order and start the ordering flow.
     if (!this.isSummaryRequest(message)) return false;
 
-    // This handler runs before MessengerService.persistInbound(), so there is
-    // no guarantee that the PSID has already been linked to the existing
-    // customer. Fetch the Meta profile name first so CustomersService can
-    // safely attach the PSID to a uniquely matching legacy customer record.
     const profileName = await this.messengerService.getMessengerProfileName(senderId);
     const customer = await this.customersService.findOrCreateByMessenger(
       senderId,
       profileName?.trim() || "Messenger Customer"
     );
 
-    const recentOrders = await this.prisma.order.findMany({
-      where: { customerId: customer.id },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 5,
-      select: {
-        orderNumber: true,
-        status: true,
-        quantity: true,
-        unitPrice: true,
-        totalAmount: true,
-        deliveryFee: true,
-        discountAmount: true,
-        deliveryMethod: true,
-        paymentMethod: true,
-        location: true,
-        address: true,
-        preferredSchedule: true,
-        items: true,
-        createdAt: true,
-        customer: { select: { name: true, phoneNumber: true } }
+    const orderNumber = this.extractOrderNumber(message);
+    let recentOrders: OrderSummary[];
+    let lookupMode = "customer";
+
+    if (orderNumber) {
+      // An explicit order number is the most precise lookup. If it belongs to
+      // the Messenger-linked customer, return it directly. Otherwise fall
+      // through to the customer's history instead of exposing another
+      // customer's order.
+      const directOrder = await this.prisma.order.findFirst({
+        where: {
+          orderNumber,
+          customerId: customer.id
+        },
+        select: this.orderSelect()
+      }) as OrderSummary | null;
+
+      if (directOrder) {
+        recentOrders = [directOrder];
+        lookupMode = "order-number";
+      } else {
+        recentOrders = await this.findOrdersByCustomer(customer.id, profileName);
       }
-    }) as OrderSummary[];
+    } else {
+      recentOrders = await this.findOrdersByCustomer(customer.id, profileName);
+    }
 
     const latestOrder = recentOrders[0] ?? null;
     this.logger.log(
-      `Messenger summary lookup: sender=${senderId} profile=${profileName ?? "none"} customer=${customer.id} customerName=${customer.name} orders=${recentOrders.length}`
+      `Messenger summary lookup: sender=${senderId} profile=${profileName ?? "none"} customer=${customer.id} customerName=${customer.name} mode=${lookupMode} orderNumber=${orderNumber ?? "none"} orders=${recentOrders.length}`
     );
 
     const reply = recentOrders.length
       ? this.formatOrderHistory(recentOrders)
       : "You don't have any orders yet. 😊";
 
-    this.logger.log(`Sending recent order summary: sender=${senderId} customer=${customer.id} orders=${recentOrders.length} latest=${latestOrder?.orderNumber ?? "none"}`);
+    this.logger.log(
+      `Sending recent order summary: sender=${senderId} customer=${customer.id} orders=${recentOrders.length} latest=${latestOrder?.orderNumber ?? "none"}`
+    );
     await this.messengerService.sendText(senderId, reply);
     return true;
+  }
+
+  private async findOrdersByCustomer(customerId: string, profileName: string | null) {
+    const directOrders = await this.prisma.order.findMany({
+      where: { customerId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 5,
+      select: this.orderSelect()
+    });
+
+    if (directOrders.length) return directOrders as OrderSummary[];
+
+    // Legacy/manual orders may belong to a different Customer row even though
+    // Messenger now identifies the person by PSID. When the profile name is
+    // available, search all exact case-insensitive name matches and combine
+    // their orders. This handles duplicate customer rows created over time.
+    const normalizedName = profileName?.trim();
+    if (!normalizedName || normalizedName === "Messenger Customer") return [];
+
+    const namedCustomers = await this.prisma.customer.findMany({
+      where: {
+        name: {
+          equals: normalizedName,
+          mode: Prisma.QueryMode.insensitive
+        }
+      },
+      select: { id: true }
+    });
+
+    const customerIds = namedCustomers.map((candidate) => candidate.id);
+    if (!customerIds.length) return [];
+
+    const namedOrders = await this.prisma.order.findMany({
+      where: { customerId: { in: customerIds } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 5,
+      select: this.orderSelect()
+    });
+
+    if (namedOrders.length) {
+      this.logger.log(
+        `Messenger summary name fallback: name=${normalizedName} customerIds=${customerIds.length} orders=${namedOrders.length}`
+      );
+    }
+
+    return namedOrders as OrderSummary[];
+  }
+
+  private orderSelect() {
+    return {
+      orderNumber: true,
+      status: true,
+      quantity: true,
+      unitPrice: true,
+      totalAmount: true,
+      deliveryFee: true,
+      discountAmount: true,
+      deliveryMethod: true,
+      paymentMethod: true,
+      location: true,
+      address: true,
+      preferredSchedule: true,
+      items: true,
+      createdAt: true,
+      customer: { select: { name: true, phoneNumber: true } }
+    } satisfies Prisma.OrderSelect;
+  }
+
+  private extractOrderNumber(message: string) {
+    // Supports common forms such as "order EMP-123", "#EMP-123", and
+    // "order number EMP123" without assuming a single database format.
+    const match = message.match(/(?:order(?:\s+(?:number|id))?\s*)?#?([A-Z]{2,10}-?\d{2,})\b/i);
+    return match?.[1]?.toUpperCase() ?? null;
   }
 
   private isSummaryRequest(message: string) {
@@ -93,9 +166,11 @@ export class MessengerOrderSummaryService {
     return (
       /\b(summary|summarize|summarise)\b/.test(normalized) && /\border(s)?\b/.test(normalized)
       || /\b(order history|order histories|past orders|previous orders|recent orders)\b/.test(normalized)
-      || /\b(show|send|list|display)\b.*\bmy orders\b/.test(normalized)
+      || /\b(show|send|list|display|check)\b.*\bmy orders\b/.test(normalized)
       || /\bwhat did i order\b/.test(normalized)
       || /\borders? (i|that i) (placed|made|ordered)\b/.test(normalized)
+      || /\bwhat are my existing orders\b/.test(normalized)
+      || /\bi (would like|want) to check (my|the) orders?\b/.test(normalized)
     );
   }
 
