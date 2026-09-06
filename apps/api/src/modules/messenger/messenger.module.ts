@@ -8,11 +8,12 @@ import { MessengerController } from "./messenger.controller";
 import { MessengerService } from "./messenger.service";
 import { MetaAuthService } from "./meta-auth.service";
 import { MessengerSyncService } from "./messenger-sync.service";
+import { MessengerOrderRoutingGuardService } from "./messenger-order-routing-guard.service";
 
 @Module({
   imports: [AiModule, CustomersModule, OrdersModule, McpModule, NotificationsModule],
   controllers: [MessengerController],
-  providers: [MessengerService, MetaAuthService, MessengerSyncService],
+  providers: [MessengerService, MetaAuthService, MessengerSyncService, MessengerOrderRoutingGuardService],
   exports: [MessengerService, MetaAuthService]
 })
 export class MessengerModule {}
