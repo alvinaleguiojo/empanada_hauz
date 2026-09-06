@@ -133,13 +133,13 @@ export class AiOrderStatusContextService implements OnModuleInit {
       if (orderNumber) {
         order = await this.mcpOrders.getOrder({ orderNumber }) as OrderStatusResult;
       } else if (customerName) {
-        const listResult = await this.mcpOrders.listOrders({ customerName, limit: 1 });
-        const latest = listResult.orders?.[0] as OrderStatusResult | undefined;
+        const listResult = await this.mcpOrders.listOrders({ customerName, limit: 100 });
+        const latest = listResult.orders?.find((candidate) => !["completed", "cancelled"].includes(String(candidate.status))) as OrderStatusResult | undefined;
         if (latest?.id) order = await this.mcpOrders.getOrder({ id: latest.id }) as OrderStatusResult;
       }
 
       if (!order?.orderNumber || ["completed", "cancelled"].includes(order.status)) {
-        this.logger.warn(`Explicit order update skipped: ${order ? `order=${order.orderNumber} status=${order.status}` : "no matching order"}`);
+        this.logger.warn(`Explicit order update skipped: ${order ? `order=${order.orderNumber} status=${order.status}` : "no matching editable order"}`);
         return undefined;
       }
 
@@ -289,7 +289,7 @@ export class AiOrderStatusContextService implements OnModuleInit {
       }
       if (!order?.id && !order?.orderNumber) {
         const missingOrderIdMessage = "I couldn't find an order under your details. Please send your order ID so I can check the status.";
-        recentMessages.push(`APPLICATION ORDER STATUS TOOL RESULT: No order was found${orderNumber ? ` for order ID \"${orderNumber}\"` : customerName ? ` for customer \"${customerName}\"` : ""}. Ask the customer for their order ID. Do not invent an order number or status.`);
+        recentMessages.push(`APPLICATION ORDER STATUS TOOL RESULT: No order was found${orderNumber ? ` for order ID \"${orderNumber}\"` : customerName ? ` for customer \"${customerName}\"` : ""}. Ask the customer for an order ID. Do not invent an order number or status.`);
         return { context: { ...context, recentMessages }, orderStatus: undefined, missingOrderIdMessage };
       }
       recentMessages.push(`APPLICATION ORDER STATUS TOOL RESULT: Live MCP order lookup found Order ${order.orderNumber}${customerName ? ` for customer \"${customerName}\"` : ""}. Status=${order.status}; quantity=${order.quantity}; total=₱${order.totalAmount}; deliveryMethod=${order.deliveryMethod}; paymentMethod=${order.paymentMethod}; preferredSchedule=${this.formatDate(order.preferredSchedule)}; deliveryStatus=${order.delivery?.status ?? "none"}; eta=${this.formatDate(order.delivery?.eta)}; rider=${order.delivery?.riderName ?? "none"}; trackingLink=${order.delivery?.trackingLink ?? "none"}. This live tool result is authoritative. Answer the customer's status question from this result, not from conversation history. Do not claim a different status.`);
