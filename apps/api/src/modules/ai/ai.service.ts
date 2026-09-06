@@ -102,10 +102,12 @@ export class AiService {
   protected readonly logger = new Logger(AiService.name);
   protected readonly baseUrl: string;
   protected readonly model: string;
+  protected readonly interpretationModel: string;
 
   constructor(private readonly config: ConfigService) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:8b");
+    this.interpretationModel = this.config.get<string>("OLLAMA_INTERPRET_MODEL", "qwen2.5:0.5b");
   }
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
@@ -153,11 +155,11 @@ export class AiService {
       ? `CURRENT APPLICATION ORDER STATE:\n${this.formatOrderContext(activeOrderState)}`
       : "CURRENT APPLICATION ORDER STATE: none.";
     const response = await this.ollamaChat({
-      model: this.model,
+      model: this.interpretationModel,
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0.1, num_predict: 384, num_ctx: 2048 },
+      options: { temperature: 0.1, num_predict: 256, num_ctx: 1536 },
       messages: [
         {
           role: "system",
