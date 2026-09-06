@@ -50,14 +50,14 @@ const PRICES: Record<string, number> = {
   "ham & cheese": 25,
   "ham and cheese": 25,
   "ham cheese": 25,
-  "chicken": 20,
+  chicken: 20,
   "chicken with egg": 25,
   "ube empanada": 25,
-  "ube": 25,
-  "mango": 25,
-  "choco": 30,
-  "chocolate": 30,
-  "beef": 35,
+  ube: 25,
+  mango: 25,
+  choco: 30,
+  chocolate: 30,
+  beef: 35,
   "beef with egg": 40
 };
 
@@ -94,9 +94,7 @@ export class AiOrderStatusContextService implements OnModuleInit {
       if (isUpdate) {
         const result = await original(message, { ...context, activeOrderState: usableState });
         const updated = await this.applyExplicitOrderUpdate(result, message, context, orderNumber);
-        if (updated) {
-          result.suggestedReply = `Your order ${updated.orderNumber} has been updated successfully.`;
-        }
+        if (updated) result.suggestedReply = `Your order ${updated.orderNumber} has been updated successfully.`;
         return result;
       }
 
@@ -111,7 +109,6 @@ export class AiOrderStatusContextService implements OnModuleInit {
             source: "ollama"
           };
         }
-
         return {
           intent: "inquiry",
           confidence: 1,
@@ -169,15 +166,24 @@ export class AiOrderStatusContextService implements OnModuleInit {
       const update: Parameters<McpOrdersService["updateOrder"]>[0] = { orderNumber: order.orderNumber };
       const explicitItems = this.extractExplicitOrderItems(message);
       const flavors = explicitItems.length ? explicitItems : (details.flavors ?? []);
+      const isAddRequest = this.isAddItemsRequest(message);
+      const isRemoveRequest = this.isRemoveItemsRequest(message);
+
       if (flavors.length) {
-        update.items = flavors.map((item) => ({
-          name: item.name,
-          quantity: Number(item.quantity),
-          price: item.unitPrice,
-          subtotal: item.subtotal
-        }));
-        update.quantity = flavors.reduce((sum, item) => sum + Number(item.quantity), 0);
-        this.logger.log(`Explicit Messenger flavor override: ${flavors.map((item) => `${item.quantity}x ${item.name}`).join(", ")}`);
+        const finalItems = isAddRequest
+          ? this.mergeOrderItems(order.items ?? [], flavors, 1)
+          : isRemoveRequest
+            ? this.mergeOrderItems(order.items ?? [], flavors, -1)
+            : flavors.map((item) => ({
+                name: item.name,
+                quantity: Number(item.quantity),
+                price: item.unitPrice,
+                subtotal: item.subtotal
+              }));
+
+        update.items = finalItems;
+        update.quantity = finalItems.reduce((sum, item) => sum + Number(item.quantity), 0);
+        this.logger.log(`${isAddRequest ? "Explicit Messenger item addition" : isRemoveRequest ? "Explicit Messenger item removal" : "Explicit Messenger flavor replacement"}: ${flavors.map((item) => `${item.quantity}x ${item.name}`).join(", ")}`);
       } else if (details.quantity !== undefined) {
         update.quantity = Number(details.quantity);
       }
@@ -205,6 +211,54 @@ export class AiOrderStatusContextService implements OnModuleInit {
       this.logger.warn(`Explicit order update failed via MCP: ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
     }
+  }
+
+  private mergeOrderItems(
+    existing: NonNullable<OrderStatusResult["items"]>,
+    changes: Array<{ name: string; quantity: number; unitPrice: number; subtotal: number }>,
+    direction: 1 | -1
+  ) {
+    const map = new Map<string, { name: string; quantity: number; price: number; subtotal: number }>();
+    for (const item of existing) {
+      const name = String(item.name ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const price = Number(item.price ?? PRICES[key] ?? 0);
+      const quantity = Math.max(0, Number(item.quantity ?? 0));
+      map.set(key, { name, quantity, price, subtotal: quantity * price });
+    }
+
+    for (const change of changes) {
+      const key = change.name.toLowerCase();
+      const current = map.get(key);
+      const price = current?.price ?? Number(change.unitPrice ?? PRICES[key] ?? 0);
+      const nextQuantity = Math.max(0, Number(current?.quantity ?? 0) + direction * Number(change.quantity ?? 0));
+      if (nextQuantity <= 0) {
+        map.delete(key);
+        continue;
+      }
+      map.set(key, {
+        name: current?.name ?? change.name,
+        quantity: nextQuantity,
+        price,
+        subtotal: nextQuantity * price
+      });
+    }
+
+    return [...map.values()].map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      subtotal: item.subtotal
+    }));
+  }
+
+  private isAddItemsRequest(message: string) {
+    return /\b(?:add|plus|dugang)\b/i.test(message);
+  }
+
+  private isRemoveItemsRequest(message: string) {
+    return /\b(?:remove|take\s+out|kuhaon|minus)\b/i.test(message);
   }
 
   private extractExplicitOrderItems(message: string) {
@@ -435,8 +489,10 @@ export class AiOrderStatusContextService implements OnModuleInit {
   }
 
   private isExplicitOrderUpdate(message: string) {
-    return /\b(?:change|update|modify|edit|replace|switch|correct|correction)\b.*\b(?:my|the)\s+order\b/i.test(message)
-      || /\b(?:my|the)\s+order\b.*\b(?:change|update|modify|replace|switch)\b/i.test(message)
+    return /\b(?:change|update|modify|edit|replace|switch|correct|correction|add|remove)\b.*\b(?:my|the)\s+order\b/i.test(message)
+      || /\b(?:my|the)\s+order\b.*\b(?:change|update|modify|replace|switch|add|remove)\b/i.test(message)
+      || /\b(?:add|remove)\s+\d+\s*(?:pcs?|pieces?)\b/i.test(message)
+      || /\b(?:add|remove)\b.*\b(?:pcs?|pieces?)\b/i.test(message)
       || /\bchange\s+my\s+order\s+to\b/i.test(message)
       || /\bupdate\s+my\s+order\s+to\b/i.test(message);
   }
