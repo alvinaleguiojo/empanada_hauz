@@ -11,13 +11,21 @@ type QuoteResult = {
   estimatedFare: number;
 };
 
+type CachedQuote = {
+  expiresAt: number;
+  quote: QuoteResult;
+};
+
 const PICKUP_ADDRESS = "Empanada Hauz";
 const PICKUP_LATITUDE = 10.2760457;
 const PICKUP_LONGITUDE = 123.8466921;
+const QUOTE_CACHE_TTL_MS = 60_000;
+const MAX_QUOTE_CACHE_ENTRIES = 50;
 
 @Injectable()
 export class AiDeliveryFeeContextService implements OnModuleInit {
   private readonly logger = new Logger(AiDeliveryFeeContextService.name);
+  private readonly quoteCache = new Map<string, CachedQuote>();
 
   constructor(
     private readonly aiService: AiService,
@@ -54,6 +62,14 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
       return { context: { ...context, recentMessages }, estimatedFare: undefined };
     }
 
+    const cacheKey = this.normalizeCacheKey(dropoffAddress);
+    const cached = this.quoteCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      this.logger.debug(`Using cached delivery fee quote for destination=${JSON.stringify(dropoffAddress)} fee=${cached.quote.estimatedFare}`);
+      return this.withQuoteContext(context, recentMessages, dropoffAddress, cached.quote);
+    }
+    if (cached) this.quoteCache.delete(cacheKey);
+
     try {
       const quote: QuoteResult = await this.deliveryNetwork.quoteJob({
         pickupAddress: PICKUP_ADDRESS,
@@ -64,17 +80,15 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
 
       if (!Number.isFinite(quote.estimatedFare) || quote.estimatedFare <= 0) {
         recentMessages.push(
-          `APPLICATION DELIVERY FEE TOOL RESULT: The tool could not calculate a valid delivery fee for ${dropoffAddress}. Do not invent a fee; explain that the fee could not be calculated right now and ask for a more complete delivery address if needed.`
+          `APPLICATION DELIVERY FEE TOOL RESULT: The tool could not calculate a valid delivery fee for ${dropoffAddress}. Do not invent a fee; explain that the fee could not be calculated right now and ask for a more complete address if needed.`
         );
         return { context: { ...context, recentMessages }, estimatedFare: undefined };
       }
 
-      recentMessages.push(
-        `APPLICATION DELIVERY FEE TOOL RESULT: For Maxim delivery from ${PICKUP_ADDRESS} to ${dropoffAddress}, the current calculated delivery fee is ₱${quote.estimatedFare}. Distance: ${quote.distanceKm ?? "unknown"} km. Use this tool result as authoritative for the delivery-fee question. The final customer reply MUST state the calculated delivery fee. Do not invent or replace it with a generic estimate.`
-      );
-
+      this.quoteCache.set(cacheKey, { expiresAt: Date.now() + QUOTE_CACHE_TTL_MS, quote });
+      this.trimQuoteCache();
       this.logger.log(`Delivery fee quote calculated for AI: destination=${JSON.stringify(dropoffAddress)} fee=${quote.estimatedFare}`);
-      return { context: { ...context, recentMessages }, estimatedFare: quote.estimatedFare };
+      return this.withQuoteContext(context, recentMessages, dropoffAddress, quote);
     } catch (error) {
       recentMessages.push(
         "APPLICATION DELIVERY FEE TOOL RESULT: The delivery fee tool could not calculate a quote for the supplied destination. Do not invent a fee; explain that the fee could not be calculated right now and ask for a valid delivery address if needed."
@@ -82,6 +96,23 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
       this.logger.warn(`Delivery fee quote failed for AI: ${error instanceof Error ? error.message : String(error)}`);
       return { context: { ...context, recentMessages }, estimatedFare: undefined };
     }
+  }
+
+  private withQuoteContext(context: AiContext | undefined, recentMessages: string[], dropoffAddress: string, quote: QuoteResult) {
+    recentMessages.push(
+      `APPLICATION DELIVERY FEE TOOL RESULT: For Maxim delivery from ${PICKUP_ADDRESS} to ${dropoffAddress}, the current calculated delivery fee is ₱${quote.estimatedFare}. Distance: ${quote.distanceKm ?? "unknown"} km. Use this tool result as authoritative for the delivery-fee question. The final customer reply MUST state the calculated delivery fee. Do not invent or replace it with a generic estimate.`
+    );
+    return { context: { ...context, recentMessages }, estimatedFare: quote.estimatedFare };
+  }
+
+  private trimQuoteCache() {
+    if (this.quoteCache.size <= MAX_QUOTE_CACHE_ENTRIES) return;
+    const firstKey = this.quoteCache.keys().next().value;
+    if (firstKey) this.quoteCache.delete(firstKey);
+  }
+
+  private normalizeCacheKey(value: string) {
+    return value.toLowerCase().replace(/\s+/g, " ").replace(/\s*,\s*/g, ",").trim();
   }
 
   private isDeliveryFeeQuestion(message: string) {
