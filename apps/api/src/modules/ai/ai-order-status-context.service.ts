@@ -35,7 +35,20 @@ export class AiOrderStatusContextService implements OnModuleInit {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
     this.aiService.classifyAndExtract = async (message, context) => {
       const isStatusQuestion = this.isOrderStatusQuestion(message);
+      const isConfirmation = this.isConfirmationMessage(message);
       const orderNumber = this.extractOrderNumber(message) ?? this.extractFollowUpOrderNumber(message, context);
+
+      if (isConfirmation && context?.activeOrderState && this.hasCompleteOrderState(context.activeOrderState)) {
+        this.logger.log("Order confirmation bypassed Qwen interpretation; reusing saved active order state");
+        return {
+          intent: "order_confirmation",
+          confidence: 1,
+          details: { ...context.activeOrderState, confirmed: true },
+          suggestedReply: "",
+          source: "ollama"
+        };
+      }
+
       if (!isStatusQuestion && !orderNumber) return original(message, context);
 
       const enrichedContext = await this.enrichOrderStatusContext(context, orderNumber);
@@ -55,6 +68,26 @@ export class AiOrderStatusContextService implements OnModuleInit {
       result.suggestedReply = reply ? `${reply}\n${statusLine}` : statusLine;
       return result;
     };
+  }
+
+  private hasCompleteOrderState(details: NonNullable<AiContext>["activeOrderState"]) {
+    if (!details) return false;
+    const quantity = Number(details.quantity ?? 0);
+    const flavorQuantity = (details.flavors ?? []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const deliveryComplete = details.deliveryMethod === "pickup"
+      || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
+    return details.flavors.length > 0
+      && quantity >= 10
+      && flavorQuantity === quantity
+      && Boolean(details.deliveryMethod)
+      && Boolean(details.paymentMethod)
+      && deliveryComplete
+      && details.missingFields.length === 0;
+  }
+
+  private isConfirmationMessage(message: string) {
+    const lower = message.trim().toLowerCase();
+    return /^(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|okay proceed|okay do it|do it|place my order|place the order|place that order|order it|order that|that's correct|that is correct|everything is correct|all are correct)$/.test(lower);
   }
 
   private async enrichOrderStatusContext(context?: AiContext, orderNumber?: string) {
