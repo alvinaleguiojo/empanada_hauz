@@ -26,8 +26,7 @@ export class AiContextGuardService implements OnModuleInit {
       }
 
       this.logger.warn(`Rejected internal/echo AI reply for customer message=${JSON.stringify(message)}`);
-      const retryContext = { ...sanitizedContext };
-      const retryResult = await original(message, retryContext);
+      const retryResult = await original(message, sanitizedContext);
       retryResult.suggestedReply = this.removeUnrequestedOrderNumber(message, retryResult.suggestedReply);
 
       if (this.isInvalidCustomerReply(message, retryResult.suggestedReply)) {
@@ -74,16 +73,16 @@ export class AiContextGuardService implements OnModuleInit {
     const output = reply?.trim() ?? "";
     if (!output || this.isOrderNumberRequested(message)) return output;
     return output
-      .replace(/\s*[-•]?\s*(?:Order\s+(?:ID|number|#)?\s*[:#-]?\s*EMP-[A-Za-z0-9-]+|Order\s+EMP-[A-Za-z0-9-]+)\.?/gi, "")
-      .replace(/\s*Order\s+EMP-[A-Za-z0-9-]+\s+(?:is|was)\s+(?:updated|changed)\.?/gi, " Your order was updated.")
+      .replace(/\bEMP-[A-Za-z0-9-]+\b/gi, "")
+      .replace(/\bOrder\s+(?:ID|number|#)\s*[:#-]?\s*\.?/gi, "")
+      .replace(/\s+([,.!?])/g, "$1")
       .replace(/\s{2,}/g, " ")
-      .replace(/\n\s*\n\s*\n/g, "\n\n")
       .trim();
   }
 
   private isOrderNumberRequested(message: string) {
     const lower = message.toLowerCase();
-    return /\b(?:order\s*(?:id|number|no)|order\s*#|what(?:'s| is)\s+(?:my\s+)?order)\b/i.test(lower)
+    return /\b(?:order\s*(?:id|number|no)|order\s*#)\b/i.test(lower)
       || /\b(?:status|summary|details)\b.*\border\b/i.test(lower);
   }
 
