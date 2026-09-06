@@ -71,7 +71,7 @@ Rules:
 - status means asking where/how an existing order is or whether it has been placed, but NOT when the customer is merely reusing details for a new order.
 - summary means asking to see the current order summary.
 - inquiry means general business questions or messages that are not an order action.
-- newOrderFlowActive=true when the recent conversation shows that the customer is currently building a separate/new order. This remains true while the customer completes missing fields, including when they ask to reuse delivery details from a previous order.
+- newOrderFlowActive=true when the recent conversation shows that the customer is currently building a separate/new order. This remains true while the customer completes missing fields.
 - reuseExistingDelivery=true when the customer asks to use, reuse, keep, use again, copy, or retain delivery details from a previous/current order for the NEW order being built. Delivery details means delivery method, address, landmark/location, and contact number. Do not infer or copy payment from this request.
 - IMPORTANT: If the recent conversation shows a new order is being built and the current message asks to reuse existing delivery details, return orderAction=new_order, newOrderFlowActive=true, reuseExistingDelivery=true. Do NOT return status or modify_existing.
 - If the customer first starts a new order while an active database order exists, return new_order with newOrderFlowActive=false; the application may ask whether they want to change the existing order or place a separate new order.
@@ -99,12 +99,18 @@ Rules:
         : "inquiry";
       const reuseExistingDelivery = Boolean(parsed.reuseExistingDelivery);
       const newOrderFlowActive = Boolean(parsed.newOrderFlowActive);
-      const orderAction = reuseExistingDelivery && newOrderFlowActive ? "new_order" : requestedAction;
+
+      // Reusing delivery details is a continuation of the order currently being
+      // built, never a request to inspect or modify the previous database order.
+      // Once Qwen identifies that semantic request, keep the turn in the new
+      // order flow even if a smaller model mislabeled the action as status.
+      const effectiveNewOrderFlow = newOrderFlowActive || reuseExistingDelivery;
+      const orderAction = reuseExistingDelivery ? "new_order" : requestedAction;
       const confidence = Number(parsed.confidence);
       return {
         orderAction,
         confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
-        newOrderFlowActive: newOrderFlowActive || (reuseExistingDelivery && requestedAction === "new_order"),
+        newOrderFlowActive: effectiveNewOrderFlow,
         reuseExistingDelivery
       };
     } catch (error) {
