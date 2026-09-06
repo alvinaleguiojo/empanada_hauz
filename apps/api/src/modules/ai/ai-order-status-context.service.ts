@@ -240,13 +240,13 @@ export class AiOrderStatusContextService implements OnModuleInit {
   }
 
   private extractOrderNumber(message: string) {
-    const match = message.match(/\b(?:order\s*(?:id|number|no)?|order\s*#)\s*[:#-]?\s*([A-Za-z0-9-]+)\b/i);
-    return match?.[1]?.trim();
+    const explicit = message.match(/\b(?:order\s*(?:id|number|no)\s*[:#-]?|order\s*#\s*)\s*([A-Za-z0-9-]{3,64})\b/i);
+    return explicit?.[1]?.trim();
   }
 
   private extractFollowUpOrderNumber(message: string, context?: AiContext) {
     const normalized = message.trim();
-    if (!/^[A-Za-z0-9-]{3,32}$/.test(normalized)) return undefined;
+    if (!/^[A-Za-z0-9-]{3,64}$/.test(normalized)) return undefined;
     const recent = (context?.recentMessages ?? []).slice(-3).join(" ");
     return /order\s*(?:id|number|#)|send.*order/i.test(recent) ? normalized : undefined;
   }
