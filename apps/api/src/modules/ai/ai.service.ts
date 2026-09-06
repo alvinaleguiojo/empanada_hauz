@@ -6,9 +6,12 @@ const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empan
 
 The CURRENT CUSTOMER MESSAGE is highest priority. Answer it directly.
 Interpret the CURRENT CUSTOMER MESSAGE semantically. Do not assume the customer's wording must match predefined aliases.
+Understand abbreviations, shorthand, misspellings, phonetic spellings, incomplete phrases, Cebuano/English mixed language, and casual Messenger-style wording.
+Use the recent conversation context to resolve references such as "that", "same", "10 pcs", "gcash", "cod", "max", and other follow-up replies.
+Do not discard previously known information merely because it is not repeated in the latest message.
 The application will merge your interpretation with the previous active order state.
 A greeting starts a fresh conversation unless the customer explicitly refers to an existing order.
-A flavor-only request needs a quantity; ask how many pcs.
+A flavor-only request needs a quantity; ask how many pcs only when the quantity is genuinely missing.
 An order with missing required fields is NOT ready for confirmation.
 Never ask for confirmation when required fields are missing.
 For Maxim delivery, collect Address, Landmark, and Contact # before confirmation.
@@ -41,14 +44,13 @@ Business facts:
 
 interface OllamaResponse { message?: { content?: string } }
 type Details = AIIntentResult["details"];
-
 type Flavor = Details["flavors"][number];
 
 type CurrentInterpretation = {
   intent: CustomerIntent;
   startsNewConversation: boolean;
   flavorAction: "none" | "replace" | "add" | "remove";
-  flavors: Array<{ name: string; quantity: number }>;
+  flavors: Array<{ name: string; quantity?: number }>;
   quantity?: number;
   location?: string;
   deliveryMethod?: DeliveryMethodValue;
@@ -108,8 +110,8 @@ export class AiService {
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
-    const recentMessages = (context?.recentMessages ?? []).slice(-6);
-    const current = await this.interpretCurrentMessage(message, now);
+    const recentMessages = (context?.recentMessages ?? []).slice(-20);
+    const current = await this.interpretCurrentMessage(message, now, recentMessages, context?.activeOrderState);
     const details = this.mergeOrderState(context?.activeOrderState, current);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
     const replyContext = this.buildReplyContext(message, recentMessages, details);
@@ -143,21 +145,27 @@ export class AiService {
     return this.cleanReply(reply);
   }
 
-  private async interpretCurrentMessage(message: string, now: string): Promise<CurrentInterpretation> {
+  private async interpretCurrentMessage(message: string, now: string, recentMessages: string[], activeOrderState?: Details): Promise<CurrentInterpretation> {
+    const conversationContext = recentMessages.length
+      ? `RECENT CONVERSATION (oldest to newest):\n${recentMessages.join("\n")}`
+      : "RECENT CONVERSATION: none.";
+    const activeStateContext = activeOrderState
+      ? `CURRENT APPLICATION ORDER STATE:\n${this.formatOrderContext(activeOrderState)}`
+      : "CURRENT APPLICATION ORDER STATE: none.";
     const response = await this.ollamaChat({
       model: this.model,
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0.1, num_predict: 256, num_ctx: 2048 },
+      options: { temperature: 0.1, num_predict: 384, num_ctx: 3072 },
       messages: [
         {
           role: "system",
-          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY valid JSON for the CURRENT CUSTOMER MESSAGE. Interpret only what the customer says in this message; do not copy fields from prior messages.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nUse an empty string/empty array or omit a field when it is not present in the current message. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace when the customer is giving a new complete flavor selection, add when explicitly adding items to an existing order, and remove when explicitly removing items.`
+          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY valid JSON for the CURRENT CUSTOMER MESSAGE. Use the recent conversation and current application order state to understand what the current message means, but only return fields that are explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nThe quantity inside a flavor may be omitted when the customer names a flavor without giving its quantity. In that case still return the recognized canonical flavor. Understand abbreviations, typos, shorthand, phonetic spellings, and follow-up answers from the recent conversation. For example, if the conversation is "Pork regular" followed by "10 pcs", interpret "10 pcs" as the quantity for Pork Regular. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace when the customer is giving a new complete flavor selection, add when explicitly adding items to an existing order, and remove when explicitly removing items.`
         },
         {
           role: "user",
-          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nCURRENT DATE/TIME IN ASIA/MANILA:\n${now}`
+          content: `${conversationContext}\n\n${activeStateContext}\n\nCURRENT CUSTOMER MESSAGE:\n${message}\n\nCURRENT DATE/TIME IN ASIA/MANILA:\n${now}`
         }
       ]
     }, "Ollama order interpretation failed");
@@ -172,8 +180,8 @@ export class AiService {
         flavorAction: parsed.flavorAction === "replace" || parsed.flavorAction === "add" || parsed.flavorAction === "remove" ? parsed.flavorAction : "none",
         flavors: Array.isArray(parsed.flavors)
           ? parsed.flavors
-              .map((item) => ({ name: this.normalizeFlavorName(item?.name), quantity: Number(item?.quantity ?? 0) }))
-              .filter((item) => item.name && item.quantity > 0)
+              .map((item) => ({ name: this.normalizeFlavorName(item?.name), quantity: this.optionalPositiveNumber(item?.quantity) }))
+              .filter((item) => item.name)
           : [],
         quantity: this.optionalPositiveNumber(parsed.quantity),
         location: this.optionalText(parsed.location),
@@ -205,26 +213,16 @@ export class AiService {
     const merged: Details = { ...base, confirmed: false, missingFields: [] };
 
     if (current.flavorAction === "replace" && current.flavors.length) {
-      merged.flavors = current.flavors.map((item) => this.toFlavor(item));
+      merged.flavors = current.flavors.map((item) => this.toFlavor({ name: item.name, quantity: item.quantity ?? 0 }));
     } else if (current.flavorAction === "add" && current.flavors.length) {
       merged.flavors = this.mergeFlavorAdds(base.flavors ?? [], current.flavors);
     } else if (current.flavorAction === "remove" && current.flavors.length) {
       merged.flavors = this.removeFlavors(base.flavors ?? [], current.flavors);
     } else if (current.flavors.length) {
-      merged.flavors = current.flavors.map((item) => this.toFlavor(item));
+      merged.flavors = current.flavors.map((item) => this.toFlavor({ name: item.name, quantity: item.quantity ?? 0 }));
     }
 
-    for (const field of [
-      "quantity",
-      "location",
-      "deliveryMethod",
-      "preferredTime",
-      "deliveryDate",
-      "address",
-      "landmark",
-      "contactNumber",
-      "paymentMethod"
-    ] as const) {
+    for (const field of ["quantity", "location", "deliveryMethod", "preferredTime", "deliveryDate", "address", "landmark", "contactNumber", "paymentMethod"] as const) {
       const value = current[field];
       if (value !== undefined && value !== "") (merged as Record<string, unknown>)[field] = value;
     }
@@ -234,32 +232,35 @@ export class AiService {
       merged.flavors = [{ ...only, quantity: current.quantity, subtotal: current.quantity * Number(only.unitPrice ?? 0) }];
       merged.quantity = current.quantity;
     } else if (merged.flavors.length && current.flavorAction !== "add" && current.flavorAction !== "remove") {
-      merged.quantity = merged.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+      const hasPositiveFlavorQuantity = merged.flavors.some((item) => Number(item.quantity ?? 0) > 0);
+      if (hasPositiveFlavorQuantity || current.flavors.some((item) => item.quantity !== undefined)) {
+        merged.quantity = merged.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+      }
     }
 
     if (current.confirmed) merged.confirmed = true;
     return merged;
   }
 
-  private mergeFlavorAdds(existing: Flavor[], additions: Array<{ name: string; quantity: number }>): Flavor[] {
+  private mergeFlavorAdds(existing: Flavor[], additions: Array<{ name: string; quantity?: number }>): Flavor[] {
     const map = new Map(existing.map((item) => [item.name.toLowerCase(), { ...item }]));
     for (const addition of additions) {
       const key = addition.name.toLowerCase();
       const current = map.get(key);
-      const quantity = Number(current?.quantity ?? 0) + addition.quantity;
+      const quantity = Number(current?.quantity ?? 0) + Number(addition.quantity ?? 0);
       const unitPrice = current?.unitPrice ?? PRICES[key] ?? 0;
       map.set(key, { name: addition.name, quantity, unitPrice, subtotal: quantity * unitPrice });
     }
     return [...map.values()];
   }
 
-  private removeFlavors(existing: Flavor[], removals: Array<{ name: string; quantity: number }>): Flavor[] {
+  private removeFlavors(existing: Flavor[], removals: Array<{ name: string; quantity?: number }>): Flavor[] {
     const map = new Map(existing.map((item) => [item.name.toLowerCase(), { ...item }]));
     for (const removal of removals) {
       const key = removal.name.toLowerCase();
       const current = map.get(key);
       if (!current) continue;
-      const quantity = Number(current.quantity) - removal.quantity;
+      const quantity = Number(current.quantity) - Number(removal.quantity ?? 0);
       if (quantity <= 0) map.delete(key);
       else map.set(key, { ...current, quantity, subtotal: quantity * Number(current.unitPrice ?? 0) });
     }
@@ -267,11 +268,12 @@ export class AiService {
   }
 
   private finalizeOrderState(details: Details): Details {
-    const flavors = (details.flavors ?? []).filter((item) => Number(item.quantity) > 0).map((item) => {
+    const flavors = (details.flavors ?? []).map((item) => {
       const name = this.normalizeFlavorName(item.name);
       const unitPrice = Number(item.unitPrice ?? PRICES[name.toLowerCase()] ?? 0);
-      return { name, quantity: Number(item.quantity), unitPrice, subtotal: Number(item.quantity) * unitPrice };
-    });
+      const quantity = Math.max(0, Number(item.quantity ?? 0));
+      return { name, quantity, unitPrice, subtotal: quantity * unitPrice };
+    }).filter((item) => item.name);
     const quantity = flavors.reduce((sum, item) => sum + item.quantity, 0);
     const totalAmount = flavors.reduce((sum, item) => sum + Number(item.subtotal ?? item.quantity * Number(item.unitPrice ?? 0)), 0);
     const finalized: Details = { ...details, flavors, quantity: quantity || details.quantity, totalAmount, missingFields: [] };
@@ -288,9 +290,9 @@ export class AiService {
       return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.";
     }
     if (details.flavors.length) {
-      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
+      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-20).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
     }
-    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-2).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
+    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-20).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
   }
 
   private buildNextActionDirective(message: string, details: Details): string {
@@ -317,7 +319,7 @@ export class AiService {
 
   private formatOrderContext(details: Details): string {
     return [
-      `Flavors: ${details.flavors.map((x) => `${x.quantity} pcs ${x.name} (₱${x.unitPrice ?? 0} each)`).join(", ")}`,
+      `Flavors: ${details.flavors.map((x) => `${x.quantity > 0 ? `${x.quantity} pcs` : "quantity pending"} ${x.name} (₱${x.unitPrice ?? 0} each)`).join(", ")}`,
       `Quantity: ${details.quantity ?? details.flavors.reduce((sum, x) => sum + x.quantity, 0)}`,
       `Total food amount: ₱${details.totalAmount ?? 0}`,
       `Delivery method: ${details.deliveryMethod ?? "missing"}`,
@@ -328,7 +330,7 @@ export class AiService {
       details.deliveryDate ? `Delivery date: ${details.deliveryDate}` : "",
       details.preferredTime ? `Preferred time: ${details.preferredTime}` : "",
       `Missing required information: ${details.missingFields.length ? this.humanMissing(details.missingFields).join(", ") : "none"}`,
-      `Placement status: ${details.missingFields.length === 0 && details.flavors.length ? "READY only after explicit confirmation" : "NOT READY"}`
+      `Placement status: ${details.missingFields.length === 0 && details.flavors.some((x) => x.quantity > 0) ? "READY only after explicit confirmation" : "NOT READY"}`
     ].filter(Boolean).join("\n");
   }
 
@@ -439,11 +441,11 @@ export class AiService {
       model: this.model,
       stream: false,
       think: false,
-      options: { temperature: 0.2, num_predict: 160, num_ctx: 2048 },
+      options: { temperature: 0.2, num_predict: 160, num_ctx: 3072 },
       messages: [
         {
           role: "system",
-          content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The APPLICATION ORDER FACTS below are the merged current state and are authoritative. Answer questions directly. A summary request must return the current summary. If required fields are missing, never ask for confirmation. Do not output internal fields, JSON, or meta-commentary.`
+          content: `${systemPrompt}\n\nAnswer ONLY the current customer message. The APPLICATION ORDER FACTS below are the merged current state and are authoritative. The CONVERSATION CONTEXT is supporting context for references and follow-up replies. Answer questions directly. A summary request must return the current summary. If required fields are missing, never ask for confirmation. Do not output internal fields, JSON, or meta-commentary.`
         },
         { role: "user", content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\n${context}` }
       ]
@@ -472,12 +474,7 @@ export class AiService {
   }
 
   private manilaDateOffset(days: number) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Manila",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).formatToParts(new Date());
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
     const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     const date = new Date(`${values.year}-${values.month}-${values.day}T00:00:00+08:00`);
     date.setUTCDate(date.getUTCDate() + days);
