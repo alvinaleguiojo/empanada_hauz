@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
+import { AiControlService } from "../ai/ai-control.service";
 import { AiService } from "../ai/ai.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { McpOrdersService } from "../mcp/mcp-orders.service";
@@ -21,6 +22,7 @@ export class MessengerService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly customersService: CustomersService,
+    private readonly aiControl: AiControlService,
     private readonly aiService: AiService,
     private readonly notificationsService: NotificationsService,
     private readonly mcpOrdersService: McpOrdersService,
@@ -32,6 +34,13 @@ export class MessengerService {
     const stored = await this.persistInbound(event);
     this.logger.log(`Messenger inbound persisted: sender=${event.senderId} messageId=${event.messageId ?? "unknown"} message=${stored.id}`);
     const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId }, include: { customer: true } });
+
+    const aiState = await this.aiControl.getCustomerState(conversation.customer.id);
+    if (!aiState.effectiveEnabled) {
+      this.logger.log(`Messenger AI disabled: customer=${conversation.customer.id} sender=${event.senderId} override=${aiState.customerOverride} global=${aiState.globalEnabled}`);
+      return { ai: null, reply: "", aiEnabled: false };
+    }
+
     const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
     const activeOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
@@ -111,7 +120,25 @@ export class MessengerService {
       try { await this.sendText(event.senderId, reply); this.logger.log(`Qwen Messenger reply sent: sender=${event.senderId}`); }
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error)); }
     }
-    return { ai, reply };
+    return { ai, reply, aiEnabled: true };
+  }
+
+  async getAiSettings() {
+    return this.aiControl.getState();
+  }
+
+  async setGlobalAiEnabled(enabled: boolean) {
+    this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`);
+    return this.aiControl.setGlobalEnabled(enabled);
+  }
+
+  async getCustomerAiSettings(customerId: string) {
+    return this.aiControl.getCustomerState(customerId);
+  }
+
+  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) {
+    this.logger.warn(`Messenger AI customer switch changed: customer=${customerId} override=${enabled}`);
+    return this.aiControl.setCustomerOverride(customerId, enabled);
   }
 
   private findLatestValidOrderState(values: unknown[]) {
