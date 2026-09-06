@@ -73,6 +73,12 @@ export class AiOrderStatusContextService implements OnModuleInit {
   onModuleInit() {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
     this.aiService.classifyAndExtract = async (message, context) => {
+      const routingChoice = this.extractExistingOrderRoutingChoice(message, context);
+      if (routingChoice === "new") {
+        this.logger.log("Customer selected NEW order in status context; clearing existing order state");
+        return original(message, { ...context, activeOrderState: undefined });
+      }
+
       const isUpdate = this.isExplicitOrderUpdate(message);
       const isAvailability = !isUpdate && this.isAvailabilityQuestion(message);
       const isStatusQuestion = !isUpdate && !isAvailability && this.isOrderStatusQuestion(message);
@@ -150,6 +156,17 @@ export class AiOrderStatusContextService implements OnModuleInit {
       result.suggestedReply = reply ? `${reply}\n${statusLine}` : statusLine;
       return result;
     };
+  }
+
+  private extractExistingOrderRoutingChoice(message: string, context?: AiContext) {
+    const normalized = message.trim().toLowerCase();
+    if (!/^(new|change|edit|update|modify|existing|old|same|yes|no)$/i.test(normalized)) return undefined;
+
+    const recent = (context?.recentMessages ?? []).slice(-4).map((entry) => String(entry).trim()).join("\n");
+    if (!/(?:existing order|place a new order|change your existing order)/i.test(recent)) return undefined;
+
+    if (/^(new|yes)$/i.test(normalized)) return "new" as const;
+    return "change" as const;
   }
 
   private async applyExplicitOrderUpdate(
@@ -422,7 +439,6 @@ export class AiOrderStatusContextService implements OnModuleInit {
     }
 
     lines.push("", "TOTAL", `Food: ₱${foodTotal.toFixed(0)}`);
-
     lines.push("", "DELIVERY");
     lines.push(`Method: ${order.deliveryMethod === "maxim" ? "Maxim Delivery" : order.deliveryMethod}`);
     if (order.deliveryMethod === "maxim") {
@@ -430,17 +446,14 @@ export class AiOrderStatusContextService implements OnModuleInit {
       if (order.location) lines.push(`Landmark: ${order.location}`);
       if (order.customer?.phoneNumber) lines.push(`Contact #: ${order.customer.phoneNumber}`);
     }
-
     lines.push("", "PAYMENT");
     lines.push(order.paymentMethod === "gcash" ? "GCash — Alvin Aleguiojo (09453916796)" : "COD");
-
     const schedule = this.formatSummarySchedule(order.preferredSchedule);
     if (schedule.date || schedule.time) {
       lines.push("", "SCHEDULE");
       if (schedule.date) lines.push(`Delivery date: ${schedule.date}`);
       if (schedule.time) lines.push(`Preferred time: ${schedule.time}`);
     }
-
     lines.push("", "Thank you! 😊");
     return lines.join("\n");
   }
@@ -449,19 +462,9 @@ export class AiOrderStatusContextService implements OnModuleInit {
     if (!value) return { date: undefined, time: undefined };
     const date = value instanceof Date ? value : new Date(String(value));
     if (Number.isNaN(date.getTime())) return { date: String(value), time: undefined };
-    const parts = new Intl.DateTimeFormat("en-PH", {
-      timeZone: "Asia/Manila",
-      year: "numeric",
-      month: "long",
-      day: "numeric"
-    }).formatToParts(date);
+    const parts = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric" }).formatToParts(date);
     const dateText = `${parts.find((part) => part.type === "month")?.value} ${parts.find((part) => part.type === "day")?.value}, ${parts.find((part) => part.type === "year")?.value}`;
-    const timeText = new Intl.DateTimeFormat("en-PH", {
-      timeZone: "Asia/Manila",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true
-    }).format(date);
+    const timeText = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit", hour12: true }).format(date);
     const hasExplicitTime = !(date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && !String(value).includes("T"));
     return { date: dateText, time: hasExplicitTime ? timeText : undefined };
   }
@@ -488,6 +491,7 @@ export class AiOrderStatusContextService implements OnModuleInit {
   private extractFollowUpOrderNumber(message: string, context?: AiContext) {
     const normalized = message.trim();
     if (!/^[A-Za-z0-9-]{3,64}$/.test(normalized)) return undefined;
+    if (/^(?:new|change|edit|update|modify|existing|old|same|yes|no)$/i.test(normalized)) return undefined;
     const recent = (context?.recentMessages ?? []).slice(-3).join(" ");
     return /order\s*(?:id|number|#)|send.*order/i.test(recent) ? normalized : undefined;
   }
@@ -512,10 +516,16 @@ export class AiOrderStatusContextService implements OnModuleInit {
   private isExplicitOrderUpdate(message: string) {
     return /\b(?:change|update|modify|edit|replace|switch|correct|correction|add|remove)\b.*\b(?:my|the)\s+order\b/i.test(message)
       || /\b(?:my|the)\s+order\b.*\b(?:change|update|modify|replace|switch|add|remove)\b/i.test(message)
-      || /\b(?:add|remove)\s+\d+\s*(?:pcs?|pieces?)\b/i.test(message)
-      || /\b(?:add|remove)\b.*\b(?:pcs?|pieces?)\b/i.test(message)
       || /\bchange\s+my\s+order\s+to\b/i.test(message)
       || /\bupdate\s+my\s+order\s+to\b/i.test(message);
+  }
+
+  private isAddItemsRequest(message: string) {
+    return /\b(?:add|plus|dugang)\b/i.test(message);
+  }
+
+  private isRemoveItemsRequest(message: string) {
+    return /\b(?:remove|take\s+out|kuhaon|minus)\b/i.test(message);
   }
 
   private isConfirmationMessage(message: string) {
