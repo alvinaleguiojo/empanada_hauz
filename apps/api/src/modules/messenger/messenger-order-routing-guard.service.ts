@@ -87,7 +87,7 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
 
     if (/^(?:new\s+order|new\s+order\s+(?:please|pls))$/i.test(lower)) return true;
     if (/\b(?:place|make|start)\s+(?:a\s+)?new\s+order\b/i.test(lower)) return true;
-    if (/\b(?:i|we)\s+(?:would\s+like|want|would\s+love)\s+to\s+(?:place\s+)?(?:a\s+)?new\s+order\b/i.test(lower)) return true;
+    if (/\b(?:i|we)\s+(?:would\s+like|want|would\s+love)\s+(?:to\s+)?(?:place\s+)?(?:a\s+)?new(?:\s+order)?\b/i.test(lower)) return true;
     if (/\b(?:i|we)\s+(?:would\s+like|want|would\s+love)\s+to\s+order\b/i.test(lower)) return true;
     if (/\b(?:can|may)\s+(?:i|we)\s+(?:place\s+)?(?:a\s+)?new\s+order\b/i.test(lower)) return true;
     if (/\b(?:can|may)\s+(?:i|we)\s+order\b/i.test(lower)) return true;
