@@ -181,7 +181,9 @@ export class MessengerService {
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
-    if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) {
+    if (effectiveOrderAction === "new_order" && shouldReuseExistingDelivery) {
+      reply = this.buildApplicationOrderSummary(activeOrderState, true);
+    } else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) {
       reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
     } else if (this.isConfirmedOrder(ai, event.text)) {
       try {
@@ -216,6 +218,33 @@ export class MessengerService {
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error)); }
     }
     return { ai, reply, aiEnabled: true };
+  }
+
+  private buildApplicationOrderSummary(details: OrderDetails, reusedDelivery: boolean) {
+    const flavors = details.flavors.length
+      ? details.flavors.map((item) => `${item.quantity} pcs ${item.name} (₱${item.unitPrice ?? 0} each)`).join(", ")
+      : "none";
+    const deliveryMethod = details.deliveryMethod ?? "missing";
+    const paymentMethod = details.paymentMethod ?? "missing";
+    const address = details.address ?? "none";
+    const landmark = details.landmark ?? "none";
+    const contactNumber = details.contactNumber ?? "none";
+    const deliveryDate = details.deliveryDate ?? "none";
+    const preferredTime = details.preferredTime ?? "none";
+    const intro = reusedDelivery ? "Sure — I’ll use your existing delivery details for this new order. Here’s the updated summary:" : "Here’s your order summary:";
+    return [
+      intro,
+      `Flavors: ${flavors}`,
+      `Total food amount: ₱${details.totalAmount ?? 0}`,
+      `Delivery method: ${deliveryMethod === "maxim" ? "Maxim" : deliveryMethod === "pickup" ? "Pickup" : deliveryMethod}`,
+      `Payment method: ${paymentMethod === "cod" ? "COD" : paymentMethod === "gcash" ? "GCash" : paymentMethod}`,
+      `Address: ${address}`,
+      `Landmark: ${landmark}`,
+      `Contact #: ${contactNumber}`,
+      `Delivery date: ${deliveryDate}`,
+      `Preferred time: ${preferredTime}`,
+      "Please confirm if all the details above are correct. 😊"
+    ].join("\n");
   }
 
   async getAiSettings() { return this.aiControl.getState(); }
