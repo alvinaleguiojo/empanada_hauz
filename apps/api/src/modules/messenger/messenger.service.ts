@@ -39,7 +39,24 @@ export class MessengerService {
       ? await this.prisma.order.findFirst({
           where: { customerId: conversation.customer.id },
           orderBy: { createdAt: "desc" },
-          select: { id: true, orderNumber: true, status: true, createdAt: true, quantity: true, unitPrice: true, totalAmount: true, deliveryFee: true, discountAmount: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true }
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            createdAt: true,
+            quantity: true,
+            unitPrice: true,
+            totalAmount: true,
+            deliveryFee: true,
+            discountAmount: true,
+            deliveryMethod: true,
+            paymentMethod: true,
+            location: true,
+            address: true,
+            preferredSchedule: true,
+            items: true,
+            customer: { select: { phoneNumber: true } }
+          }
         })
       : null;
     const orderValidation = activeOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
@@ -60,9 +77,8 @@ export class MessengerService {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
         this.logger.log(`Created confirmed Messenger order ${created.orderNumber} for ${event.senderId} via MCP order service`);
-        const trackingUrl = this.trackingUrl(created.id);
         const createdReply = await this.aiService.generateOrderResultReply("created", created.orderNumber);
-        reply = `${createdReply}\nTrack your order here: ${trackingUrl}`;
+        reply = `${createdReply}\nTrack your order here: ${this.trackingUrl(created.id)}`;
       } catch (error) {
         this.logger.error(`Confirmed Messenger order could not be created for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
         try {
@@ -79,11 +95,7 @@ export class MessengerService {
         reply = `${ai.suggestedReply?.trim() || "Your order has been updated."}\nOrder ${updated.orderNumber} is updated.`;
       } catch (error) {
         this.logger.error(`Customer order update failed for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
-        try {
-          reply = await this.aiService.generateOrderResultReply("failed");
-        } catch {
-          reply = ai.suggestedReply?.trim() ?? "";
-        }
+        reply = ai.suggestedReply?.trim() || "I couldn't update the order right now. Please try again.";
       }
     }
 
@@ -103,7 +115,7 @@ export class MessengerService {
   private shouldUpdateCustomerOrder(
     intent: string,
     details: Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"],
-    latestOrder: { status: string; quantity: number; deliveryMethod: string; paymentMethod: string; location: string | null; address: string | null; preferredSchedule: Date | null; items: unknown },
+    latestOrder: { status: string; quantity: number; deliveryMethod: string; paymentMethod: string; location: string | null; address: string | null; preferredSchedule: Date | null; items: unknown; customer: { phoneNumber: string | null } },
     currentMessage: string
   ) {
     if (["completed", "cancelled"].includes(latestOrder.status)) return false;
@@ -120,7 +132,7 @@ export class MessengerService {
     const paymentChanged = details.paymentMethod !== undefined && details.paymentMethod !== latestOrder.paymentMethod;
     const locationChanged = details.location !== undefined && details.location !== (latestOrder.location ?? undefined);
     const addressChanged = details.address !== undefined && details.address !== (latestOrder.address ?? undefined);
-    const contactChanged = details.contactNumber !== undefined && details.contactNumber !== undefined;
+    const contactChanged = details.contactNumber !== undefined && details.contactNumber !== (latestOrder.customer.phoneNumber ?? undefined);
     const proposedSchedule = details.deliveryDate && details.preferredTime ? this.toManilaIso(details.deliveryDate, details.preferredTime) : undefined;
     const scheduleChanged = proposedSchedule !== undefined && proposedSchedule !== (latestOrder.preferredSchedule?.toISOString() ?? undefined);
     const updateLanguage = /\b(add|remove|change|update|replace|switch|modify|edit|increase|decrease|more|less|instead|make it|make my|wrong|correction|dugang|ilis|usba|kuhaon|pa)\b/i.test(currentMessage);
