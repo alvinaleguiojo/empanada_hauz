@@ -31,7 +31,7 @@ export class MessengerService {
     const stored = await this.persistInbound(event);
     this.logger.log(`Messenger inbound persisted: sender=${event.senderId} messageId=${event.messageId ?? "unknown"} message=${stored.id}`);
     const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId }, include: { customer: true } });
-    const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 8, select: { direction: true, content: true, extractedOrder: true } });
+    const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
     const activeOrderMessage = recentMessages.find((item) => item.extractedOrder && typeof item.extractedOrder === "object" && !Array.isArray(item.extractedOrder));
     const activeOrderState = activeOrderMessage?.extractedOrder as Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"] | undefined;
@@ -39,7 +39,7 @@ export class MessengerService {
       ? await this.prisma.order.findFirst({
           where: { customerId: conversation.customer.id },
           orderBy: { createdAt: "desc" },
-          select: { id: true, orderNumber: true, status: true, createdAt: true, quantity: true, items: true }
+          select: { id: true, orderNumber: true, status: true, createdAt: true, quantity: true, unitPrice: true, totalAmount: true, deliveryFee: true, discountAmount: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true }
         })
       : null;
     const orderValidation = activeOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
@@ -60,13 +60,28 @@ export class MessengerService {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
         this.logger.log(`Created confirmed Messenger order ${created.orderNumber} for ${event.senderId} via MCP order service`);
-        reply = await this.aiService.generateOrderResultReply("created", created.orderNumber);
+        const trackingUrl = this.trackingUrl(created.id);
+        const createdReply = await this.aiService.generateOrderResultReply("created", created.orderNumber);
+        reply = `${createdReply}\nTrack your order here: ${trackingUrl}`;
       } catch (error) {
         this.logger.error(`Confirmed Messenger order could not be created for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
         try {
           reply = await this.aiService.generateOrderResultReply("failed");
         } catch (replyError) {
           this.logger.error(`Qwen order-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError));
+          reply = ai.suggestedReply?.trim() ?? "";
+        }
+      }
+    } else if (latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder)) {
+      try {
+        const updated = await this.updateCustomerOrderFromAi(ai, latestOrder.orderNumber);
+        this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
+        reply = `${ai.suggestedReply?.trim() || "Your order has been updated."}\nOrder ${updated.orderNumber} is updated.`;
+      } catch (error) {
+        this.logger.error(`Customer order update failed for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
+        try {
+          reply = await this.aiService.generateOrderResultReply("failed");
+        } catch {
           reply = ai.suggestedReply?.trim() ?? "";
         }
       }
@@ -78,6 +93,50 @@ export class MessengerService {
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}`, error instanceof Error ? error.stack : String(error)); }
     }
     return { ai, reply };
+  }
+
+  private trackingUrl(orderId: string) {
+    const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, "");
+    return `${baseUrl}/track/${orderId}`;
+  }
+
+  private shouldUpdateCustomerOrder(
+    intent: string,
+    details: Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"],
+    latestOrder: { status: string; quantity: number; unitPrice: unknown; deliveryFee: unknown; discountAmount: unknown; deliveryMethod: string; paymentMethod: string; location: string | null; address: string | null; preferredSchedule: Date | null; items: unknown }
+  ) {
+    if (["completed", "cancelled"].includes(latestOrder.status)) return false;
+    if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length) return false;
+    if (!details.flavors.length && !details.quantity && !details.deliveryMethod && !details.paymentMethod && !details.address && !details.location) return false;
+
+    const existingItems = Array.isArray(latestOrder.items)
+      ? latestOrder.items.map((item) => ({ name: String((item as Record<string, unknown>)?.name ?? ""), quantity: Number((item as Record<string, unknown>)?.quantity ?? 0) })).filter((item) => item.name)
+      : [];
+    const newItems = details.flavors.map((item) => ({ name: item.name, quantity: Number(item.quantity) }));
+    const itemsChanged = JSON.stringify(existingItems) !== JSON.stringify(newItems);
+    const quantityChanged = details.quantity !== undefined && Number(details.quantity) !== Number(latestOrder.quantity);
+    const deliveryChanged = details.deliveryMethod !== undefined && details.deliveryMethod !== latestOrder.deliveryMethod;
+    const paymentChanged = details.paymentMethod !== undefined && details.paymentMethod !== latestOrder.paymentMethod;
+    const locationChanged = details.location !== undefined && details.location !== (latestOrder.location ?? undefined);
+    const addressChanged = details.address !== undefined && details.address !== (latestOrder.address ?? undefined);
+    const scheduleChanged = details.preferredTime !== undefined || details.deliveryDate !== undefined;
+    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || scheduleChanged;
+  }
+
+  private async updateCustomerOrderFromAi(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, orderNumber: string) {
+    const details = ai.details;
+    const flavors = details.flavors ?? [];
+    return this.mcpOrdersService.updateOrder({
+      orderNumber,
+      ...(flavors.length ? { items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })) } : {}),
+      ...(details.quantity !== undefined ? { quantity: Number(details.quantity) } : {}),
+      ...(details.deliveryMethod ? { deliveryMethod: details.deliveryMethod } : {}),
+      ...(details.paymentMethod ? { paymentMethod: details.paymentMethod } : {}),
+      ...(details.address !== undefined ? { address: details.address } : {}),
+      ...(details.location !== undefined ? { location: details.location } : {}),
+      ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}),
+      ...(details.deliveryDate || details.preferredTime ? { preferredSchedule: this.toManilaIso(details.deliveryDate, details.preferredTime) } : {})
+    });
   }
 
   private describeOrderValidation(details: Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"]) {
@@ -157,8 +216,7 @@ export class MessengerService {
     const token = await this.metaAuthService.getPageToken();
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
     const requestUrl = new URL(url); requestUrl.searchParams.set("access_token", token);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal });
       const body = await response.text();
