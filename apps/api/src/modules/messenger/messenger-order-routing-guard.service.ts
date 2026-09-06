@@ -5,6 +5,7 @@ type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
 type AiResult = Awaited<ReturnType<AiService["classifyAndExtract"]>>;
 
 export const NEW_ORDER_ROUTING_MARKER = "__new_order_routing__";
+export const NEW_ORDER_RESET_MARKER = "__new_order_reset__";
 
 @Injectable()
 export class MessengerOrderRoutingGuardService implements OnModuleInit {
@@ -18,8 +19,18 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
     this.aiService.classifyAndExtract = async (message, context) => {
       const routingChoice = this.getExistingOrderRoutingChoice(message, context);
       if (routingChoice === "new") {
-        this.logger.log("Customer selected NEW order; clearing previous order context for AI processing");
-        return original(message, { ...context, activeOrderState: undefined });
+        this.logger.log("Customer selected NEW order; resetting previous order context");
+        return {
+          intent: "inquiry",
+          confidence: 1,
+          details: {
+            flavors: [],
+            missingFields: [NEW_ORDER_RESET_MARKER],
+            confirmed: false
+          },
+          suggestedReply: "Okay, let's start a new order. What would you like to order? 😊",
+          source: "ollama"
+        } satisfies AiResult;
       }
 
       if (routingChoice === "change") {
@@ -47,13 +58,13 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
 
   private getExistingOrderRoutingChoice(message: string, context?: AiContext) {
     const lower = message.trim().toLowerCase();
-    if (!/^(new|change|edit|update|modify|existing|old|same|yes|no)$/i.test(lower)) return undefined;
+    if (!/^(new|new\s+order(?:\s+(?:please|pls))?|change|edit|update|modify|existing|old|same|yes|no)$/i.test(lower)) return undefined;
 
-    const recent = (context?.recentMessages ?? []).slice(-4).map((entry) => String(entry).trim()).join("\n");
+    const recent = (context?.recentMessages ?? []).slice(-6).map((entry) => String(entry).trim()).join("\n");
     const askedRouting = /(?:existing order|place a new order|change your existing order)/i.test(recent);
     if (!askedRouting) return undefined;
 
-    if (/^(new|yes)$/i.test(lower)) return "new" as const;
+    if (/^(new|new\s+order(?:\s+(?:please|pls))?|yes)$/i.test(lower)) return "new" as const;
     if (/^(change|edit|update|modify|existing|old|same|no)$/i.test(lower)) return "change" as const;
     return undefined;
   }
