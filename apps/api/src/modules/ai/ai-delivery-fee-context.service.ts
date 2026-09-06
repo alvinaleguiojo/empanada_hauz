@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 import { AiService } from "./ai.service";
 
-type AiContext = { customerName?: string; recentMessages?: string[]; activeOrderState?: { address?: string; landmark?: string; location?: string; deliveryMethod?: string } };
+type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
 
 type QuoteResult = {
   distanceKm: number | null;
@@ -26,7 +26,7 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
 
   onModuleInit() {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
-    this.aiService.classifyAndExtract = async (message: string, context?: AiContext) => {
+    this.aiService.classifyAndExtract = async (message, context) => {
       const enrichedContext = await this.enrichDeliveryFeeContext(message, context);
       return original(message, enrichedContext);
     };
