@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
 import { AiService } from "../ai/ai.service";
@@ -41,7 +42,7 @@ export class MessengerService {
             status: { notIn: ["completed", "cancelled"] },
             OR: [
               ...(conversation.customer?.id ? [{ customerId: conversation.customer.id }] : []),
-              ...(customerName ? [{ customer: { name: { equals: customerName, mode: "insensitive" } } }] : [])
+              ...(customerName ? [{ customer: { name: { equals: customerName, mode: Prisma.QueryMode.insensitive } } }] : [])
             ]
           },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
