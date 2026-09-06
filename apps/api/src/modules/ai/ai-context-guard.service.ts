@@ -57,11 +57,8 @@ export class AiContextGuardService implements OnModuleInit {
     const text = value.trim();
     if (!text) return false;
 
-    // Keep only actual customer messages plus authoritative application tool results.
     if (/^Customer:\s*/i.test(text)) return true;
     if (/^APPLICATION ORDER STATUS TOOL RESULT:/i.test(text)) return true;
-
-    // Do not feed previous assistant replies or internal/meta instructions back into Qwen.
     return false;
   }
 
@@ -85,7 +82,7 @@ export class AiContextGuardService implements OnModuleInit {
     if (customer && generated.includes(customer) && generated.length <= customer.length + 30) return true;
 
     if (/^(?:the\s+)?customer\s+(?:is\s+)?(?:asking|asking if|wants|want|said|says|requested)/i.test(output)) return true;
-    if /^(?:assistant|system|internal|application)\s*:/i.test(output)) return true;
+    if (/^(?:assistant|system|internal|application)\s*:/i.test(output)) return true;
     if (/^the\s+assistant\s+(?:should|needs\s+to|must)/i.test(output)) return true;
     if (/^please\s+confirm\s+if\s+all\s+the\s+details\s+above\s+are\s+correct/i.test(output) && !/\b(?:summary|order\s+details)\b/i.test(customerMessage)) return true;
 
