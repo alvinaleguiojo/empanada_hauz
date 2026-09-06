@@ -35,6 +35,7 @@ export class AiOrderActionService {
     context: {
       recentMessages?: string[];
       hasActiveOrder?: boolean;
+      hasPendingNewOrder?: boolean;
       existingDeliveryDetails?: {
         deliveryMethod?: string | null;
         address?: string | null;
@@ -46,6 +47,8 @@ export class AiOrderActionService {
   ): Promise<AIOrderActionResult> {
     const recentMessages = (context.recentMessages ?? []).slice(-12);
     const delivery = context.existingDeliveryDetails ?? {};
+    const hasActiveOrder = Boolean(context.hasActiveOrder);
+    const hasPendingNewOrder = Boolean(context.hasPendingNewOrder);
     const response = await this.chat({
       model: this.model,
       stream: false,
@@ -55,7 +58,7 @@ export class AiOrderActionService {
       messages: [
         {
           role: "system",
-          content: `You are the semantic order-action classifier for Empanada Hauz. Analyze the CURRENT CUSTOMER MESSAGE using the RECENT CONVERSATION and EXISTING DELIVERY DETAILS. Understand natural language semantically, including casual Messenger wording, incomplete phrases, Cebuano/English mixing, typos, shorthand, and paraphrases. Do not rely on exact keywords.
+          content: `You are the semantic order-action classifier for Empanada Hauz. Analyze the CURRENT CUSTOMER MESSAGE using the RECENT CONVERSATION, CURRENT ORDER FLOW STATE, and EXISTING DELIVERY DETAILS. Understand natural language semantically, including casual Messenger wording, incomplete phrases, Cebuano/English mixing, typos, shorthand, and paraphrases. Do not rely on exact keywords.
 
 Return ONLY valid JSON with this schema:
 {
@@ -66,24 +69,24 @@ Return ONLY valid JSON with this schema:
 }
 
 Rules:
-- new_order means the customer wants to create a separate order, or is continuing a separate/new order that they have already started in this conversation.
-- A customer asking whether they can order something (for example, "can I order 24 pcs of ham?") is a NEW order request, not a status question and not a modification of the previous database order.
+- new_order means the customer wants to create a separate order, or is continuing a separate/new order that has already been started in this conversation.
+- A customer asking whether they can order something, such as "can I order 24 pcs of ham?", is a NEW order request, not a status question and not a modification of the previous database order.
 - A customer stating a quantity and flavor to start or continue an order is a NEW order request unless they clearly say they are changing an existing database order.
 - modify_existing means the customer wants to change, add to, remove from, correct, or otherwise modify an existing database order.
 - status means asking where/how an existing order is or whether it has been placed, but NOT when the customer is starting or continuing a new order.
 - summary means asking to see the current order summary.
 - inquiry means general business questions or messages that are not an order action.
-- newOrderFlowActive=true when the recent conversation shows that the customer is currently building a separate/new order. This remains true while the customer completes missing fields.
-- reuseExistingDelivery=true when the customer asks to use, reuse, keep, use again, copy, or retain delivery details from a previous/current order for the NEW order being built. Delivery details means delivery method, address, landmark/location, and contact number. Do not infer or copy payment from this request.
-- IMPORTANT: If the recent conversation shows a new order is being built and the current message asks to reuse existing delivery details, return orderAction=new_order, newOrderFlowActive=true, reuseExistingDelivery=true. Do NOT return status or modify_existing.
-- If the customer first starts a new order while an active database order exists, return new_order with newOrderFlowActive=false; the application may ask whether they want to change the existing order or place a separate new order.
-- If the customer has already selected the new/separate order and the conversation is now collecting its remaining fields, keep newOrderFlowActive=true across follow-up messages.
+- newOrderFlowActive=true ONLY when CURRENT ORDER FLOW STATE says a pending new order already exists, OR when there is no active database order and the customer is starting a new order.
+- If an active database order exists and there is NO pending new order, a fresh request to order a different item MUST return newOrderFlowActive=false. The application will ask whether the customer wants to change the existing order or place a separate new order.
+- If there is a pending new order, keep newOrderFlowActive=true while the customer completes missing fields.
+- reuseExistingDelivery=true ONLY when the customer asks to use, reuse, keep, use again, copy, or retain delivery details from a previous/current order for the NEW order being built. Delivery details means delivery method, address, landmark/location, and contact number. Do not infer or copy payment from this request.
+- If reuseExistingDelivery=true but there is NO pending new order and an active database order exists, do not activate a new-order flow yet; the application must first establish that the customer wants a separate new order.
 - Never let the existence of an old database order turn a clearly new-order request into modify_existing or status.
 - Do not decide pricing, required fields, ownership, confirmation, or database actions here.`
         },
         {
           role: "user",
-          content: `ACTIVE DATABASE ORDER EXISTS: ${Boolean(context.hasActiveOrder)}\n\nEXISTING DELIVERY DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}`
+          content: `ACTIVE DATABASE ORDER EXISTS: ${hasActiveOrder}\nPENDING NEW ORDER EXISTS: ${hasPendingNewOrder}\n\nEXISTING DELIVERY DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}`
         }
       ]
     });
@@ -99,18 +102,17 @@ Rules:
         || parsed.orderAction === "summary"
         ? parsed.orderAction
         : "inquiry";
-      const reuseExistingDelivery = Boolean(parsed.reuseExistingDelivery);
-      const newOrderFlowActive = Boolean(parsed.newOrderFlowActive);
-
-      // Reusing delivery details is a continuation of the order currently being
-      // built, never a request to inspect or modify the previous database order.
-      const effectiveNewOrderFlow = newOrderFlowActive || reuseExistingDelivery;
+      const reuseExistingDelivery = Boolean(parsed.reuseExistingDelivery) && hasPendingNewOrder;
+      const requestedNewOrderFlow = Boolean(parsed.newOrderFlowActive);
+      const newOrderFlowActive = hasPendingNewOrder
+        ? requestedNewOrderFlow || reuseExistingDelivery
+        : !hasActiveOrder && requestedAction === "new_order";
       const orderAction = reuseExistingDelivery ? "new_order" : requestedAction;
       const confidence = Number(parsed.confidence);
       return {
         orderAction,
         confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
-        newOrderFlowActive: effectiveNewOrderFlow,
+        newOrderFlowActive,
         reuseExistingDelivery
       };
     } catch (error) {
