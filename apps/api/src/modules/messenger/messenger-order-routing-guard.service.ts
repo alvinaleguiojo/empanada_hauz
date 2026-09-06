@@ -4,6 +4,8 @@ import { AiService } from "../ai/ai.service";
 type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
 type AiResult = Awaited<ReturnType<AiService["classifyAndExtract"]>>;
 
+export const NEW_ORDER_ROUTING_MARKER = "__new_order_routing__";
+
 @Injectable()
 export class MessengerOrderRoutingGuardService implements OnModuleInit {
   private readonly logger = new Logger(MessengerOrderRoutingGuardService.name);
@@ -34,7 +36,7 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
         confidence: 1,
         details: {
           flavors: [],
-          missingFields: [],
+          missingFields: [NEW_ORDER_ROUTING_MARKER],
           confirmed: false
         },
         suggestedReply: "You already have an active order. Would you like to change your existing order or place a new order? 😊",
@@ -72,6 +74,7 @@ export class MessengerOrderRoutingGuardService implements OnModuleInit {
       return false;
     }
 
+    if (/^(?:new\s+order|new\s+order\s+(?:please|pls))$/i.test(lower)) return true;
     if (/\b(?:place|make|start)\s+(?:a\s+)?new\s+order\b/i.test(lower)) return true;
     if (/\b(?:i|we)\s+(?:would\s+like|want|would\s+love)\s+to\s+(?:place\s+)?(?:a\s+)?new\s+order\b/i.test(lower)) return true;
     if (/\b(?:i|we)\s+(?:would\s+like|want|would\s+love)\s+to\s+order\b/i.test(lower)) return true;
