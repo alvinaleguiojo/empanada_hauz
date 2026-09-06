@@ -61,6 +61,9 @@ export class MessengerService {
     const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
     const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
     const persistedActiveOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
+    const hasPendingNewOrder = Boolean(
+      persistedActiveOrderState?.flavors?.some((item) => Number(item.quantity ?? 0) > 0)
+    );
     const customerName = conversation.customer?.name?.trim();
     const latestOrder = conversation.customer?.id
       ? await this.prisma.order.findFirst({
@@ -113,6 +116,7 @@ export class MessengerService {
     const actionContext = await this.aiOrderActionService.analyze(event.text, {
       recentMessages: contextMessages,
       hasActiveOrder: Boolean(latestOrder),
+      hasPendingNewOrder,
       existingDeliveryDetails: latestOrder
         ? {
             deliveryMethod: latestOrder.deliveryMethod,
@@ -124,15 +128,12 @@ export class MessengerService {
         : undefined
     });
 
-    const hasPendingNewOrder = Boolean(
-      persistedActiveOrderState?.flavors?.some((item) => Number(item.quantity ?? 0) > 0)
-    );
     const inNewOrderFlow =
-      actionContext.newOrderFlowActive ||
-      (actionContext.reuseExistingDelivery && hasPendingNewOrder);
+      hasPendingNewOrder ||
+      (!latestOrder && actionContext.orderAction === "new_order" && actionContext.newOrderFlowActive);
     const effectiveOrderAction = inNewOrderFlow ? "new_order" : actionContext.orderAction;
 
-    const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && Boolean(latestOrder);
+    const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && hasPendingNewOrder && Boolean(latestOrder);
     const reusedDeliveryState: Partial<OrderDetails> = shouldReuseExistingDelivery && latestOrder
       ? {
           deliveryMethod: latestOrder.deliveryMethod === "pickup" || latestOrder.deliveryMethod === "maxim" ? latestOrder.deliveryMethod : undefined,
@@ -166,7 +167,7 @@ export class MessengerService {
 
     contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
     contextMessages.push(latestOrderContext);
-    contextMessages.push(`APPLICATION AI ORDER ACTION: ${effectiveOrderAction}; newOrderFlowActive=${inNewOrderFlow}; reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
+    contextMessages.push(`APPLICATION AI ORDER ACTION: ${effectiveOrderAction}; newOrderFlowActive=${inNewOrderFlow}; reuseExistingDelivery=${shouldReuseExistingDelivery}`);
     if (shouldReuseExistingDelivery) {
       contextMessages.push(`APPLICATION REUSED DELIVERY FACTS: deliveryMethod=${activeOrderState.deliveryMethod ?? "none"}; address=${activeOrderState.address ?? "none"}; landmark=${activeOrderState.landmark ?? "none"}; contactNumber=${activeOrderState.contactNumber ?? "none"}; paymentMethod=${activeOrderState.paymentMethod ?? "none"}`);
     }
@@ -177,7 +178,7 @@ export class MessengerService {
       recentMessages: contextMessages,
       activeOrderState: hasActiveOrderState ? activeOrderState : undefined
     });
-    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${effectiveOrderAction} newOrderFlowActive=${inNewOrderFlow} reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
+    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${effectiveOrderAction} newOrderFlowActive=${inNewOrderFlow} reuseExistingDelivery=${shouldReuseExistingDelivery}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
