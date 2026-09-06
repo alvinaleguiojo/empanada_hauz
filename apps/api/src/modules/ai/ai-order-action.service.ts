@@ -71,10 +71,10 @@ Rules:
 - status means asking where/how an existing order is or whether it has been placed, but NOT when the customer is merely reusing details for a new order.
 - summary means asking to see the current order summary.
 - inquiry means general business questions or messages that are not an order action.
-- newOrderFlowActive=true when the recent conversation shows that the customer is currently building a separate/new order. This stays true for follow-up messages while completing that new order, including when the customer says to reuse information from an older order.
-- reuseExistingDelivery=true when the customer asks to use, reuse, keep, use again, copy, or retain delivery/payment/contact details from the previous/current order for the order being built now. This is a data-reuse request, not an existing-order modification.
-- IMPORTANT: If the conversation already contains a newly requested order that is waiting for delivery/payment details, then a message such as “please use the existing delivery details” is part of that NEW order flow. Return orderAction=new_order and newOrderFlowActive=true, with reuseExistingDelivery=true. Do NOT return status.
-- If the customer first starts a new order while an active database order exists, return new_order with newOrderFlowActive=false; the application will ask whether they want to change the existing order or place a separate new order.
+- newOrderFlowActive=true when the recent conversation shows that the customer is currently building a separate/new order. This remains true while the customer completes missing fields, including when they ask to reuse delivery details from a previous order.
+- reuseExistingDelivery=true when the customer asks to use, reuse, keep, use again, copy, or retain delivery details from a previous/current order for the NEW order being built. Delivery details means delivery method, address, landmark/location, and contact number. Do not infer or copy payment from this request.
+- IMPORTANT: If the recent conversation shows a new order is being built and the current message asks to reuse existing delivery details, return orderAction=new_order, newOrderFlowActive=true, reuseExistingDelivery=true. Do NOT return status or modify_existing.
+- If the customer first starts a new order while an active database order exists, return new_order with newOrderFlowActive=false; the application may ask whether they want to change the existing order or place a separate new order.
 - If the customer has already selected the new/separate order and the conversation is now collecting its remaining fields, keep newOrderFlowActive=true across follow-up messages.
 - Never let the existence of an old database order turn a clearly new-order request into modify_existing.
 - Do not decide pricing, required fields, ownership, confirmation, or database actions here.`
@@ -91,18 +91,21 @@ Rules:
 
     try {
       const parsed = JSON.parse(this.cleanJson(raw)) as Partial<AIOrderActionResult>;
-      const orderAction = parsed.orderAction === "new_order"
+      const requestedAction = parsed.orderAction === "new_order"
         || parsed.orderAction === "modify_existing"
         || parsed.orderAction === "status"
         || parsed.orderAction === "summary"
         ? parsed.orderAction
         : "inquiry";
+      const reuseExistingDelivery = Boolean(parsed.reuseExistingDelivery);
+      const newOrderFlowActive = Boolean(parsed.newOrderFlowActive);
+      const orderAction = reuseExistingDelivery && newOrderFlowActive ? "new_order" : requestedAction;
       const confidence = Number(parsed.confidence);
       return {
         orderAction,
         confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
-        newOrderFlowActive: Boolean(parsed.newOrderFlowActive),
-        reuseExistingDelivery: Boolean(parsed.reuseExistingDelivery)
+        newOrderFlowActive: newOrderFlowActive || (reuseExistingDelivery && requestedAction === "new_order"),
+        reuseExistingDelivery
       };
     } catch (error) {
       this.logger.warn(`Order action JSON parse failed: ${error instanceof Error ? error.message : String(error)}`);
