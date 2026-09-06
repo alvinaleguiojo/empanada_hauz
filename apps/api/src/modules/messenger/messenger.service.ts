@@ -72,7 +72,7 @@ export class MessengerService {
           reply = ai.suggestedReply?.trim() ?? "";
         }
       }
-    } else if (latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder)) {
+    } else if (latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder, event.text)) {
       try {
         const updated = await this.updateCustomerOrderFromAi(ai, latestOrder.orderNumber);
         this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
@@ -103,24 +103,28 @@ export class MessengerService {
   private shouldUpdateCustomerOrder(
     intent: string,
     details: Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"],
-    latestOrder: { status: string; quantity: number; unitPrice: unknown; deliveryFee: unknown; discountAmount: unknown; deliveryMethod: string; paymentMethod: string; location: string | null; address: string | null; preferredSchedule: Date | null; items: unknown }
+    latestOrder: { status: string; quantity: number; deliveryMethod: string; paymentMethod: string; location: string | null; address: string | null; preferredSchedule: Date | null; items: unknown },
+    currentMessage: string
   ) {
     if (["completed", "cancelled"].includes(latestOrder.status)) return false;
     if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length) return false;
-    if (!details.flavors.length && !details.quantity && !details.deliveryMethod && !details.paymentMethod && !details.address && !details.location) return false;
+    if (!details.flavors.length && details.quantity === undefined && !details.deliveryMethod && !details.paymentMethod && details.address === undefined && details.location === undefined && details.contactNumber === undefined) return false;
 
     const existingItems = Array.isArray(latestOrder.items)
       ? latestOrder.items.map((item) => ({ name: String((item as Record<string, unknown>)?.name ?? ""), quantity: Number((item as Record<string, unknown>)?.quantity ?? 0) })).filter((item) => item.name)
       : [];
     const newItems = details.flavors.map((item) => ({ name: item.name, quantity: Number(item.quantity) }));
-    const itemsChanged = JSON.stringify(existingItems) !== JSON.stringify(newItems);
+    const itemsChanged = details.flavors.length > 0 && JSON.stringify(existingItems) !== JSON.stringify(newItems);
     const quantityChanged = details.quantity !== undefined && Number(details.quantity) !== Number(latestOrder.quantity);
     const deliveryChanged = details.deliveryMethod !== undefined && details.deliveryMethod !== latestOrder.deliveryMethod;
     const paymentChanged = details.paymentMethod !== undefined && details.paymentMethod !== latestOrder.paymentMethod;
     const locationChanged = details.location !== undefined && details.location !== (latestOrder.location ?? undefined);
     const addressChanged = details.address !== undefined && details.address !== (latestOrder.address ?? undefined);
-    const scheduleChanged = details.preferredTime !== undefined || details.deliveryDate !== undefined;
-    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || scheduleChanged;
+    const contactChanged = details.contactNumber !== undefined && details.contactNumber !== undefined;
+    const proposedSchedule = details.deliveryDate && details.preferredTime ? this.toManilaIso(details.deliveryDate, details.preferredTime) : undefined;
+    const scheduleChanged = proposedSchedule !== undefined && proposedSchedule !== (latestOrder.preferredSchedule?.toISOString() ?? undefined);
+    const updateLanguage = /\b(add|remove|change|update|replace|switch|modify|edit|increase|decrease|more|less|instead|make it|make my|wrong|correction|dugang|ilis|usba|kuhaon|pa)\b/i.test(currentMessage);
+    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged || updateLanguage;
   }
 
   private async updateCustomerOrderFromAi(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, orderNumber: string) {
