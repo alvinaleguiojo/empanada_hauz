@@ -53,7 +53,7 @@ export class AiOrderRescheduleService implements OnModuleInit {
             preferredTime: this.extractExistingTime(order.preferredSchedule),
             confirmed: false
           },
-          suggestedReply: `Your order ${updated.orderNumber} has been rescheduled to tomorrow (${this.formatManilaDate(updated.preferredSchedule)}). 😊`,
+          suggestedReply: "Your order has been rescheduled to tomorrow. 😊",
           source: "ollama"
         };
       } catch (error) {
