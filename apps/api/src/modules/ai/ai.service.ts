@@ -110,7 +110,7 @@ export class AiService {
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
-    const recentMessages = (context?.recentMessages ?? []).slice(-20);
+    const recentMessages = (context?.recentMessages ?? []).slice(-8);
     const current = await this.interpretCurrentMessage(message, now, recentMessages, context?.activeOrderState);
     const details = this.mergeOrderState(context?.activeOrderState, current);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
@@ -157,7 +157,7 @@ export class AiService {
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0.1, num_predict: 384, num_ctx: 3072 },
+      options: { temperature: 0.1, num_predict: 384, num_ctx: 2048 },
       messages: [
         {
           role: "system",
@@ -290,9 +290,9 @@ export class AiService {
       return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.";
     }
     if (details.flavors.length) {
-      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-20).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
+      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-8).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
     }
-    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-20).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
+    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-8).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
   }
 
   private buildNextActionDirective(message: string, details: Details): string {
@@ -441,7 +441,7 @@ export class AiService {
       model: this.model,
       stream: false,
       think: false,
-      options: { temperature: 0.2, num_predict: 160, num_ctx: 3072 },
+      options: { temperature: 0.2, num_predict: 160, num_ctx: 2048 },
       messages: [
         {
           role: "system",
