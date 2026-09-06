@@ -113,7 +113,7 @@ export class MessengerOrderSummaryService {
         `Schedule: ${order.preferredSchedule ? this.formatSchedule(order.preferredSchedule) : "Not specified"}`,
         ""
       ]),
-      orders.length > 1 ? "Showing your 5 most recent orders." : ""
+      orders.length === 5 ? "Showing your 5 most recent orders." : ""
     ].filter(Boolean).join("\n")
       .trim();
   }
