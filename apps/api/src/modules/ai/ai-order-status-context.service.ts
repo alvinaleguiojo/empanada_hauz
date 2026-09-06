@@ -74,11 +74,24 @@ export class AiOrderStatusContextService implements OnModuleInit {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
     this.aiService.classifyAndExtract = async (message, context) => {
       const isUpdate = this.isExplicitOrderUpdate(message);
-      const isStatusQuestion = !isUpdate && this.isOrderStatusQuestion(message);
-      const isSummaryQuestion = !isUpdate && this.isOrderSummaryQuestion(message);
-      const isConfirmation = !isUpdate && !isSummaryQuestion && this.isConfirmationMessage(message);
+      const isAvailability = !isUpdate && this.isAvailabilityQuestion(message);
+      const isStatusQuestion = !isUpdate && !isAvailability && this.isOrderStatusQuestion(message);
+      const isSummaryQuestion = !isUpdate && !isAvailability && this.isOrderSummaryQuestion(message);
+      const isConfirmation = !isUpdate && !isAvailability && !isSummaryQuestion && this.isConfirmationMessage(message);
       const orderNumber = this.extractOrderNumber(message) ?? this.extractFollowUpOrderNumber(message, context);
       const usableState = isConfirmation ? (this.reconstructActiveOrderState(context) ?? context?.activeOrderState) : context?.activeOrderState;
+
+      if (isAvailability) {
+        const result = await original(message, { ...context, activeOrderState: usableState });
+        const today = new Date();
+        const isSunday = today.getDay() === 0;
+        result.intent = "inquiry";
+        result.confidence = 1;
+        result.suggestedReply = isSunday
+          ? "Sorry, we're closed today (Sunday). We'll be back tomorrow. 😊"
+          : "Yes, we're available and accepting orders. What would you like to order? 😊";
+        return result;
+      }
 
       if (isConfirmation && usableState && this.hasCompleteOrderState(usableState)) {
         this.logger.log("Order confirmation reused reconstructed active order state without Qwen interpretation");
@@ -477,6 +490,14 @@ export class AiOrderStatusContextService implements OnModuleInit {
     if (!/^[A-Za-z0-9-]{3,64}$/.test(normalized)) return undefined;
     const recent = (context?.recentMessages ?? []).slice(-3).join(" ");
     return /order\s*(?:id|number|#)|send.*order/i.test(recent) ? normalized : undefined;
+  }
+
+  private isAvailabilityQuestion(message: string) {
+    const lower = message.trim().toLowerCase();
+    return /\b(?:available|open|accepting\s+orders?|taking\s+orders?)\b/i.test(lower)
+      || /\b(?:pwede|puwede)\b.*\b(?:order|mo\s+order|pa\s+order)\b/i.test(lower)
+      || /\b(?:order|mo\s+order|mag[-\s]?order)\b.*\b(?:pa|pwede|puwede)\b/i.test(lower)
+      || /\b(?:abli|bukas)\b.*\b(?:pa|karon|karun|order)\b/i.test(lower);
   }
 
   private isOrderStatusQuestion(message: string) {
