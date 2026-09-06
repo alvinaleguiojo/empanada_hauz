@@ -17,17 +17,11 @@ interface MetaConversation { id: string; updated_time?: string; participants?: {
 interface MetaPage<T> { data?: T[]; paging?: { next?: string } }
 
 type OrderDetails = Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"];
-
 type LatestOrder = {
   id: string;
   orderNumber: string;
   status: string;
-  createdAt: Date;
   quantity: number;
-  unitPrice: number;
-  totalAmount: number;
-  deliveryFee: number;
-  discountAmount: number;
   deliveryMethod: string;
   paymentMethod: string;
   location: string | null;
@@ -430,6 +424,7 @@ export class MessengerService {
     if (existing) { if (lastMessage !== undefined) return this.prisma.conversation.update({ where: { id: existing.id }, data: { lastMessage, updatedAt: new Date() } }); return existing; }
     return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
   }
+
   async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown; type?: "text" | "attachment" }) {
     const profileName = await this.getMessengerProfileName(payload.senderId); const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
     if (payload.messageId) { const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } }); if (existing) return existing; }
@@ -437,6 +432,7 @@ export class MessengerService {
     this.notificationsService.notify("messenger.message_received", { conversationId: conversation.id, senderId: payload.senderId, messageId: payload.messageId, message: payload.text, createdAt: new Date().toISOString() });
     return message;
   }
+
   async sendText(recipientPsid: string, text: string) {
     const pageToken = await this.metaAuthService.getPageToken(); const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`; const payload = { recipient: { id: recipientPsid }, messaging_type: "RESPONSE", message: { text } };
     if (!pageToken) { this.logger.warn("Meta Page authentication not configured; outbound send skipped"); return { skipped: true, payload }; }
