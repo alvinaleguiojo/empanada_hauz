@@ -9,10 +9,24 @@ export class AiOrderNormalizationService implements OnModuleInit {
   constructor(private readonly aiService: AiService) {}
 
   onModuleInit() {
-    const original = this.aiService.classifyAndExtract.bind(this.aiService);
+    const originalClassify = this.aiService.classifyAndExtract.bind(this.aiService);
     this.aiService.classifyAndExtract = async (message, context) => {
-      const result = await original(message, context);
+      const result = await originalClassify(message, context);
       return this.normalize(result, message);
+    };
+
+    const originalOrderResult = this.aiService.generateOrderResultReply.bind(this.aiService);
+    this.aiService.generateOrderResultReply = async (outcome, orderNumber) => {
+      if (outcome === "created") {
+        return orderNumber
+          ? `Your order ${orderNumber} has been confirmed and placed successfully.`
+          : "Your order has been confirmed and placed successfully.";
+      }
+      try {
+        return await originalOrderResult(outcome, orderNumber);
+      } catch {
+        return "I couldn't place your order right now. Please try again.";
+      }
     };
   }
 
