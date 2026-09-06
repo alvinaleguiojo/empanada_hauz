@@ -229,12 +229,12 @@ export class AiService {
       if (value !== undefined && value !== "") (merged as Record<string, unknown>)[field] = value;
     }
 
-    if (merged.flavors.length && current.flavorAction !== "add" && current.flavorAction !== "remove") {
-      merged.quantity = merged.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    } else if (current.quantity !== undefined && merged.flavors.length === 1) {
+    if (current.quantity !== undefined && merged.flavors.length === 1 && current.flavorAction !== "add" && current.flavorAction !== "remove") {
       const only = merged.flavors[0];
       merged.flavors = [{ ...only, quantity: current.quantity, subtotal: current.quantity * Number(only.unitPrice ?? 0) }];
       merged.quantity = current.quantity;
+    } else if (merged.flavors.length && current.flavorAction !== "add" && current.flavorAction !== "remove") {
+      merged.quantity = merged.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     }
 
     if (current.confirmed) merged.confirmed = true;
