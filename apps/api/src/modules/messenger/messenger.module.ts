@@ -7,12 +7,13 @@ import { McpModule } from "../mcp/mcp.module";
 import { MessengerController } from "./messenger.controller";
 import { MessengerService } from "./messenger.service";
 import { MetaAuthService } from "./meta-auth.service";
+import { MessengerOrderSummaryService } from "./messenger-order-summary.service";
 import { MessengerSyncService } from "./messenger-sync.service";
 
 @Module({
   imports: [AiModule, CustomersModule, OrdersModule, McpModule, NotificationsModule],
   controllers: [MessengerController],
-  providers: [MessengerService, MetaAuthService, MessengerSyncService],
+  providers: [MessengerService, MessengerOrderSummaryService, MetaAuthService, MessengerSyncService],
   exports: [MessengerService, MetaAuthService]
 })
 export class MessengerModule {}
