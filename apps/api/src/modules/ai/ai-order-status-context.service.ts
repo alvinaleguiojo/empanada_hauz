@@ -215,7 +215,7 @@ export class AiOrderStatusContextService implements OnModuleInit {
 
   private mergeOrderItems(
     existing: NonNullable<OrderStatusResult["items"]>,
-    changes: Array<{ name: string; quantity: number; unitPrice: number; subtotal: number }>,
+    changes: Array<{ name: string; quantity: number; unitPrice?: number; subtotal?: number }>,
     direction: 1 | -1
   ) {
     const map = new Map<string, { name: string; quantity: number; price: number; subtotal: number }>();
