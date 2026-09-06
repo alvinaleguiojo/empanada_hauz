@@ -97,21 +97,55 @@ export class MessengerService {
 
     const actionContext = await this.aiOrderActionService.analyze(event.text, {
       recentMessages: contextMessages,
-      hasActiveOrder: Boolean(latestOrder)
+      hasActiveOrder: Boolean(latestOrder),
+      existingDeliveryDetails: latestOrder
+        ? {
+            deliveryMethod: latestOrder.deliveryMethod,
+            address: latestOrder.address,
+            location: latestOrder.location,
+            contactNumber: latestOrder.customer?.phoneNumber,
+            paymentMethod: latestOrder.paymentMethod
+          }
+        : undefined
     });
+
     const inNewOrderFlow = actionContext.orderAction === "new_order" && actionContext.newOrderFlowActive;
-    const activeOrderState = inNewOrderFlow ? undefined : persistedActiveOrderState;
-    const orderValidation = activeOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
+    const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && Boolean(latestOrder);
+    const reusedDeliveryState = shouldReuseExistingDelivery && latestOrder
+      ? {
+          deliveryMethod: latestOrder.deliveryMethod === "pickup" || latestOrder.deliveryMethod === "maxim" ? latestOrder.deliveryMethod : undefined,
+          address: latestOrder.address ?? undefined,
+          landmark: latestOrder.location ?? undefined,
+          contactNumber: latestOrder.customer?.phoneNumber ?? undefined,
+          paymentMethod: latestOrder.paymentMethod === "cod" || latestOrder.paymentMethod === "gcash" ? latestOrder.paymentMethod : undefined
+        }
+      : undefined;
+
+    const baseState = inNewOrderFlow ? undefined : persistedActiveOrderState;
+    const activeOrderState = {
+      ...(baseState ?? {}),
+      ...(reusedDeliveryState ?? {})
+    };
+    const hasActiveOrderState = Object.keys(activeOrderState).length > 0;
+    const orderValidation = hasActiveOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
     const latestOrderContext = latestOrder
       ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.`
       : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
+
     contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
     contextMessages.push(latestOrderContext);
-    contextMessages.push(`APPLICATION AI ORDER ACTION: ${actionContext.orderAction}; newOrderFlowActive=${actionContext.newOrderFlowActive}`);
+    contextMessages.push(`APPLICATION AI ORDER ACTION: ${actionContext.orderAction}; newOrderFlowActive=${actionContext.newOrderFlowActive}; reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
+    if (shouldReuseExistingDelivery && reusedDeliveryState) {
+      contextMessages.push(`APPLICATION REUSED DELIVERY FACTS: deliveryMethod=${reusedDeliveryState.deliveryMethod ?? "none"}; address=${reusedDeliveryState.address ?? "none"}; landmark=${reusedDeliveryState.landmark ?? "none"}; contactNumber=${reusedDeliveryState.contactNumber ?? "none"}; paymentMethod=${reusedDeliveryState.paymentMethod ?? "none"}`);
+    }
 
     this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct")}`);
-    const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages, activeOrderState });
-    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${actionContext.orderAction} newOrderFlowActive=${actionContext.newOrderFlowActive}`);
+    const ai = await this.aiService.classifyAndExtract(event.text, {
+      customerName: conversation.customer?.name ?? undefined,
+      recentMessages: contextMessages,
+      activeOrderState: hasActiveOrderState ? activeOrderState : undefined
+    });
+    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${actionContext.orderAction} newOrderFlowActive=${actionContext.newOrderFlowActive} reuseExistingDelivery=${actionContext.reuseExistingDelivery}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
@@ -293,12 +327,7 @@ export class MessengerService {
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
     const requestUrl = new URL(url); requestUrl.searchParams.set("access_token", token);
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal });
-      const body = await response.text();
-      if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
-      return JSON.parse(body) as T;
-    } finally { clearTimeout(timeout); }
+    try { const response = await fetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal }); const body = await response.text(); if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`); return JSON.parse(body) as T; } finally { clearTimeout(timeout); }
   }
 
   private async metaPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -306,24 +335,12 @@ export class MessengerService {
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
     const endpoint = `https://graph.facebook.com/${this.graphVersion()}${path}`;
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal });
-      const responseBody = await response.text();
-      if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
-      return JSON.parse(responseBody) as T;
-    } finally { clearTimeout(timeout); }
+    try { const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal }); const responseBody = await response.text(); if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`); return JSON.parse(responseBody) as T; } finally { clearTimeout(timeout); }
   }
 
   async requestThreadControl(psid: string, metadata?: string) {
     this.logger.warn(`Requesting Messenger thread control: psid=${psid}`);
-    try {
-      const result = await this.metaPost<{ success?: boolean }>("/me/request_thread_control", { recipient: { id: psid }, ...(metadata ? { metadata } : {}) });
-      this.logger.log(`Messenger thread control request result: psid=${psid} success=${Boolean(result.success)}`);
-      return Boolean(result.success);
-    } catch (err) {
-      this.logger.error(`Messenger thread control request failed: psid=${psid}`, err instanceof Error ? err.message : String(err));
-      return false;
-    }
+    try { const result = await this.metaPost<{ success?: boolean }>("/me/request_thread_control", { recipient: { id: psid }, ...(metadata ? { metadata } : {}) }); this.logger.log(`Messenger thread control request result: psid=${psid} success=${Boolean(result.success)}`); return Boolean(result.success); } catch (err) { this.logger.error(`Messenger thread control request failed: psid=${psid}`, err instanceof Error ? err.message : String(err)); return false; }
   }
 
   async syncFromMeta(options: { maxConversations?: number; maxMessagesPerConversation?: number } = {}) {
@@ -375,8 +392,7 @@ export class MessengerService {
     return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
   }
   async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown; type?: "text" | "attachment" }) {
-    const profileName = await this.getMessengerProfileName(payload.senderId);
-    const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
+    const profileName = await this.getMessengerProfileName(payload.senderId); const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
     if (payload.messageId) { const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } }); if (existing) return existing; }
     const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
     this.notificationsService.notify("messenger.message_received", { conversationId: conversation.id, senderId: payload.senderId, messageId: payload.messageId, message: payload.text, createdAt: new Date().toISOString() });
@@ -386,14 +402,7 @@ export class MessengerService {
     const pageToken = await this.metaAuthService.getPageToken(); const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`; const payload = { recipient: { id: recipientPsid }, messaging_type: "RESPONSE", message: { text } };
     if (!pageToken) { this.logger.warn("Meta Page authentication not configured; outbound send skipped"); return { skipped: true, payload }; }
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
-      if (!response.ok) throw new Error(`Meta send failed: ${response.status} ${await response.text()}`);
-      const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
-      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
-      this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
-      return metaResult;
-    } finally { clearTimeout(timeout); }
+    try { const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal }); if (!response.ok) throw new Error(`Meta send failed: ${response.status} ${await response.text()}`); const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid); const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } }); this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() }); return metaResult; } finally { clearTimeout(timeout); }
   }
   listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
