@@ -273,31 +273,48 @@ export class MessengerService {
   async getAiSettings() { return this.aiControl.getState(); }
   async setGlobalAiEnabled(enabled: boolean) { this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`); return this.aiControl.setGlobalEnabled(enabled); }
   async getCustomerAiSettings(customerId: string) { return this.aiControl.getCustomerState(customerId); }
-  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) { this.logger.warn(`Messenger AI customer switch changed: customer=${customerId} override=${enabled}`); return this.aiControl.setCustomerOverride(customerId, enabled); }
+  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) { this.logger.warn(`Messenger AI customer switch changed: customer=${customerId} override=${enabled}`); return this.aiControl.setCustomerEnabled(customerId, enabled); }
 
-  private findLatestValidOrderState(values: unknown[]): OrderDetails | undefined {
+  async getMessengerProfileName(psid: string) {
+    try {
+      const profile = await this.metaGet<{ name?: string; first_name?: string; last_name?: string }>(`https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(psid)}?fields=name,first_name,last_name`);
+      const name = profile.name?.trim() || [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim();
+      return name || undefined;
+    } catch (err) {
+      this.logger.warn(`Unable to fetch Messenger profile name for ${psid}: ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
+  }
+
+  private async persistInbound(event: { senderId: string; messageId?: string; text: string; type?: "text" | "attachment"; rawPayload: unknown }) {
+    const name = await this.getMessengerProfileName(event.senderId);
+    const conversation = await this.getOrCreateConversationByPsid(event.senderId, name);
+    return this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: event.messageId, direction: "inbound", type: event.type ?? "text", content: event.text, rawPayload: event.rawPayload as never } });
+  }
+
+  private async getOrCreateConversationByPsid(psid: string, name?: string) {
+    const customer = await this.customersService.findOrCreateByMessenger(psid, name || "Messenger Customer");
+    return this.prisma.conversation.findFirst({ where: { customerId: customer.id, channel: "messenger" }, orderBy: { updatedAt: "desc" } })
+      ?? this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger" } });
+  }
+
+  private findLatestValidOrderState(values: unknown[]) {
     for (const value of values) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      const candidate = value as Partial<OrderDetails>;
-      const flavors = Array.isArray(candidate.flavors) ? candidate.flavors : [];
-      const hasOrderData = flavors.length > 0 || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod || candidate.address || candidate.location || candidate.contactNumber;
-      if (!hasOrderData) continue;
-      const hasMeaningfulOrderState = flavors.some((item) => Number((item as Record<string, unknown>)?.quantity ?? 0) > 0) || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod;
-      if (hasMeaningfulOrderState) {
-        return {
-          ...candidate,
-          flavors: flavors as OrderDetails["flavors"],
-          missingFields: Array.isArray(candidate.missingFields) ? candidate.missingFields : [],
-          confirmed: Boolean(candidate.confirmed)
-        };
-      }
+      if (!value || typeof value !== "object") continue;
+      const record = value as Record<string, unknown>;
+      const flavors = Array.isArray(record.flavors) ? record.flavors.map((item) => {
+        const row = item as Record<string, unknown>;
+        return { name: String(row.name ?? ""), quantity: Number(row.quantity ?? 0), unitPrice: Number(row.unitPrice ?? row.price ?? 0), subtotal: Number(row.subtotal ?? 0) };
+      }).filter((item) => item.name && item.quantity > 0) : [];
+      if (flavors.length || record.quantity !== undefined || record.deliveryMethod || record.paymentMethod || record.address || record.location || record.contactNumber) return { ...record, flavors } as OrderDetails;
     }
     return undefined;
   }
 
-  private trackingUrl(orderId: string) {
-    const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, "");
-    return `${baseUrl}/track/${orderId}`;
+  private describeOrderValidation(details: OrderDetails) {
+    const missing = Array.isArray(details.missingFields) ? details.missingFields : [];
+    if (missing.length === 0 && details.flavors.length > 0) return "READY for MCP placement only if the current customer message is an explicit confirmation. The application has all required order fields.";
+    return `NOT READY for MCP placement. Missing required fields: ${missing.length ? missing.join(", ") : "order details"}. A customer confirmation must not be described as an order being placed.`;
   }
 
   private shouldUpdateCustomerOrder(intent: string, details: OrderDetails, latestOrder: LatestOrder) {
@@ -335,12 +352,6 @@ export class MessengerService {
       ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}),
       ...(details.deliveryDate || details.preferredTime ? { preferredSchedule: this.toManilaIso(details.deliveryDate, details.preferredTime) } : {})
     });
-  }
-
-  private describeOrderValidation(details: OrderDetails) {
-    const missing = Array.isArray(details.missingFields) ? details.missingFields : [];
-    if (missing.length === 0 && details.flavors.length > 0) return "READY for MCP placement only if the current customer message is an explicit confirmation. The application has all required order fields.";
-    return `NOT READY for MCP placement. Missing required fields: ${missing.length ? missing.join(", ") : "order details"}. A customer confirmation must not be described as an order being placed.`;
   }
 
   private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, currentMessage: string) {
@@ -385,17 +396,6 @@ export class MessengerService {
   private graphVersion() { return this.config.get<string>("META_GRAPH_API_VERSION") ?? "v26.0"; }
   private pageId() { return this.config.get<string>("META_PAGE_ID") ?? ""; }
 
-  private async getMessengerProfileName(psid: string) {
-    try {
-      const profile = await this.metaGet<{ name?: string; first_name?: string; last_name?: string }>(`https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(psid)}?fields=name,first_name,last_name`);
-      const name = profile.name?.trim() || [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim();
-      return name || undefined;
-    } catch (err) {
-      this.logger.warn(`Unable to fetch Messenger profile name for ${psid}: ${err instanceof Error ? err.message : String(err)}`);
-      return undefined;
-    }
-  }
-
   private async metaGet<T>(url: string): Promise<T> {
     const token = await this.metaAuthService.getPageToken();
     if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
@@ -428,82 +428,18 @@ export class MessengerService {
       const result = await this.metaPost<{ success?: boolean }>("/me/request_thread_control", { recipient: { id: psid }, ...(metadata ? { metadata } : {}) });
       this.logger.log(`Messenger thread control request result: psid=${psid} success=${Boolean(result.success)}`);
       return Boolean(result.success);
-    } catch (err) {
-      this.logger.error(`Messenger thread control request failed: psid=${psid}`, err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      this.logger.error(`Messenger thread control request failed for ${psid}`, error instanceof Error ? error.stack : String(error));
       return false;
     }
   }
 
-  async syncFromMeta(options: { maxConversations?: number; maxMessagesPerConversation?: number } = {}) {
-    await this.metaAuthService.ensureAuthenticated();
-    const maxConversations = Math.max(1, options.maxConversations ?? 100); const maxMessagesPerConversation = Math.max(1, options.maxMessagesPerConversation ?? 1000);
-    const pageId = this.pageId(); if (!pageId) throw new Error("META_PAGE_ID is not configured");
-    let nextUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(pageId)}/conversations?fields=id,participants,updated_time&limit=100`;
-    let conversationsSeen = 0, conversationsImported = 0, messagesImported = 0;
-    while (nextUrl && conversationsSeen < maxConversations) {
-      const page: MetaPage<MetaConversation> = await this.metaGet<MetaPage<MetaConversation>>(nextUrl);
-      for (const metaConversation of page.data ?? []) {
-        if (conversationsSeen >= maxConversations) break; conversationsSeen += 1;
-        const participant = this.findCustomerParticipant(metaConversation.participants?.data ?? [], pageId);
-        if (!participant?.id) { this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`); continue; }
-        const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
-        let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
-        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
-        else conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
-        conversationsImported += 1;
-        let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
-        let conversationMessageCount = 0; let newestMessage: MetaMessage | undefined;
-        while (messageUrl && conversationMessageCount < maxMessagesPerConversation) {
-          const messagesPage: MetaPage<MetaMessage> = await this.metaGet<MetaPage<MetaMessage>>(messageUrl);
-          for (const metaMessage of messagesPage.data ?? []) {
-            if (conversationMessageCount >= maxMessagesPerConversation || !metaMessage.id) break; conversationMessageCount += 1;
-            if (!newestMessage || this.messageTime(metaMessage) > this.messageTime(newestMessage)) newestMessage = metaMessage;
-            const existing = await this.prisma.message.findFirst({ where: { metaMessageId: metaMessage.id } });
-            const data = { conversationId: conversation.id, metaMessageId: metaMessage.id, direction: (metaMessage.from?.id === pageId ? "outbound" : "inbound") as "outbound" | "inbound", type: (this.hasAttachments(metaMessage) ? "attachment" : "text") as "attachment" | "text", content: this.messageContent(metaMessage), rawPayload: metaMessage as never, ...(metaMessage.created_time ? { createdAt: new Date(metaMessage.created_time) } : {}) };
-            if (existing) await this.prisma.message.update({ where: { id: existing.id }, data }); else await this.prisma.message.create({ data }); messagesImported += 1;
-          }
-          if (conversationMessageCount >= maxMessagesPerConversation) break; messageUrl = messagesPage.paging?.next;
-        }
-        if (newestMessage) await this.prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessage: this.messageContent(newestMessage), ...(newestMessage.created_time ? { updatedAt: new Date(newestMessage.created_time) } : {}) } });
-      }
-      nextUrl = page.paging?.next;
-    }
-    return { conversationsSeen, conversationsImported, messagesImported, maxConversations, maxMessagesPerConversation };
-  }
-
-  private findCustomerParticipant(participants: MetaParticipant[], pageId: string) { return participants.find((participant) => participant.id && participant.id !== pageId); }
-  private messageTime(message: MetaMessage) { return message.created_time ? Date.parse(message.created_time) : 0; }
-  private attachmentList(message: MetaMessage): MetaAttachment[] { if (Array.isArray(message.attachments)) return message.attachments; return Array.isArray(message.attachments?.data) ? message.attachments.data : []; }
-  private hasAttachments(message: MetaMessage) { return this.attachmentList(message).length > 0; }
-  private messageContent(message: MetaMessage) { if (message.message) return message.message; if (this.hasAttachments(message)) return "[Attachment]"; return "[Messenger message]"; }
-  private async getOrCreateConversationByPsid(psid: string, lastMessage?: string, name?: string) {
-    const customer = await this.customersService.findOrCreateByMessenger(psid, name || "Messenger Customer");
-    const existing = await this.prisma.conversation.findFirst({ where: { customerId: customer.id, channel: "messenger" } });
-    if (existing) { if (lastMessage !== undefined) return this.prisma.conversation.update({ where: { id: existing.id }, data: { lastMessage, updatedAt: new Date() } }); return existing; }
-    return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
-  }
-
-  async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown; type?: "text" | "attachment" }) {
-    const profileName = await this.getMessengerProfileName(payload.senderId); const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
-    if (payload.messageId) { const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } }); if (existing) return existing; }
-    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
-    this.notificationsService.notify("messenger.message_received", { conversationId: conversation.id, senderId: payload.senderId, messageId: payload.messageId, message: payload.text, createdAt: new Date().toISOString() });
-    return message;
-  }
-
   async sendText(recipientPsid: string, text: string) {
-    const pageToken = await this.metaAuthService.getPageToken(); const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`; const payload = { recipient: { id: recipientPsid }, messaging_type: "RESPONSE", message: { text } };
-    if (!pageToken) { this.logger.warn("Meta Page authentication not configured; outbound send skipped"); return { skipped: true, payload }; }
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
-      if (!response.ok) throw new Error(`Meta send failed: ${response.status} ${await response.text()}`);
-      const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
-      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
-      this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
-      return metaResult;
-    } finally { clearTimeout(timeout); }
+    return this.metaPost<{ recipient_id?: string; message_id?: string }>("/me/messages", { recipient: { id: recipientPsid }, message: { text } });
   }
-  listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
-  getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
+
+  private trackingUrl(orderId: string) {
+    const baseUrl = (this.config.get<string>("WEB_APP_URL") ?? "http://localhost:3001").replace(/\/$/, "");
+    return `${baseUrl}/track/${orderId}`;
+  }
 }
