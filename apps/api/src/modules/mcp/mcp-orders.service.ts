@@ -1,13 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { DeliveryMethod, ManualOrderEntryDto, OrderStatus, PaymentMethod, UpdateOrderDto } from "../orders/dto";
 import { OrdersService } from "../orders/orders.service";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 import { ProductsService } from "../products/products.service";
+import { PrismaService } from "../../database/prisma.service";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 const DEFAULT_PICKUP_ADDRESS = "Empanada Hauz";
+
+type OrderWithRelations = Prisma.OrderGetPayload<{ include: ReturnType<McpOrdersService["orderInclude"]> }>;
+type GroupedByStatus = Prisma.GetOrderAggregateType<Prisma.OrderGroupByOutputType>;
 
 @Injectable()
 export class McpOrdersService {
@@ -21,9 +25,9 @@ export class McpOrdersService {
   async listOrders(params: { cursor?: string; limit?: number; status?: string; customerName?: string; fromDate?: string; toDate?: string }) {
     const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const where = this.buildWhere(params);
-    const orders = await this.prisma.order.findMany({ where, include: this.orderInclude(), orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, ...(params.cursor ? { cursor: { id: params.cursor }, skip: 1 } : {}) });
+    const orders: OrderWithRelations[] = await this.prisma.order.findMany({ where, include: this.orderInclude(), orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, ...(params.cursor ? { cursor: { id: params.cursor }, skip: 1 } : {}) });
     const page = orders.slice(0, limit); const nextOrder = orders[limit];
-    return { orders: page.map((order) => this.serializeOrder(order)), count: page.length, hasMore: Boolean(nextOrder), nextCursor: nextOrder?.id ?? null };
+    return { orders: page.map((order: OrderWithRelations) => this.serializeOrder(order)), count: page.length, hasMore: Boolean(nextOrder), nextCursor: nextOrder?.id ?? null };
   }
 
   async getOrder(params: { id?: string; orderNumber?: string }) {
@@ -76,7 +80,7 @@ export class McpOrdersService {
     return { ...(params.status ? { status: params.status as OrderStatus } : {}), ...(params.customerName ? { customer: { name: { contains: params.customerName, mode: "insensitive" } } } : {}), ...(params.fromDate || params.toDate ? { createdAt: { ...(params.fromDate ? { gte: new Date(params.fromDate) } : {}), ...(params.toDate ? { lte: new Date(params.toDate) } : {}) } } : {}) };
   }
 
-  private orderInclude() { return { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" as const } } }; }
+  private orderInclude() { return { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" as const } }; }
 
   private async resolveOrderId(params: { id?: string; orderNumber?: string }) {
     if (params.id) return params.id;
@@ -101,7 +105,7 @@ export class McpOrdersService {
     }));
   }
 
-  private serializeOrder(order: Prisma.OrderGetPayload<{ include: ReturnType<McpOrdersService["orderInclude"]> }>) {
+  private serializeOrder(order: OrderWithRelations) {
     return { id: order.id, orderNumber: order.orderNumber, status: order.status, quantity: order.quantity, unitPrice: order.unitPrice, totalAmount: order.totalAmount, deliveryFee: order.deliveryFee, deliveryMethod: order.deliveryMethod, paymentMethod: order.paymentMethod, location: order.location, address: order.address, preferredSchedule: order.preferredSchedule, scheduleReminderSentAt: order.scheduleReminderSentAt, items: order.items, notes: order.notes, createdAt: order.createdAt, updatedAt: order.updatedAt, customer: { id: order.customer.id, name: order.customer.name, phoneNumber: order.customer.phoneNumber, defaultAddress: order.customer.defaultAddress, notes: order.customer.notes, totalOrders: order.customer.totalOrders, totalSpent: order.customer.totalSpent, isVip: order.customer.isVip }, batch: order.batch ? { id: order.batch.id, name: order.batch.name, batchDate: order.batch.batchDate, isClosed: order.batch.isClosed } : null, delivery: order.delivery ? { id: order.delivery.id, areaGroup: order.delivery.areaGroup, status: order.delivery.status, scheduledAt: order.delivery.scheduledAt, eta: order.delivery.eta, trackingLink: order.delivery.trackingLink, riderName: order.delivery.riderName, riderPlate: order.delivery.riderPlate, bookingNotes: order.delivery.bookingNotes, copyPayload: order.delivery.copyPayload } : null, orderNotes: order.orderNotes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt })) };
   }
 }
