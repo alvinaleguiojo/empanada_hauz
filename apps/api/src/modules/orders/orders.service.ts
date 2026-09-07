@@ -91,8 +91,30 @@ export class OrdersService {
   }
 
   async track(id: string) {
-    const order = await this.prisma.order.findUnique({ where: { id }, include: { customer: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" }, take: 5 } } });
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        delivery: true,
+        orderNotes: { orderBy: { createdAt: "desc" }, take: 5 },
+        deliveryJobs: {
+          where: { status: { notIn: ["cancelled"] } },
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          include: {
+            rider: {
+              include: {
+                user: { select: { id: true, name: true, email: true } },
+                vehicles: { where: { isActive: true } },
+                locations: { orderBy: { createdAt: "desc" }, take: 1 }
+              }
+            }
+          }
+        }
+      }
+    });
     if (!order) throw new NotFoundException("Order not found");
+    const job = order.deliveryJobs[0];
     return {
       id: order.id, orderNumber: order.orderNumber, status: order.status, quantity: order.quantity,
       unitPrice: order.unitPrice, totalAmount: order.totalAmount, deliveryFee: order.deliveryFee,
@@ -105,6 +127,33 @@ export class OrdersService {
         eta: order.delivery.eta, trackingLink: order.delivery.trackingLink, riderName: order.delivery.riderName,
         riderPlate: order.delivery.riderPlate, bookingNotes: order.delivery.bookingNotes,
         copyPayload: order.delivery.copyPayload, updatedAt: order.delivery.updatedAt
+      } : null,
+      deliveryJob: job ? {
+        id: job.id,
+        status: job.status,
+        riderId: job.riderId,
+        pickupAddress: job.pickupAddress,
+        pickupLatitude: job.pickupLatitude,
+        pickupLongitude: job.pickupLongitude,
+        dropoffAddress: job.dropoffAddress,
+        dropoffLatitude: job.dropoffLatitude,
+        dropoffLongitude: job.dropoffLongitude,
+        estimatedDurationMinutes: job.estimatedDurationMinutes,
+        estimatedArrivalAt: job.estimatedArrivalAt,
+        rider: job.rider ? {
+          name: job.rider.user.name,
+          phoneNumber: job.rider.phoneNumber,
+          plateNumber: job.rider.vehicles[0]?.plateNumber ?? null,
+          vehicleType: job.rider.vehicles[0]?.type ?? null,
+          location: job.rider.locations[0] ? {
+            latitude: job.rider.locations[0].latitude,
+            longitude: job.rider.locations[0].longitude,
+            heading: job.rider.locations[0].heading,
+            speed: job.rider.locations[0].speed,
+            createdAt: job.rider.locations[0].createdAt
+          } : null
+        } : null,
+        updatedAt: job.updatedAt
       } : null,
       orderNotes: order.orderNotes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt }))
     };
