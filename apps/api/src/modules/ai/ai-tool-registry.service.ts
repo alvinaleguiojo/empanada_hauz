@@ -18,26 +18,20 @@ export class AiToolRegistryService {
 
   async getTools(): Promise<AiToolDefinition[]> {
     const handlers = await this.handlers();
-    const configured = await Promise.all(handlers.map(async (handler) => ({
-      handler,
-      config: await this.actionConfig.getEffective(handler.definition.name, {
-        enabled: true,
-        description: handler.definition.description
-      })
-    })));
-
-    return configured
-      .filter(({ config }) => config.enabled)
-      .map(({ handler, config }) => ({
-        ...handler.definition,
-        description: config.description
-      }));
+    const configs = new Map((await this.actionConfig.list()).map((item) => [item.name, item]));
+    return handlers
+      .filter((handler) => configs.get(handler.definition.name)?.enabled ?? true)
+      .map((handler) => {
+        const config = configs.get(handler.definition.name);
+        return { ...handler.definition, description: config?.description?.trim() || handler.definition.description };
+      });
   }
 
   async listForAdmin() {
     const handlers = await this.handlers();
-    return Promise.all(handlers.map(async (handler) => {
-      const config = await this.actionConfig.findByName(handler.definition.name);
+    const configs = new Map((await this.actionConfig.list()).map((item) => [item.name, item]));
+    return handlers.map((handler) => {
+      const config = configs.get(handler.definition.name);
       return {
         name: handler.definition.name,
         label: config?.label ?? handler.definition.name,
@@ -50,7 +44,7 @@ export class AiToolRegistryService {
         inputSchema: handler.definition.inputSchema,
         configured: Boolean(config)
       };
-    }));
+    });
   }
 
   async configure(name: string, patch: AiActionConfigPatch, createdById: string) {
@@ -69,11 +63,8 @@ export class AiToolRegistryService {
     const handler = (await this.handlers()).find((item) => item.definition.name === name);
     if (!handler) throw new BadRequestException(`Unknown AI tool: ${name}`);
 
-    const config = await this.actionConfig.getEffective(name, {
-      enabled: true,
-      description: handler.definition.description
-    });
-    if (!config.enabled) throw new BadRequestException(`AI action is disabled: ${name}`);
+    const config = await this.actionConfig.findByName(name);
+    if (config?.enabled === false) throw new BadRequestException(`AI action is disabled: ${name}`);
     if (handler.definition.requiresCustomerContext && !context.customerId) throw new BadRequestException(`Customer context is required for ${name}`);
     if (handler.definition.requiresExplicitConfirmation && args.confirmed !== true) throw new BadRequestException(`Explicit customer confirmation is required for ${name}`);
     return handler.execute(args, context);
