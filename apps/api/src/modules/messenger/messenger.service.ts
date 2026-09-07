@@ -238,7 +238,8 @@ export class MessengerService {
 
   private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, currentMessage: string) {
     const details = ai.details; const quantity = Number(details.quantity ?? 0); const flavors = details.flavors ?? []; const flavorQuantity = flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    const explicitConfirmation = /\b(yes|yeah|yep|correct|confirmed|confirm|go ahead|proceed|place my order|place the order|place that order|order it|order that|that's correct|that is correct|okay proceed|okay do it|do it)\b/i.test(currentMessage.trim());
+    const normalizedMessage = currentMessage.trim().toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim();
+    const explicitConfirmation = /\b(yes|yeah|yep|correct|confirmed|confirm|confir|confrm|go ahead|proceed|place my order|place the order|place that order|order it|order that|that s correct|that is correct|okay proceed|okay do it|do it)\b/i.test(normalizedMessage);
     const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
     const requiredFieldsPresent = flavors.length > 0 && flavorQuantity === quantity && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
     return explicitConfirmation && requiredFieldsPresent && details.missingFields.length === 0;
