@@ -192,7 +192,7 @@ export class MessengerSingleCallAiService {
       const quantity = Number(item?.quantity ?? 0);
       const unitPrice = name ? PRICES[name.toLowerCase()] : undefined;
       return name && Number.isFinite(quantity) && quantity > 0 ? { name, quantity, unitPrice, subtotal: unitPrice ? unitPrice * quantity : undefined } : null;
-    }).filter((item): item is { name: string; quantity: number; unitPrice?: number; subtotal?: number } => Boolean(item)) : [];
+    }).filter((item): item is NonNullable<typeof item> => item !== null) : [];
     const totalAmount = flavors.length ? flavors.reduce((sum, item) => sum + (item.subtotal ?? 0), 0) : undefined;
     return {
       quantity: this.optionalNumber(source.quantity),
