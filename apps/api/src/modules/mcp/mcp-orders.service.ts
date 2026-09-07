@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { DeliveryMethod, ManualOrderEntryDto, OrderStatus, PaymentMethod, UpdateOrderDto } from "../orders/dto";
 import { OrdersService } from "../orders/orders.service";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
@@ -11,7 +11,6 @@ const MAX_LIMIT = 500;
 const DEFAULT_PICKUP_ADDRESS = "Empanada Hauz";
 
 type OrderWithRelations = Prisma.OrderGetPayload<{ include: ReturnType<McpOrdersService["orderInclude"]> }>;
-type GroupedByStatus = Prisma.GetOrderAggregateType<Prisma.OrderGroupByOutputType>;
 
 @Injectable()
 export class McpOrdersService {
@@ -80,7 +79,7 @@ export class McpOrdersService {
     return { ...(params.status ? { status: params.status as OrderStatus } : {}), ...(params.customerName ? { customer: { name: { contains: params.customerName, mode: "insensitive" } } } : {}), ...(params.fromDate || params.toDate ? { createdAt: { ...(params.fromDate ? { gte: new Date(params.fromDate) } : {}), ...(params.toDate ? { lte: new Date(params.toDate) } : {}) } } : {}) };
   }
 
-  private orderInclude() { return { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" as const } }; }
+  private orderInclude() { return { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" as const } } }; }
 
   private async resolveOrderId(params: { id?: string; orderNumber?: string }) {
     if (params.id) return params.id;
