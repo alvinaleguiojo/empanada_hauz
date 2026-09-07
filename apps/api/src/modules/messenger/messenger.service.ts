@@ -107,8 +107,8 @@ export class MessengerService {
     let reply = ai.suggestedReply?.trim() ?? "";
     if (effectiveOrderAction === "new_order" && shouldReuseExistingDelivery) reply = this.buildApplicationOrderSummary(activeOrderState, true);
     else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
-    else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai, event.text)) reply = this.buildNewOrderProgressReply(ai.details);
-    else if (this.isConfirmedOrder(ai, event.text)) {
+    else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai)) reply = this.buildNewOrderProgressReply(ai.details);
+    else if (this.isConfirmedOrder(ai)) {
       try {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
@@ -236,13 +236,14 @@ export class MessengerService {
     return `NOT READY for MCP placement. Missing required fields: ${missing.length ? missing.join(", ") : "order details"}. A customer confirmation must not be described as an order being placed.`;
   }
 
-  private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, currentMessage: string) {
-    const details = ai.details; const quantity = Number(details.quantity ?? 0); const flavors = details.flavors ?? []; const flavorQuantity = flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    const normalizedMessage = currentMessage.trim().toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim();
-    const explicitConfirmation = /\b(yes|yeah|yep|correct|confirmed|confirm|confir|confrm|go ahead|proceed|place my order|place the order|place that order|order it|order that|that s correct|that is correct|okay proceed|okay do it|do it)\b/i.test(normalizedMessage);
+  private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>) {
+    const details = ai.details;
+    const quantity = Number(details.quantity ?? 0);
+    const flavors = details.flavors ?? [];
+    const flavorQuantity = flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
     const requiredFieldsPresent = flavors.length > 0 && flavorQuantity === quantity && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
-    return explicitConfirmation && requiredFieldsPresent && details.missingFields.length === 0;
+    return Boolean(details.confirmed) && requiredFieldsPresent && details.missingFields.length === 0;
   }
 
   private async createConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, customerName: string, originalMessage: string) {
