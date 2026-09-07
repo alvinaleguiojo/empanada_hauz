@@ -23,6 +23,7 @@ import { McpModule } from "./modules/mcp/mcp.module";
 import { DatabaseModule } from "./database/database.module";
 import { RealtimeModule } from "./common/realtime.module";
 import { GoogleMapsModule } from "./modules/google-maps/google-maps.module";
+import { AdminUsersModule } from "./modules/admin-users/admin-users.module";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { GoogleMapsModule } from "./modules/google-maps/google-maps.module";
     RealtimeModule,
     HealthModule,
     AuthModule,
+    AdminUsersModule,
     MessengerModule,
     AiModule,
     AiInstructionsModule,
