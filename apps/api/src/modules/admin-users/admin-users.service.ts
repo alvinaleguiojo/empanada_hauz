@@ -54,11 +54,15 @@ export class AdminUsersService {
   roles() {
     return Object.values(UserRole).map((role) => ({
       role,
-      permissions: ROLE_PERMISSIONS[role].map((code) => ({ code, label: PERMISSION_LABELS[code] ?? code }))
+      permissions: ROLE_PERMISSIONS[role]
+        .filter((code) => code !== "admin.only")
+        .map((code) => ({ code, label: PERMISSION_LABELS[code] ?? code }))
     }));
   }
 
   permissions() {
-    return Object.entries(PERMISSION_LABELS).map(([code, label]) => ({ code, label }));
+    return Object.entries(PERMISSION_LABELS)
+      .filter(([code]) => code !== "admin.only")
+      .map(([code, label]) => ({ code, label }));
   }
 }
