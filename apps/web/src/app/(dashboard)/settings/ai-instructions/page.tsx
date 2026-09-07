@@ -213,14 +213,14 @@ export default function AiInstructionsPage() {
           <label className="block space-y-2 text-sm font-medium">
             <span>Content</span>
             <textarea
-              maxLength={3000}
+              maxLength={5000}
               value={form.content}
               onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
               placeholder="Instruction: Tell the AI how to interpret order messages. Prompt: Tell the AI how customer-facing replies should sound."
-              rows={7}
+              rows={9}
               className="w-full resize-y rounded-xl border border-white/[0.1] bg-white/[0.05] px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-foreground/30 focus:border-accent/50"
             />
-            <span className="text-xs font-normal text-foreground/40">Maximum 3,000 characters.</span>
+            <span className="text-xs font-normal text-foreground/40">Maximum 5,000 characters.</span>
           </label>
 
           <div className="flex flex-wrap items-center justify-between gap-4">
