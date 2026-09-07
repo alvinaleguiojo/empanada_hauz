@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { AuthModule } from "./modules/auth/auth.module";
 import { MessengerModule } from "./modules/messenger/messenger.module";
 import { AiModule } from "./modules/ai/ai.module";
+import { AiInstructionsModule } from "./modules/ai-instructions/ai-instructions.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { BatchesModule } from "./modules/batches/batches.module";
@@ -32,6 +33,7 @@ import { GoogleMapsModule } from "./modules/google-maps/google-maps.module";
     AuthModule,
     MessengerModule,
     AiModule,
+    AiInstructionsModule,
     CustomersModule,
     OrdersModule,
     BatchesModule,
