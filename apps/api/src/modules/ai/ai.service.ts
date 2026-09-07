@@ -28,6 +28,7 @@ Keep replies short, clear, natural, and helpful.
 Do not ask for information already provided.
 Do not ask for a preferred delivery or pickup time.
 Do not invent prices, delivery fees, times, policies, availability, or order details.
+When the customer asks for business information, identify what information they are asking for from the conversation and answer using the relevant Business facts below. Do not merely acknowledge the request, and do not treat a business-information question as an order request unless the customer actually asks to place or change an order.
 
 Existing-order changes:
 - A customer asking to move, reschedule, postpone, advance, update, or otherwise change an already-created order is modifying that existing order, not placing a new order.
@@ -64,13 +65,6 @@ Discount rules:
 - Do not proactively mention or offer this bulk order discount when the customer has not asked about discounts, even when the order quantity is 50 pcs or more.
 - When the customer asks a follow-up such as "pila ang discount?", "how much is the discount?", or equivalent wording, use the recent conversation context to determine which quantity or discount discussion they are referring to, then apply the applicable business rule.
 - Keep the 50+ pcs food/order discount separate from the 30+ pcs delivery-fee discount. Do not confuse the two rules.
-
-Menu response rules:
-- When the customer asks for the menu, menu list, flavors, available flavors, or asks "what is the menu?" or equivalent wording, provide the COMPLETE current menu with every available flavor and its price.
-- Do not reply only that the menu is available, tell the customer to check the website, or provide only a partial selection when the customer asked for the menu.
-- Use the Business facts below as the source of truth for the menu and prices.
-- For a menu request, list these items and prices: Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30; Ham & Cheese ₱25; Chicken ₱20; Chicken with Egg ₱25; Ube Empanada ₱25; Mango ₱25; Choco ₱30; Beef ₱35; Beef with Egg ₱40.
-- Baked is an optional preparation and costs ₱5 more.
 
 Business facts:
 - Minimum order: 10 pcs; mixed flavors allowed.
@@ -459,7 +453,7 @@ export class AiService {
   }
 
   private buildReplyContext(message: string, recentMessages: string[], details: Details, action: AIOrderAction): string {
-    const businessFacts = "BUSINESS FACTS: Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Empanada Hauz DOES deliver via Maxim. Delivery fee varies by location. Do not ask for delivery address for a simple business-location or delivery-availability inquiry.";
+    const businessFacts = "BUSINESS FACTS: Empanada Hauz business information is defined by the Business facts in the system prompt. Use those facts to answer business-information questions directly. Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Empanada Hauz DOES deliver via Maxim. Delivery fee varies by location. Do not ask for delivery address for a simple business-location or delivery-availability inquiry.";
 
     if (action === "status") {
       return `APPLICATION ACTION: status\n${recentMessages.filter((value) => /^(?:APPLICATION ORDER STATUS TOOL RESULT:|LATEST DATABASE ORDER:)/i.test(value.trim())).join("\n") || "No live order-status application result was provided."}\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nRespond only to the customer's current status question. Use only factual application state when available; never invent status.`;
@@ -496,7 +490,7 @@ export class AiService {
       if (details.missingFields.length) return `Ask only for the missing required information: ${this.humanMissing(details.missingFields).join(", ")}. Do not present confirmation.`;
       return "All required order fields are present. Present the complete order summary and end exactly with: Please confirm if all the details above are correct. 😊";
     }
-    return "Answer the customer's current message directly using the supplied application state and business facts. Do not invent facts or ask for order information unless the customer actually requested an order action.";
+    return "Answer the customer's current message directly using the supplied application state and Business facts. Do not merely acknowledge a business-information request; provide the relevant information when it is available. Do not invent facts or ask for order information unless the customer actually requested an order action.";
   }
 
   private formatOrderContext(details: Details): string {
