@@ -25,6 +25,51 @@ const PRICES: Record<string, number> = {
   "choco": 30, "chocolate": 30, "beef": 35, "beef with egg": 40
 };
 
+const SINGLE_CALL_RESPONSE_FORMAT = {
+  type: "object",
+  properties: {
+    orderAction: { type: "string", enum: ["new_order", "modify_existing", "cancel_existing", "status", "summary", "confirm", "inquiry"] },
+    confidence: { type: "number" },
+    newOrderFlowActive: { type: "boolean" },
+    reuseExistingDelivery: { type: "boolean" },
+    referencedOrderDate: { type: "string" },
+    requestedDeliveryDate: { type: "string" },
+    requestedDeliveryTime: { type: "string" },
+    details: {
+      type: "object",
+      properties: {
+        flavorAction: { type: "string", enum: ["none", "replace", "add", "remove"] },
+        flavors: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              quantity: { type: "number" }
+            },
+            required: ["name"],
+            additionalProperties: false
+          }
+        },
+        quantity: { type: "number" },
+        location: { type: "string" },
+        deliveryMethod: { type: "string", enum: ["pickup", "maxim"] },
+        preferredTime: { type: "string" },
+        deliveryDate: { type: "string" },
+        address: { type: "string" },
+        landmark: { type: "string" },
+        contactNumber: { type: "string" },
+        paymentMethod: { type: "string", enum: ["cod", "gcash"] },
+        confirmed: { type: "boolean" }
+      },
+      additionalProperties: false
+    },
+    suggestedReply: { type: "string" }
+  },
+  required: ["orderAction", "confidence", "newOrderFlowActive", "reuseExistingDelivery", "details", "suggestedReply"],
+  additionalProperties: false
+};
+
 @Injectable()
 export class MessengerSingleCallAiService {
   private readonly logger = new Logger(MessengerSingleCallAiService.name);
@@ -104,10 +149,10 @@ export class MessengerSingleCallAiService {
       ...(adminPrompt ? [{ role: "system" as const, content: adminPrompt }] : []),
       { role: "user", content: user }
     ];
-    const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", keep_alive: "10m", options: { temperature: 0.1, num_predict: 256, num_ctx: 4096 }, messages });
+    const response = await this.chat({ model: this.model, stream: false, think: false, format: SINGLE_CALL_RESPONSE_FORMAT, keep_alive: "10m", options: { temperature: 0.1, num_predict: 256, num_ctx: 4096 }, messages });
     const raw = response.message?.content?.trim();
     if (!raw) throw new Error("Ollama returned an empty single-call Messenger response");
-    const parsed = JSON.parse(this.cleanJson(raw)) as Partial<CombinedResponse>;
+    const parsed = this.parseStructuredResponse(raw, context);
     const orderAction = this.parseAction(parsed.orderAction);
     const details = this.normalizeDetails(parsed.details);
     const confirmed = Boolean(details.confirmed) && orderAction === "confirm";
@@ -130,6 +175,25 @@ export class MessengerSingleCallAiService {
       source: "ollama"
     };
     return { action, ai, key: "", createdAt: Date.now() };
+  }
+
+  private parseStructuredResponse(raw: string, context: { hasPendingNewOrder?: boolean }): Partial<CombinedResponse> {
+    const cleaned = this.cleanJson(raw);
+    try {
+      const parsed = JSON.parse(cleaned) as Partial<CombinedResponse>;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch (error) {
+      this.logger.warn(`Single-call Ollama returned non-JSON content; using safe fallback: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return {
+      orderAction: "inquiry",
+      confidence: 0.25,
+      newOrderFlowActive: Boolean(context.hasPendingNewOrder),
+      reuseExistingDelivery: false,
+      details: {},
+      suggestedReply: raw.trim()
+    };
   }
 
   private normalizeDetails(raw: CombinedResponse["details"] | undefined): AIIntentResult["details"] {
