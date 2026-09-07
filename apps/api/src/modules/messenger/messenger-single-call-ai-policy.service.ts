@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../database/prisma.service";
 import type { AIIntentResult } from "../ai/types";
 import type { AIOrderAction, AIOrderActionResult } from "../ai/ai-order-action.service";
 import { MessengerSingleCallAiService } from "./messenger-single-call-ai.service";
@@ -32,7 +33,7 @@ const SEMANTIC_GUARDRAILS = `APPLICATION SEMANTIC GUARDRAILS (authoritative appl
 
 @Injectable()
 export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiService {
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, private readonly prisma: PrismaService) {
     super(config);
   }
 
@@ -55,8 +56,24 @@ export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiSer
       hasActiveOrder: Boolean(context?.activeOrderState),
       hasPendingNewOrder: Boolean(context?.activeOrderState?.flavors?.length)
     });
-    const shouldMergePendingState = action.orderAction === "confirm" || action.orderAction === "summary";
-    return super.classifyAndExtract(message, shouldMergePendingState ? context : { ...context, activeOrderState: undefined });
+
+    const ai = await super.classifyAndExtract(message, context);
+    if (action.orderAction === "confirm" && context?.activeOrderState?.flavors?.length) {
+      // A semantic confirm means the customer is accepting the pending new-order
+      // state. The pending application state, not the model's current-turn guess,
+      // is authoritative for what should be created.
+      const details = {
+        ...context.activeOrderState,
+        confirmed: true,
+        missingFields: []
+      } as AIIntentResult["details"];
+      return {
+        ...ai,
+        intent: "order_confirmation",
+        details
+      };
+    }
+    return ai;
   }
 
   async generateActionResultReply(
@@ -80,6 +97,37 @@ export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiSer
         return foodTotal ? `Great! I have ${items} for ₱${foodTotal}. Please confirm if all the details are correct. 😊` : `Great! I have ${items}. Please confirm if all the details are correct. 😊`;
       }
       return `Got it! I have ${items}. What would you like to provide next? 😊`;
+    }
+
+    if (/successfully created/i.test(result)) {
+      const orderNumber = result.match(/Order number:\s*([^\.]+)\.?/i)?.[1]?.trim();
+      if (orderNumber) {
+        const order = await this.prisma.order.findUnique({
+          where: { orderNumber },
+          select: { id: true, orderNumber: true, quantity: true, totalAmount: true, preferredSchedule: true, items: true }
+        });
+        if (order) {
+          const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, "");
+          const trackingUrl = `${baseUrl}/track/${order.id}`;
+          const itemText = Array.isArray(order.items) && order.items.length
+            ? order.items.map((item) => `${Number((item as Record<string, unknown>)?.quantity ?? 0)} pcs ${(item as Record<string, unknown>)?.name ?? "item"}`).join(", ")
+            : `${order.quantity} pcs`;
+          const formattedSchedule = order.preferredSchedule
+            ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(order.preferredSchedule)
+            : undefined;
+          return [
+            "Confirmed! Your order has been successfully placed. 😊",
+            "",
+            `Order #: ${order.orderNumber}`,
+            `Order ID: ${order.id}`,
+            `Items: ${itemText}`,
+            `Food total: ₱${Number(order.totalAmount ?? 0).toFixed(2)}`,
+            formattedSchedule ? `Schedule: ${formattedSchedule}` : undefined,
+            "",
+            `Track your order: ${trackingUrl}`
+          ].filter(Boolean).join("\n");
+        }
+      }
     }
 
     return super.generateActionResultReply(message, action, result, recentMessages);
