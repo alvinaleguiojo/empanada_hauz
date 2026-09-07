@@ -4,6 +4,10 @@ import { AiService } from "./ai.service";
 type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
 type ContextSafeMessage = string;
 
+/**
+ * Validates customer-facing AI output without trying to understand the customer's
+ * message itself. Semantic intent/action decisions belong to AiOrderActionService.
+ */
 @Injectable()
 export class AiContextGuardService implements OnModuleInit {
   private readonly logger = new Logger(AiContextGuardService.name);
@@ -14,10 +18,7 @@ export class AiContextGuardService implements OnModuleInit {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
 
     this.aiService.classifyAndExtract = async (message, context) => {
-      const newOrder = this.isNewOrderRequest(message);
-      const sanitizedContext = this.sanitizeContext(
-        newOrder ? { ...context, activeOrderState: undefined } : context
-      );
+      const sanitizedContext = this.sanitizeContext(context);
       const result = await original(message, sanitizedContext);
       result.suggestedReply = this.removeUnrequestedOrderNumber(message, result.suggestedReply);
 
@@ -25,16 +26,25 @@ export class AiContextGuardService implements OnModuleInit {
         return result;
       }
 
-      this.logger.warn(`Rejected internal/echo AI reply for customer message=${JSON.stringify(message)}`);
-      const retryResult = await original(message, sanitizedContext);
+      this.logger.warn(`Rejected invalid AI reply for customer message=${JSON.stringify(message)}`);
+
+      const retryContext = {
+        ...sanitizedContext,
+        recentMessages: [
+          ...(sanitizedContext?.recentMessages ?? []),
+          "AI RESPONSE RETRY: Answer the CURRENT CUSTOMER MESSAGE directly. Do not echo the message, describe what the customer is asking, or tell the customer what the assistant should do. Use the Empanada Hauz business knowledge from the system prompt."
+        ].slice(-17)
+      } as AiContext;
+
+      const retryResult = await original(message, retryContext);
       retryResult.suggestedReply = this.removeUnrequestedOrderNumber(message, retryResult.suggestedReply);
 
       if (this.isInvalidCustomerReply(message, retryResult.suggestedReply)) {
-        result.suggestedReply = "I'm here to help. What would you like to order? 😊";
-      } else {
-        result.suggestedReply = retryResult.suggestedReply;
+        this.logger.error(`AI reply remained invalid after retry for customer message=${JSON.stringify(message)}`);
+        throw new Error("AI failed to generate a valid customer-facing reply");
       }
 
+      result.suggestedReply = retryResult.suggestedReply;
       return result;
     };
   }
@@ -54,19 +64,14 @@ export class AiContextGuardService implements OnModuleInit {
     const text = value.trim();
     if (!text) return false;
 
-    if (/^Customer:\s*/i.test(text)) return true;
-    if (/^APPLICATION ORDER STATUS TOOL RESULT:/i.test(text)) return true;
-    return false;
-  }
-
-  private isNewOrderRequest(message: string) {
-    const lower = message.trim().toLowerCase();
-    if (!lower) return false;
-    if (/\b(?:reschedule|re-schedule|change|update|modify|edit|replace|switch|correct|correction|remove|take\s+out|cancel)\b/i.test(lower) && /\border\b/i.test(lower)) return false;
-    return /^(?:i|we)\s+(?:would\s+like|want|would\s+love)\s+to\s+(?:place\s+)?(?:a\s+)?(?:new\s+)?order\b/i.test(lower)
-      || /^(?:can|may)\s+(?:i|we)\s+(?:place\s+)?(?:a\s+)?(?:new\s+)?order\b/i.test(lower)
-      || /\b(?:place|make|start)\s+(?:a\s+)?new\s+order\b/i.test(lower)
-      || /\b(?:order|buy)\s+\d+\s*(?:pcs?|pieces?)\b/i.test(lower);
+    return /^(?:Customer|Assistant):\s*/i.test(text)
+      || /^APPLICATION BUSINESS KNOWLEDGE:/i.test(text)
+      || /^APPLICATION ORDER STATUS TOOL RESULT:/i.test(text)
+      || /^APPLICATION ORDER VALIDATION:/i.test(text)
+      || /^LATEST DATABASE ORDER:/i.test(text)
+      || /^APPLICATION AI ORDER ACTION:/i.test(text)
+      || /^APPLICATION REUSED DELIVERY FACTS:/i.test(text)
+      || /^AI RESPONSE RETRY:/i.test(text);
   }
 
   private removeUnrequestedOrderNumber(message: string, reply?: string) {
