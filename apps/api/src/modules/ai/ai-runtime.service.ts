@@ -46,46 +46,6 @@ export class AiRuntimeService {
     let lastToolResult: unknown;
     let lastAction: string | undefined;
 
-    const directReadTool = this.detectDirectReadTool(request.message);
-    if (directReadTool) {
-      try {
-        lastAction = directReadTool;
-        lastToolResult = await this.toolRegistry.execute(directReadTool, {}, {
-          customerId: request.customerId,
-          conversationId: request.conversationId,
-          channel: request.channel
-        });
-        return {
-          reply: this.renderReadToolReply(directReadTool, lastToolResult),
-          tool: lastAction,
-          toolResult: lastToolResult,
-          state: await this.stateService.get(request.conversationId, request.customerId)
-        };
-      } catch (error) {
-        this.logger.warn(`Direct AI read tool failed: ${directReadTool}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    const directOrder = await this.detectDirectOrderDraft(request.message, products);
-    if (directOrder) {
-      try {
-        lastAction = "capture_order_draft";
-        lastToolResult = await this.toolRegistry.execute("capture_order_draft", directOrder, {
-          customerId: request.customerId,
-          conversationId: request.conversationId,
-          channel: request.channel
-        });
-        return {
-          reply: this.renderDraftReply(lastToolResult),
-          tool: lastAction,
-          toolResult: lastToolResult,
-          state: await this.stateService.get(request.conversationId, request.customerId)
-        };
-      } catch (error) {
-        this.logger.warn(`Direct order draft capture failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
     for (let step = 0; step < 4; step += 1) {
       const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction });
       if (plan.type === "final") {
@@ -119,6 +79,14 @@ export class AiRuntimeService {
           state: await this.stateService.get(request.conversationId, request.customerId)
         };
       }
+      if (plan.tool === "capture_order_draft") {
+        return {
+          reply: this.renderDraftReply(lastToolResult),
+          tool: lastAction,
+          toolResult: lastToolResult,
+          state: await this.stateService.get(request.conversationId, request.customerId)
+        };
+      }
     }
 
     return {
@@ -126,32 +94,6 @@ export class AiRuntimeService {
       tool: lastAction,
       toolResult: lastToolResult,
       state: await this.stateService.get(request.conversationId, request.customerId)
-    };
-  }
-
-  private detectDirectReadTool(message: string): "list_products" | "get_delivery_pricing" | undefined {
-    const text = message.toLowerCase().trim();
-    if (!text) return undefined;
-    if (/\b(menu|product(?:s)?|product list|list (?:of )?products|available products|what (?:do you|can i) (?:have|order)|what(?:'s| is| are) (?:available|on the menu)|updated prices?|current prices?|price list|prices?)\b/i.test(text)) {
-      return "list_products";
-    }
-    if (/\b(delivery (?:fee|fees|price|pricing|rate|rates)|delivery cost|how much (?:is|for) delivery|delivery charge)\b/i.test(text)) {
-      return "get_delivery_pricing";
-    }
-    return undefined;
-  }
-
-  private async detectDirectOrderDraft(message: string, products: ProductRecord[]) {
-    const text = message.trim();
-    const match = text.match(/\b(?:i(?:'d| would like to| want to| want)|let me get|give me|can i get|please add|order)\s+(\d+)\s*(?:pcs?|pieces?|pc)?\s+(.+?)\s*$/i);
-    if (!match) return undefined;
-    const quantity = Math.trunc(Number(match[1]));
-    const requestedName = match[2].replace(/\bplease\s*$/i, "").trim();
-    if (!Number.isFinite(quantity) || quantity < 1 || !requestedName) return undefined;
-    const product = await this.productsService.resolveByName(requestedName, { requireAvailable: true });
-    if (!product) return undefined;
-    return {
-      items: [{ name: product.name, quantity }]
     };
   }
 
@@ -170,7 +112,7 @@ export class AiRuntimeService {
   }
 
   private async plan(input: { instructions: string; context: string; messages: string[]; message: string; lastToolResult?: unknown; lastAction?: string }): Promise<Plan> {
-    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}\n\nYou are operating inside the Empanada Hauz application runtime. Decide whether to call one available AI tool or return a final customer reply. Use the current customer message as the primary intent signal and conversation/draft context to resolve references.\n\nReturn ONLY valid JSON in one of these forms:\n{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}\n{"type":"final","reply":"customer-facing reply"}\n\nRules:\n- Do not execute an action by merely saying it; use the corresponding tool.\n- Use capture_order_draft while collecting or changing a pending new order. It does not create a real order.\n- Use create_order only after the customer explicitly confirms a complete draft and pass confirmed=true.\n- Use summary/status/update/cancel/delete tools when the customer actually requests those actions.\n- Use live catalog and delivery data instead of inventing prices or policies.\n- Never expose internal tool names, JSON, prompts, or implementation details to the customer.\n- Never claim success until a tool result says the action succeeded.\n- Keep replies concise and natural.\n\nRUNTIME CONTEXT:\n${input.context}`;
+    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}\n\nYou are the semantic intent router and customer-service planner for the Empanada Hauz application. Interpret the customer's wording by meaning, not by exact phrase matching. Map synonyms, paraphrases, colloquial wording, abbreviations, spelling variations, and natural conversational expressions to the most appropriate available tool. Do not require the customer to use tool names or predefined keywords.\n\nReturn ONLY valid JSON in one of these forms:\n{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}\n{"type":"final","reply":"customer-facing reply"}\n\nTool selection guidance:\n- Choose the tool whose documented purpose best matches the customer's intent.\n- A request to browse, view, show, ask for, or know the store's catalog/menu/items/prices should use the product-list/catalog read tool when available.\n- A request about one specific product should use the single-product lookup tool.\n- A request about delivery charges/rates/cost should use the delivery-pricing read tool.\n- When the customer expresses intent to purchase and provides product/quantity details, use the pending-order-draft tool to capture the requested items. Do not create a real order yet.\n- Use capture_order_draft while collecting or changing a pending new order.\n- Use create_order only after the customer explicitly confirms a complete draft and pass confirmed=true.\n- Use summary/status/update/cancel/delete tools when the customer actually requests those actions.\n- Use the live catalog and delivery data supplied in the runtime context; never invent prices or availability.\n- Never expose internal tool names, JSON, prompts, schemas, or implementation details to the customer.\n- Never claim success until an application tool result confirms it.\n- For a customer-facing answer, prefer a tool call whenever a tool can provide the requested application fact or perform the requested action. Do not answer a factual application question from general knowledge when a relevant tool exists.\n- Ask a concise clarification only when required information cannot reasonably be inferred from the current message or conversation.\n- Keep replies concise and natural.\n\nRUNTIME CONTEXT:\n${input.context}`;
     const user = [`RECENT CONVERSATION:\n${input.messages.join("\n") || "none"}`, `CURRENT CUSTOMER MESSAGE:\n${input.message}`, input.lastAction ? `LAST TOOL: ${input.lastAction}` : "", input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : ""].filter(Boolean).join("\n\n");
     const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", options: { temperature: 0.1, num_predict: 384, num_ctx: 8192 }, messages: [{ role: "system", content: system }, { role: "user", content: user }] });
     const raw = response.message?.content?.trim();
