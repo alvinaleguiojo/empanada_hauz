@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const adminRoutes = [
-  "/analytics", "/batches", "/dashboard", "/deliveries", "/inbox", "/inventory", "/kitchen", "/orders", "/referrals", "/referral-chat"
+  "/analytics", "/batches", "/dashboard", "/deliveries", "/inbox", "/inventory", "/kitchen", "/orders", "/referrals", "/referral-chat", "/settings"
 ];
 const publicRoutes = ["/", "/customer"];
 const referralPublicRoutes = ["/referrals/signup", "/referrals/login"];
@@ -60,6 +60,11 @@ export function middleware(request: NextRequest) {
       url.searchParams.set("next", pathname);
       return NextResponse.redirect(url);
     }
+    if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+      if (getJwtRole(adminToken!) !== "admin") {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+    }
   }
 
   return NextResponse.next();
@@ -69,7 +74,7 @@ export const config = {
   matcher: [
     "/", "/login", "/customer", "/rider/:path*", "/rider",
     "/analytics/:path*", "/batches/:path*", "/dashboard/:path*", "/deliveries/:path*", "/inbox/:path*", "/inventory/:path*", "/kitchen/:path*", "/orders/:path*",
-    "/referrals/:path*", "/referrals", "/referral-chat/:path*"
+    "/referrals/:path*", "/referrals", "/referral-chat/:path*", "/settings/:path*", "/settings"
   ]
 };
 
@@ -80,6 +85,15 @@ function isJwtExpired(token: string) {
     const decoded = JSON.parse(base64UrlDecode(payload)) as { exp?: number };
     return typeof decoded.exp === "number" ? decoded.exp * 1000 <= Date.now() : false;
   } catch { return true; }
+}
+
+function getJwtRole(token: string) {
+  const [, payload] = token.split(".");
+  if (!payload) return null;
+  try {
+    const decoded = JSON.parse(base64UrlDecode(payload)) as { role?: string };
+    return decoded.role ?? null;
+  } catch { return null; }
 }
 
 function base64UrlDecode(value: string) {
