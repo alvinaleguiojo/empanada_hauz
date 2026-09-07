@@ -50,4 +50,30 @@ export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiSer
     const shouldMergePendingState = action.orderAction === "confirm" || action.orderAction === "summary";
     return super.classifyAndExtract(message, shouldMergePendingState ? context : { ...context, activeOrderState: undefined });
   }
+
+  async generateActionResultReply(
+    message: string,
+    action: AIOrderAction,
+    result: string,
+    recentMessages: string[] = []
+  ): Promise<string> {
+    // Pending-new-order progress is already represented by the single-call AI
+    // reply. Never expose the internal application result/validation text to the customer.
+    if (action === "new_order" && /pending new-order draft was updated/i.test(result)) {
+      const missing = result.match(/missing=([^\.]+)/i)?.[1]?.trim() ?? "";
+      const state = result.match(/Current order state:\s*([^\.]+)\./i)?.[1]?.trim() ?? "";
+      const items = state.match(/items=([^;]+)/i)?.[1]?.trim() ?? "your selected items";
+      const foodTotal = state.match(/foodTotal=₱?([^;]+)/i)?.[1]?.trim();
+
+      if (/deliveryMethod/i.test(missing)) return `Got it! I have ${items}. Would you like Pickup or Maxim delivery? 😊`;
+      if (/paymentMethod/i.test(missing)) return `Got it! I have ${items}. Would you like to pay via GCash or COD? 😊`;
+      if (/address|landmark|contactNumber/i.test(missing)) return "Got it! For Maxim delivery, please send your Address, Landmark, and Contact #. 😊";
+      if (missing === "none" || /missing=none/i.test(result)) {
+        return foodTotal ? `Great! I have ${items} for ₱${foodTotal}. Please confirm if all the details are correct. 😊` : `Great! I have ${items}. Please confirm if all the details are correct. 😊`;
+      }
+      return `Got it! I have ${items}. What would you like to provide next? 😊`;
+    }
+
+    return super.generateActionResultReply(message, action, result, recentMessages);
+  }
 }
