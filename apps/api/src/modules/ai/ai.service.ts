@@ -19,7 +19,7 @@ Never ask for confirmation when required fields are missing.
 For Maxim delivery, collect Address, Landmark, and Contact # before confirmation.
 Pickup does not require delivery address details.
 CASH means COD. Only explicit GCash means GCash.
-A summary request means SHOW THE CURRENT ORDER SUMMARY; it is not itself a confirmation.
+A summary request means SHOW THE CURRENT ORDER SUMMARY; it is not itself a confirmation. When the application marks the current request as a summary request, return the available current order details and do not ask the customer to confirm them.
 When the customer asks for order status, use the live order-status application/tool result when available. If no order can be found, ask for the order ID. Never invent an order status.
 Never expose internal field names, JSON, intent names, tools, or MCP details.
 Never say an order is confirmed/placed/created unless the application actually created it.
@@ -461,8 +461,8 @@ export class AiService {
 
     if (action === "summary") {
       return details.flavors.length
-        ? `APPLICATION ACTION: summary\nAPPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nProvide the current order summary. Do not treat the summary request as confirmation.`
-        : `APPLICATION ACTION: summary\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nTell the customer that there is no active order summary available yet.`;
+        ? `APPLICATION ACTION: summary\nSUMMARY MODE: The customer is asking to see the current order summary. This request is informational, NOT confirmation. Output the order details from APPLICATION ORDER FACTS. Do not ask for confirmation, do not append the pre-confirmation sentence, and do not treat this request as permission to place or change the order.\nAPPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nProvide the current order summary directly.`
+        : `APPLICATION ACTION: summary\nSUMMARY MODE: The customer is asking to see an order summary. This request is informational, NOT confirmation. Do not ask for confirmation.\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nTell the customer that there is no active order summary available yet.`;
     }
 
     if (details.flavors.length) {
@@ -612,7 +612,7 @@ export class AiService {
       model: this.model,
       stream: false,
       think: false,
-      options: { temperature: 0.2, num_predict: 160, num_ctx: 3072 },
+      options: { temperature: 0.15, num_predict: 320, num_ctx: 4096 },
       messages: [
         { role: "system", content: `${systemPrompt}\nGenerate only the final short customer-facing reply.` },
         { role: "user", content: `${context}\n\nCURRENT CUSTOMER MESSAGE: ${message}` }
