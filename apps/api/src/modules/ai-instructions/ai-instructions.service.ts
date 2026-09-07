@@ -22,7 +22,8 @@ type MongoDeleteResult = { n?: number; deletedCount?: number };
 @Injectable()
 export class AiInstructionsService {
   private readonly collection = "ai_instructions";
-  private promptCache: { expiresAt: number; block: string } | null = null;
+  private instructionCache: { expiresAt: number; block: string } | null = null;
+  private replyPromptCache: { expiresAt: number; block: string } | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -35,26 +36,35 @@ export class AiInstructionsService {
     return result.cursor?.firstBatch ?? [];
   }
 
-  async getActivePromptBlock(): Promise<string> {
-    if (this.promptCache && this.promptCache.expiresAt > Date.now()) {
-      return this.promptCache.block;
+  async getActiveInstructionBlock(): Promise<string> {
+    if (this.instructionCache && this.instructionCache.expiresAt > Date.now()) {
+      return this.instructionCache.block;
     }
+    const block = await this.getActiveBlockByKind("instruction");
+    this.instructionCache = { expiresAt: Date.now() + 5000, block };
+    return block;
+  }
 
+  async getActiveReplyPromptBlock(): Promise<string> {
+    if (this.replyPromptCache && this.replyPromptCache.expiresAt > Date.now()) {
+      return this.replyPromptCache.block;
+    }
+    const block = await this.getActiveBlockByKind("prompt");
+    this.replyPromptCache = { expiresAt: Date.now() + 5000, block };
+    return block;
+  }
+
+  private async getActiveBlockByKind(kind: AiInstructionKind): Promise<string> {
     const result = (await this.prisma.$runCommandRaw({
       find: this.collection,
-      filter: { enabled: true },
+      filter: { enabled: true, kind },
       sort: { priority: 1, updatedAt: -1 },
       limit: 30
     })) as unknown as MongoFindResult<AiInstructionDocument>;
-
-    const instructions = result.cursor?.firstBatch ?? [];
-    const block = instructions
+    return (result.cursor?.firstBatch ?? [])
       .map((item) => item.content.trim())
       .filter(Boolean)
       .join("\n\n");
-
-    this.promptCache = { expiresAt: Date.now() + 5000, block };
-    return block;
   }
 
   async create(dto: CreateAiInstructionDto, createdById: string): Promise<AiInstructionDocument> {
@@ -126,6 +136,7 @@ export class AiInstructionsService {
   }
 
   private invalidateCache() {
-    this.promptCache = null;
+    this.instructionCache = null;
+    this.replyPromptCache = null;
   }
 }
