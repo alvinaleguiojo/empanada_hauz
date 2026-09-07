@@ -74,7 +74,10 @@ export class OrdersService {
   }
 
   async create(dto: CreateOrderDto) {
-    const batch = await this.batchesService.assignBatch(dto.quantity); const deliveryFee = dto.deliveryFee ?? 0; const discountAmount = dto.discountAmount ?? 0; const totalAmount = Math.max(0, dto.quantity * dto.unitPrice + deliveryFee - discountAmount);
+    const batch = await this.batchesService.assignBatch(dto.quantity);
+    const deliveryFee = await this.resolveOrderDeliveryFee(dto.deliveryMethod, [dto.address, dto.location].filter(Boolean).join(", "), dto.deliveryFee ?? 0);
+    const discountAmount = dto.discountAmount ?? 0;
+    const totalAmount = Math.max(0, dto.quantity * dto.unitPrice + deliveryFee - discountAmount);
     const order = await this.prisma.order.create({ data: { orderNumber: `EMP-${Date.now()}`, customerId: dto.customerId, quantity: dto.quantity, unitPrice: dto.unitPrice, totalAmount, deliveryFee, discountAmount, deliveryMethod: dto.deliveryMethod, paymentMethod: dto.paymentMethod ?? "cod", location: dto.location, address: dto.address, preferredSchedule: dto.preferredSchedule ? new Date(dto.preferredSchedule) : undefined, scheduleReminderSentAt: null, items: dto.items, notes: dto.notes, adLabel: dto.adLabel, ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}), batchId: batch?.id, status: batch ? "queued" : "awaiting_confirmation" }, include: { customer: true, batch: true, orderNotes: { orderBy: { createdAt: "desc" } } } });
     this.realtime.emit("orders.created", order); this.notifyOrderCreated(order); await this.googleSheetsOrderSync.appendOrder(order); return order;
   }
@@ -110,10 +113,27 @@ export class OrdersService {
     const customer = reusableCustomer ? await this.prisma.customer.update({ where: { id: reusableCustomer.id }, data: { name: dto.customerName, ...(dto.phoneNumber ? { phoneNumber: dto.phoneNumber } : {}), ...(dto.address ? { defaultAddress: dto.address } : {}), preferredDeliveryMethod: dto.deliveryMethod } }) : await this.prisma.customer.create({ data: { name: dto.customerName, phoneNumber: dto.phoneNumber, defaultAddress: dto.address, preferredDeliveryMethod: dto.deliveryMethod } });
     const batch = dto.status && ["ready_for_booking", "booked", "completed", "cancelled"].includes(dto.status) ? null : await this.batchesService.assignBatch(dto.quantity);
     const lineItems = trustedItems; const orderQuantity = lineItems.reduce((sum, item) => sum + item.quantity, 0) || dto.quantity;
-    const itemSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0); const deliveryFee = dto.deliveryFee ?? 0; const discountAmount = dto.discountAmount ?? 0;
+    const itemSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const deliveryFee = await this.resolveOrderDeliveryFee(dto.deliveryMethod, [dto.address, dto.location].filter(Boolean).join(", "), dto.deliveryFee ?? 0);
+    const discountAmount = dto.discountAmount ?? 0;
     const totalAmount = Math.max(0, (lineItems.length > 0 ? itemSubtotal : dto.quantity * dto.unitPrice) + deliveryFee - discountAmount); const unitPrice = lineItems.length > 0 && orderQuantity > 0 ? itemSubtotal / orderQuantity : dto.unitPrice;
     const order = await this.prisma.order.create({ data: { orderNumber: `EMP-${Date.now()}`, customerId: customer.id, quantity: orderQuantity, unitPrice, totalAmount, deliveryFee, discountAmount, deliveryMethod: dto.deliveryMethod, paymentMethod: dto.paymentMethod ?? "cod", location: dto.location, address: dto.address, preferredSchedule: dto.preferredSchedule ? new Date(dto.preferredSchedule) : undefined, scheduleReminderSentAt: null, items: lineItems.length > 0 ? lineItems : dto.items, notes: dto.notes, adLabel: dto.adLabel, ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}), batchId: batch?.id, status: dto.status ?? (batch ? "queued" : "awaiting_confirmation") }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } } });
     this.realtime.emit("orders.created", order); this.notifyOrderCreated(order); await this.googleSheetsOrderSync.appendOrder(order); if (order.status === "ready_for_booking" || order.status === "booked") this.realtime.emit("deliveries.updated", { orderId: order.id, orderNumber: order.orderNumber, customerName: order.customer?.name, status: order.status }); return order;
+  }
+
+  private async resolveOrderDeliveryFee(deliveryMethod: string, dropoffAddress: string, fallbackFare: number) {
+    if (deliveryMethod !== "own_delivery" || !dropoffAddress.trim()) return fallbackFare;
+    try {
+      const quote = await this.deliveryNetworkService.quoteJob({
+        pickupAddress: EMPANADA_HAUZ_PICKUP.address,
+        pickupLatitude: EMPANADA_HAUZ_PICKUP.latitude,
+        pickupLongitude: EMPANADA_HAUZ_PICKUP.longitude,
+        dropoffAddress: dropoffAddress.trim()
+      });
+      return quote.distanceKm != null ? quote.estimatedFare : fallbackFare;
+    } catch {
+      return fallbackFare;
+    }
   }
 
   private notifyOrderCreated(order: { id: string; orderNumber: string; quantity: number; totalAmount: unknown; deliveryMethod: string; paymentMethod: string; status: string; customer?: { name?: string | null; phoneNumber?: string | null } | null; }) { this.notificationsService.notify("order.created", { orderId: order.id, orderNumber: order.orderNumber, customerName: order.customer?.name, phoneNumber: order.customer?.phoneNumber, quantity: order.quantity, totalAmount: order.totalAmount, deliveryMethod: order.deliveryMethod, paymentMethod: order.paymentMethod, status: order.status }); }
@@ -133,8 +153,11 @@ export class OrdersService {
   async update(id: string, dto: UpdateOrderDto) {
     const existing = await this.prisma.order.findUnique({ where: { id } }); if (!existing) throw new NotFoundException("Order not found");
     const trustedItems = dto.items !== undefined ? await this.resolveTrustedLineItems(dto.items) : undefined;
-    const deliveryFee = dto.deliveryFee ?? existing.deliveryFee ?? 0; const discountAmount = dto.discountAmount ?? existing.discountAmount ?? 0; const quantity = dto.quantity ?? existing.quantity; const unitPrice = dto.unitPrice ?? Number(existing.unitPrice); const totalAmount = Math.max(0, quantity * unitPrice + deliveryFee - discountAmount);
-    const order = await this.prisma.order.update({ where: { id }, data: { ...(dto.quantity !== undefined ? { quantity } : {}), ...(dto.unitPrice !== undefined ? { unitPrice } : {}), ...(dto.deliveryFee !== undefined ? { deliveryFee } : {}), ...(dto.discountAmount !== undefined ? { discountAmount } : {}), ...(dto.deliveryMethod !== undefined ? { deliveryMethod: dto.deliveryMethod } : {}), ...(dto.paymentMethod !== undefined ? { paymentMethod: dto.paymentMethod } : {}), ...(dto.location !== undefined ? { location: dto.location } : {}), ...(dto.address !== undefined ? { address: dto.address } : {}), ...(dto.preferredSchedule !== undefined ? { preferredSchedule: new Date(dto.preferredSchedule) } : {}), ...(trustedItems !== undefined ? { items: trustedItems } : {}), ...(dto.notes !== undefined ? { notes: dto.notes } : {}), ...(dto.adLabel !== undefined ? { adLabel: dto.adLabel || null } : {}), ...(dto.customerName !== undefined || dto.phoneNumber !== undefined ? { customer: { update: { ...(dto.customerName !== undefined ? { name: dto.customerName } : {}), ...(dto.phoneNumber !== undefined ? { phoneNumber: dto.phoneNumber || null } : {}) } } } : {}), totalAmount }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } } });
+    const deliveryMethod = dto.deliveryMethod ?? existing.deliveryMethod;
+    const dropoffAddress = [dto.address ?? existing.address, dto.location ?? existing.location].filter(Boolean).join(", ");
+    const deliveryFee = await this.resolveOrderDeliveryFee(deliveryMethod, dropoffAddress, dto.deliveryFee ?? existing.deliveryFee ?? 0);
+    const discountAmount = dto.discountAmount ?? existing.discountAmount ?? 0; const quantity = dto.quantity ?? existing.quantity; const unitPrice = dto.unitPrice ?? Number(existing.unitPrice); const totalAmount = Math.max(0, quantity * unitPrice + deliveryFee - discountAmount);
+    const order = await this.prisma.order.update({ where: { id }, data: { ...(dto.quantity !== undefined ? { quantity } : {}), ...(dto.unitPrice !== undefined ? { unitPrice } : {}), ...(deliveryMethod === "own_delivery" || dto.deliveryFee !== undefined ? { deliveryFee } : {}), ...(dto.discountAmount !== undefined ? { discountAmount } : {}), ...(dto.deliveryMethod !== undefined ? { deliveryMethod: dto.deliveryMethod } : {}), ...(dto.paymentMethod !== undefined ? { paymentMethod: dto.paymentMethod } : {}), ...(dto.location !== undefined ? { location: dto.location } : {}), ...(dto.address !== undefined ? { address: dto.address } : {}), ...(dto.preferredSchedule !== undefined ? { preferredSchedule: new Date(dto.preferredSchedule) } : {}), ...(trustedItems !== undefined ? { items: trustedItems } : {}), ...(dto.notes !== undefined ? { notes: dto.notes } : {}), ...(dto.adLabel !== undefined ? { adLabel: dto.adLabel || null } : {}), ...(dto.customerName !== undefined || dto.phoneNumber !== undefined ? { customer: { update: { ...(dto.customerName !== undefined ? { name: dto.customerName } : {}), ...(dto.phoneNumber !== undefined ? { phoneNumber: dto.phoneNumber || null } : {}) } } } : {}), totalAmount }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } } });
     this.realtime.emit("orders.updated", order); return order;
   }
 
