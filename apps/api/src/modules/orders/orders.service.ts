@@ -140,6 +140,7 @@ export class OrdersService {
         dropoffLongitude: job.dropoffLongitude,
         estimatedDurationMinutes: job.estimatedDurationMinutes,
         estimatedArrivalAt: job.estimatedArrivalAt,
+        updatedAt: job.updatedAt,
         rider: job.rider ? {
           name: job.rider.user.name,
           phoneNumber: job.rider.phoneNumber,
@@ -152,8 +153,7 @@ export class OrdersService {
             speed: job.rider.locations[0].speed,
             createdAt: job.rider.locations[0].createdAt
           } : null
-        } : null,
-        updatedAt: job.updatedAt
+        } : null
       } : null,
       orderNotes: order.orderNotes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt }))
     };
