@@ -48,14 +48,14 @@ export class AiConversationStateService {
         upsert: true,
         multi: false
       }]
-    } as unknown as Prisma.InputJsonValue;
+    } as unknown as Prisma.InputJsonObject;
     await this.prisma.$runCommandRaw(command);
     return { _id: existing?._id ?? `${customerId}:${conversationId}`, conversationId, customerId, updatedAt: now, draft };
   }
 
   async clear(conversationId: string, customerId: string) {
     if (!conversationId || !customerId) return { ok: true };
-    const command = { delete: this.collection, deletes: [{ q: { conversationId, customerId }, limit: 1 }] } as unknown as Prisma.InputJsonValue;
+    const command = { delete: this.collection, deletes: [{ q: { conversationId, customerId }, limit: 1 }] } as unknown as Prisma.InputJsonObject;
     await this.prisma.$runCommandRaw(command);
     return { ok: true };
   }
