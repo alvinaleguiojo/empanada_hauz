@@ -4,9 +4,11 @@ import { ConfigService } from "@nestjs/config";
 export type AIOrderAction =
   | "new_order"
   | "modify_existing"
+  | "cancel_existing"
   | "status"
   | "summary"
-  | "inquiry";
+  | "inquiry"
+  | "confirm";
 
 export interface AIOrderActionResult {
   orderAction: AIOrderAction;
@@ -15,9 +17,7 @@ export interface AIOrderActionResult {
   reuseExistingDelivery: boolean;
 }
 
-interface OllamaResponse {
-  message?: { content?: string };
-}
+interface OllamaResponse { message?: { content?: string } }
 
 @Injectable()
 export class AiOrderActionService {
@@ -30,106 +30,70 @@ export class AiOrderActionService {
     this.model = this.config.get<string>("OLLAMA_INTERPRET_MODEL", this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct"));
   }
 
-  async analyze(
-    message: string,
-    context: {
-      recentMessages?: string[];
-      hasActiveOrder?: boolean;
-      hasPendingNewOrder?: boolean;
-      existingDeliveryDetails?: {
-        deliveryMethod?: string | null;
-        address?: string | null;
-        location?: string | null;
-        contactNumber?: string | null;
-        paymentMethod?: string | null;
-      };
-    }
-  ): Promise<AIOrderActionResult> {
+  async analyze(message: string, context: { recentMessages?: string[]; hasActiveOrder?: boolean; hasPendingNewOrder?: boolean; existingDeliveryDetails?: { deliveryMethod?: string | null; address?: string | null; location?: string | null; contactNumber?: string | null; paymentMethod?: string | null } }): Promise<AIOrderActionResult> {
     const recentMessages = (context.recentMessages ?? []).slice(-16);
     const delivery = context.existingDeliveryDetails ?? {};
     const hasActiveOrder = Boolean(context.hasActiveOrder);
     const hasPendingNewOrder = Boolean(context.hasPendingNewOrder);
     const response = await this.chat({
-      model: this.model,
-      stream: false,
-      think: false,
-      format: "json",
+      model: this.model, stream: false, think: false, format: "json",
       options: { temperature: 0.1, num_predict: 192, num_ctx: 3072 },
       messages: [
-        {
-          role: "system",
-          content: `You are the semantic action router for Empanada Hauz Messenger. Your job is to determine WHAT THE CUSTOMER WANTS TO DO NOW and return a structured action for the application. Interpret the CURRENT CUSTOMER MESSAGE semantically using the recent conversation and current order state. Never depend on exact keywords.
+        { role: "system", content: `You are the semantic action router for Empanada Hauz Messenger. Determine WHAT THE CUSTOMER WANTS TO DO NOW from the CURRENT CUSTOMER MESSAGE plus recent conversation and current order state. Never depend on exact keywords.
 
-Understand natural language, typos, misspellings, shorthand, abbreviations, phonetic spellings, incomplete phrases, casual Messenger language, and Cebuano/English mixing. Resolve references such as "that", "same", "it", "this one", "again", and follow-up replies from the conversation context.
+Understand natural language, typos, misspellings, shorthand, abbreviations, phonetic spellings, incomplete phrases, casual Messenger wording, and Cebuano/English mixing. Resolve references such as "that", "same", "it", "this one", "again", and follow-up replies from conversation context.
 
-Return ONLY valid JSON:
-{
-  "orderAction": "new_order|modify_existing|status|summary|inquiry",
-  "confidence": 0.0,
-  "newOrderFlowActive": true|false,
-  "reuseExistingDelivery": true|false
-}
+Return ONLY valid JSON with this shape:
+{"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":true,"reuseExistingDelivery":false}
 
 ACTION MEANINGS:
 - new_order: start or continue a separate/new order.
-- modify_existing: change an already-created database order, including changing quantity/items/date/time/delivery/payment/address/contact, cancelling an item, or otherwise correcting an existing order.
-- status: ask whether an order exists, whether it was placed, or ask about its current status.
-- summary: ask to see the current order summary/details.
+- modify_existing: change details of an already-created database order, such as quantity/items/date/time/delivery/payment/address/contact, or remove one item.
+- cancel_existing: cancel an entire already-created database order.
+- status: ask whether an order exists, whether it was placed, or its current status.
+- summary: ask to see current or previous order summary/details.
 - inquiry: general business question or anything that is not an order action.
+- confirm: explicitly accept/approve the immediately preceding complete pending new-order summary so the application can validate and create it.
+
+CANCELLATION:
+- Choose cancel_existing when the current message clearly asks to cancel/stop the whole existing order.
+- Understand cancellation semantically, including typos, misspellings, shorthand, phonetic spellings, and casual wording. Do not rely on a fixed phrase list.
+- Do not choose cancel_existing when the customer only wants one item removed or an order detail changed; use modify_existing.
+- Do not choose cancel_existing for a pending new-order draft.
 
 CONFIRMATION:
-- A customer accepting a complete order summary is an order-completion action. Treat natural-language acceptance as confirmation, including typos, misspellings, shorthand, or phonetic spellings.
-- Examples include "yes", "okay", "sure", "go ahead", "please do", "correct", "confirm", "confir", or similar wording when the immediately preceding conversation contains a complete order summary awaiting confirmation.
-- Do NOT invent confirmation from context alone. The CURRENT CUSTOMER MESSAGE must itself express acceptance.
-- If the current message accepts the pending new order, return orderAction=new_order and newOrderFlowActive=true. The application will separately verify the structured confirmation result before creating the order.
+- Choose confirm only when the current message itself clearly accepts the immediately preceding complete pending order summary.
+- Accept natural language, shorthand, typos, misspellings, and phonetic spellings.
+- Do not choose confirm for a question, rejection, change request, summary request, new-order request, or ambiguous message.
 
 NEW ORDER VS EXISTING ORDER:
-- A request like "I want another order", "order 20 more", "can I get another batch", or similar means new_order.
-- A request like "change it to 20", "make it pickup", "use GCash instead", "move it to Friday", "remove the chicken", "cancel the beef" means modify_existing when referring to an already-created database order.
-- If a pending new order already exists, follow-up messages that provide or change details for that pending order remain new_order/new-order flow.
+- A request for another/separate order means new_order.
+- A detail change to an existing database order means modify_existing.
+- A whole-order cancellation means cancel_existing.
+- Follow-up details for a pending new order remain new_order.
 
 DELIVERY REUSE:
-- reuseExistingDelivery=true only when the customer is clearly asking to copy/reuse/keep delivery details from a previous/current order for the separate new order.
-- Do not infer payment reuse unless explicitly stated.
+- reuseExistingDelivery=true only when the customer clearly asks to keep/copy previous/current delivery details for a separate new order.
+- Never infer payment reuse.
 
 STATE RULES:
-- If a pending new order exists, keep newOrderFlowActive=true while the customer completes or confirms it.
-- If there is an active database order but no pending new order, do not treat a fresh new-order request as a modification merely because an old order exists.
-- If there is an active database order and the customer clearly refers to changing that order, use modify_existing.
-- If there is no active order and no pending new order, a message asking to create an order can start new_order flow.
-- Do not decide pricing, required fields, order ownership, database validity, or whether an action is safe to execute. Those are application responsibilities.`
-        },
-        {
-          role: "user",
-          content: `ACTIVE DATABASE ORDER EXISTS: ${hasActiveOrder}\nPENDING NEW ORDER EXISTS: ${hasPendingNewOrder}\n\nEXISTING DELIVERY DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}`
-        }
+- If a pending new order exists, keep newOrderFlowActive=true for its completion, changes, or confirmation.
+- confirm for a pending new order means newOrderFlowActive=true.
+- Do not treat a fresh new-order request as a modification just because an old order exists.
+- Do not decide pricing, required fields, ownership, database validity, cancellation eligibility, or execution safety. Those are application responsibilities.` },
+        { role: "user", content: `ACTIVE DATABASE ORDER EXISTS: ${hasActiveOrder}\nPENDING NEW ORDER EXISTS: ${hasPendingNewOrder}\n\nEXISTING DELIVERY DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}` }
       ]
     });
-
     const raw = response.message?.content?.trim();
     if (!raw) throw new Error("Ollama returned an empty order action");
-
     try {
       const parsed = JSON.parse(this.cleanJson(raw)) as Partial<AIOrderActionResult>;
-      const requestedAction = parsed.orderAction === "new_order"
-        || parsed.orderAction === "modify_existing"
-        || parsed.orderAction === "status"
-        || parsed.orderAction === "summary"
-        ? parsed.orderAction
-        : "inquiry";
+      const requestedAction: AIOrderAction = parsed.orderAction === "new_order" || parsed.orderAction === "modify_existing" || parsed.orderAction === "cancel_existing" || parsed.orderAction === "status" || parsed.orderAction === "summary" || parsed.orderAction === "confirm" ? parsed.orderAction : "inquiry";
       const requestedNewOrderFlow = Boolean(parsed.newOrderFlowActive);
       const reuseExistingDelivery = Boolean(parsed.reuseExistingDelivery) && hasPendingNewOrder;
-      const newOrderFlowActive = hasPendingNewOrder
-        ? requestedNewOrderFlow || reuseExistingDelivery || requestedAction === "new_order"
-        : !hasActiveOrder && requestedAction === "new_order" && requestedNewOrderFlow;
-      const orderAction = requestedAction;
+      const newOrderFlowActive = hasPendingNewOrder ? requestedNewOrderFlow || reuseExistingDelivery || requestedAction === "new_order" || requestedAction === "confirm" : !hasActiveOrder && requestedAction === "new_order" && requestedNewOrderFlow;
       const confidence = Number(parsed.confidence);
-      return {
-        orderAction,
-        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
-        newOrderFlowActive,
-        reuseExistingDelivery
-      };
+      return { orderAction: requestedAction, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0, newOrderFlowActive, reuseExistingDelivery };
     } catch (error) {
       this.logger.warn(`Order action JSON parse failed: ${error instanceof Error ? error.message : String(error)}`);
       return { orderAction: "inquiry", confidence: 0, newOrderFlowActive: false, reuseExistingDelivery: false };
@@ -140,17 +104,10 @@ STATE RULES:
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify(body)
-      });
+      const response = await fetch(`${this.baseUrl}/api/chat`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
       if (!response.ok) throw new Error(`Ollama order-action request failed: ${response.status} ${await response.text()}`);
       return await response.json() as OllamaResponse;
-    } finally {
-      clearTimeout(timeout);
-    }
+    } finally { clearTimeout(timeout); }
   }
 
   private cleanJson(raw: string) {
