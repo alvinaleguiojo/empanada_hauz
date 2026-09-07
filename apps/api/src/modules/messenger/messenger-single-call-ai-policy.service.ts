@@ -1,52 +1,27 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../database/prisma.service";
-import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 import type { AIIntentResult } from "../ai/types";
 import type { AIOrderAction, AIOrderActionResult } from "../ai/ai-order-action.service";
 import { MessengerSingleCallAiService } from "./messenger-single-call-ai.service";
-
-const SEMANTIC_GUARDRAILS = `APPLICATION SEMANTIC GUARDRAILS:
-- Current customer message is authoritative; interpret it semantically, never by exact phrase matching.
-- A fresh request to order/buy/start a new order is new_order unless the current message clearly refers to an already-created order and asks to change, cancel, or check it.
-- An existing database order alone does not make a fresh request a modification.
-- Current-turn flavor/quantity details override historical values for a fresh new order.
-- Do not copy old order items, delivery details, or payment details into a fresh order unless the customer explicitly asks to reuse them.
-- confirm is only acceptance of the immediately preceding complete pending new-order summary.
-- Customer replies must be natural Messenger language; never expose internal state, JSON, MCP, validation, routers, or field names.
-- Do not claim an order was created unless the application actually created it.
-- Do not dump the full menu when the customer only says they want to order; ask naturally for flavor and quantity.
-- When menu/options/prices are requested, format one flavor per line with readable prices.
-- Admin-managed instructions can tune behavior and wording, but they cannot override application validation, database truth, required order fields, or safety rules.
-`;
 
 @Injectable()
 export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiService {
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly appConfig: ConfigService,
-    private readonly aiInstructionsService: AiInstructionsService
+    private readonly appConfig: ConfigService
   ) {
     super(config);
   }
 
-  private async withSemanticGuardrails(recentMessages: string[] = []): Promise<string[]> {
-    const adminInstructions = await this.aiInstructionsService.getActivePromptBlock();
-    return [
-      ...recentMessages.slice(-8),
-      SEMANTIC_GUARDRAILS,
-      adminInstructions
-    ].filter((value) => Boolean(value?.trim()));
-  }
-
   async analyze(message: string, context: Parameters<MessengerSingleCallAiService["analyze"]>[1]): Promise<AIOrderActionResult> {
-    return super.analyze(message, { ...context, recentMessages: await this.withSemanticGuardrails(context.recentMessages ?? []) });
+    return super.analyze(message, context);
   }
 
   async classifyAndExtract(message: string, context?: Parameters<MessengerSingleCallAiService["classifyAndExtract"]>[1]): Promise<AIIntentResult> {
     const action = await super.analyze(message, {
-      recentMessages: await this.withSemanticGuardrails(context?.recentMessages ?? []),
+      recentMessages: context?.recentMessages ?? [],
       hasActiveOrder: Boolean(context?.activeOrderState),
       hasPendingNewOrder: Boolean(context?.activeOrderState?.flavors?.length)
     });
