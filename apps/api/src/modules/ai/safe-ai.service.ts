@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
-import { ProductRecord, ProductsService } from "../products/products.service";
+import { ProductsService } from "../products/products.service";
 import { AIIntentResult } from "./types";
 import { AiService } from "./ai.service";
 
