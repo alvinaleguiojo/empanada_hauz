@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { AIIntentResult, CustomerIntent, DeliveryMethodValue } from "../ai/types";
+import type { AIIntentResult, CustomerIntent } from "../ai/types";
 import type { AIOrderAction, AIOrderActionResult } from "../ai/ai-order-action.service";
 
 interface OllamaResponse { message?: { content?: string } }
@@ -18,85 +18,44 @@ const FLAVORS = [
 ];
 
 const PRICES: Record<string, number> = {
-  "bacon with cheese": 35,
-  "pork regular": 20,
-  "pork regular with egg": 25,
-  "pork asado": 30,
-  "ham & cheese": 25,
-  "ham and cheese": 25,
-  "ham cheese": 25,
-  "ham with cheese": 25,
-  "ham": 25,
-  "chicken": 20,
-  "chicken with egg": 25,
-  "ube": 25,
-  "ube empanada": 25,
-  "mango": 25,
-  "choco": 30,
-  "chocolate": 30,
-  "beef": 35,
-  "beef with egg": 40
+  "bacon with cheese": 35, "pork regular": 20, "pork regular with egg": 25, "pork asado": 30,
+  "ham & cheese": 25, "ham and cheese": 25, "ham cheese": 25, "ham with cheese": 25, "ham": 25,
+  "chicken": 20, "chicken with egg": 25, "ube": 25, "ube empanada": 25, "mango": 25,
+  "choco": 30, "chocolate": 30, "beef": 35, "beef with egg": 40
 };
 
-const SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz and the semantic order-action interpreter for Messenger.
+const SYSTEM_PROMPT = `You are the semantic interpreter for Empanada Hauz Messenger.
 
-CURRENT CUSTOMER MESSAGE has highest priority. Interpret it semantically, not by exact phrase matching. Understand typos, shorthand, abbreviations, phonetic spellings, incomplete phrases, casual Messenger language, and Cebuano/English mixing.
-Resolve follow-up references using recent conversation and supplied application state. Do not discard known order information merely because it is not repeated.
+Understand the CURRENT CUSTOMER MESSAGE in context and return compact JSON. Do not behave like a general chatbot.
 
-ACTION PRECEDENCE:
-1. Business-information questions are inquiry.
-2. Requests to view/show/send/review an order summary or details are summary and are not confirmation.
-3. Accepting the immediately preceding complete pending new-order summary is confirm.
-4. Changing an already-created order is modify_existing. Changing only date/time is still modify_existing.
-5. Cancelling an already-created order is cancel_existing.
-6. Asking whether an order exists/was placed/current status is status.
-7. Starting or continuing a separate/pending order is new_order.
-8. Otherwise inquiry.
+RULES:
+- CURRENT CUSTOMER MESSAGE is authoritative.
+- Interpret meaning semantically; handle typos, shorthand, Cebuano/English mixing, and casual Messenger wording.
+- Resolve short follow-ups against the most relevant recent conversation.
+- Do not confuse an existing database order with a separate new order.
+- confirm means the customer accepts the immediately preceding complete pending new-order summary.
+- Do not claim an order was created; the application creates orders.
 
-BUSINESS INFORMATION includes menu, prices, flavors, best sellers, baked option, minimum order, payment, pickup location, delivery availability/fees, preparation time, and opening/closing.
-Minimum order is 10 pcs; mixed flavors allowed.
-Prices: Bacon with Cheese 35; Pork Regular 20; Pork Regular with Egg 25; Pork Asado 30; Ham & Cheese 25; Chicken 20; Chicken with Egg 25; Ube Empanada 25; Mango 25; Choco 30; Beef 35; Beef with Egg 40.
-Baked is 5 more. Preparation is about 1 hour.
-Payment is GCash or COD. GCash: Alvin Aleguiojo, 09453916796.
-Pickup/business location: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.
-Maxim delivery is available. For Maxim delivery, Address, Landmark, and Contact # are required. Delivery fee varies by location.
-50+ pcs qualifies for 10% off the food/order total, but mention/apply it only when the customer asks about a discount. 30+ pcs gets 20% off the delivery fee, also only when the customer asks about a discount.
+ACTIONS:
+- inquiry = business information, casual chat, or no application action.
+- summary = asks to see/review current or previous order details.
+- status = asks whether an order exists, was placed, or its current status.
+- new_order = starts or continues a separate pending order.
+- modify_existing = changes an already-created order.
+- cancel_existing = cancels an already-created order.
+- confirm = accepts the immediately preceding complete pending new-order summary.
 
-CONFIRMATION: confirmed=true only when the CURRENT CUSTOMER MESSAGE clearly accepts the immediately preceding complete pending new-order summary. Questions, changes, new information, and summary requests are not confirmation.
-CASH means COD. Only explicit GCash means GCash.
-DATE/TIME: use CURRENT DATE/TIME IN ASIA/MANILA. Resolve today/tomorrow/next Monday/etc. to concrete dates. For an existing-order modification, keep the source date separate from the requested target date.
-DELIVERY REUSE: reuseExistingDelivery=true only when the customer clearly asks to copy/keep previous delivery details for a separate new order. Never infer payment reuse.
+EXTRACTION:
+Extract order fields from the current message plus clearly contextual follow-up information. Prefer current-turn item/quantity details over older values. Do not copy old order details into a fresh new order unless the customer explicitly asks to reuse them.
 
-Return ONLY compact valid JSON matching this shape:
-{
-  "orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm",
-  "confidence":0.0,
-  "newOrderFlowActive":false,
-  "reuseExistingDelivery":false,
-  "referencedOrderDate":"YYYY-MM-DD or empty",
-  "requestedDeliveryDate":"YYYY-MM-DD or empty",
-  "requestedDeliveryTime":"HH:MM or empty",
-  "details":{
-    "flavorAction":"none|replace|add|remove",
-    "flavors":[{"name":"Canonical flavor name","quantity":0}],
-    "quantity":0,
-    "location":"",
-    "deliveryMethod":"pickup|maxim",
-    "preferredTime":"",
-    "deliveryDate":"YYYY-MM-DD",
-    "address":"",
-    "landmark":"",
-    "contactNumber":"",
-    "paymentMethod":"cod|gcash",
-    "confirmed":false
-  },
-  "suggestedReply":"short customer-facing Messenger reply"
-}
+BUSINESS FACTS: minimum 10 pcs; mixed flavors allowed; Bacon with Cheese 35; Pork Regular 20; Pork Regular with Egg 25; Pork Asado 30; Ham & Cheese 25; Chicken 20; Chicken with Egg 25; Ube Empanada 25; Mango 25; Choco 30; Beef 35; Beef with Egg 40. Payment GCash or COD. Maxim requires address, landmark, and contact number. Delivery fee varies by location. Pickup location: Cabancalan 2, Bulacao, Cebu City.
 
-For a summary request, suggestedReply must show the available current order details when they are supplied. Do not ask for confirmation for a summary request.
-Never claim an order was created/placed/confirmed unless APPLICATION RESULT later says the application actually created it.
-Never expose JSON, internal action names, tools, MCP, or implementation details.
-Use Cebuano when the customer uses Cebuano, otherwise English. Keep replies concise and natural.`;
+DATES: use Asia/Manila current date/time from the request. Resolve relative dates to YYYY-MM-DD. For existing-order changes, keep source and target dates distinct.
+
+REPLY: suggestedReply must be a short natural Messenger reply. Do not use internal terms, JSON, MCP, validation language, or menu dumps unless the customer asks for menu/options/prices. Never say an order is created unless the application later confirms it.
+
+Return ONLY valid JSON:
+{"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":false,"reuseExistingDelivery":false,"referencedOrderDate":"YYYY-MM-DD or empty","requestedDeliveryDate":"YYYY-MM-DD or empty","requestedDeliveryTime":"HH:MM or empty","details":{"flavorAction":"none|replace|add|remove","flavors":[{"name":"Canonical flavor name","quantity":0}],"quantity":0,"location":"","deliveryMethod":"pickup|maxim","preferredTime":"","deliveryDate":"YYYY-MM-DD","address":"","landmark":"","contactNumber":"","paymentMethod":"cod|gcash","confirmed":false},"suggestedReply":"short reply"}`;
 
 @Injectable()
 export class MessengerSingleCallAiService {
@@ -106,6 +65,7 @@ export class MessengerSingleCallAiService {
   private readonly timeoutMs: number;
   private readonly cache = new Map<string, CachedResult>();
   private readonly handoff = new Map<string, CachedResult>();
+  private aiQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly config: ConfigService) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
@@ -117,14 +77,14 @@ export class MessengerSingleCallAiService {
   async analyze(message: string, context: { recentMessages?: string[]; hasActiveOrder?: boolean; hasPendingNewOrder?: boolean; existingDeliveryDetails?: { deliveryMethod?: string | null; address?: string | null; location?: string | null; contactNumber?: string | null; paymentMethod?: string | null; preferredSchedule?: string | null } }): Promise<AIOrderActionResult> {
     const handoff = this.handoff.get(this.handoffKey(message));
     if (handoff && Date.now() - handoff.createdAt <= 30_000) return handoff.action;
-
     const key = this.makeKey(message, context.recentMessages ?? [], context.hasActiveOrder, context.hasPendingNewOrder);
     const cached = this.getCached(key);
     if (cached) {
       this.handoff.set(this.handoffKey(message), cached);
       return cached.action;
     }
-    const result = await this.runSingleCall(message, context);
+    const result = await this.enqueueAi(() => this.runSingleCall(message, context));
+    result.key = key;
     this.cache.set(key, result);
     this.handoff.set(this.handoffKey(message), result);
     return result.action;
@@ -132,16 +92,12 @@ export class MessengerSingleCallAiService {
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: AIIntentResult["details"] }): Promise<AIIntentResult> {
     const handoff = this.handoff.get(this.handoffKey(message));
-    if (handoff && Date.now() - handoff.createdAt <= 30_000) {
-      return this.mergeActiveState(handoff.ai, context?.activeOrderState);
-    }
-
+    if (handoff && Date.now() - handoff.createdAt <= 30_000) return this.mergeActiveState(handoff.ai, context?.activeOrderState);
     const recentMessages = context?.recentMessages ?? [];
     const key = this.makeKey(message, recentMessages.filter((line) => !/^APPLICATION /.test(line)), Boolean(context?.activeOrderState), Boolean(context?.activeOrderState?.flavors?.length));
     const cached = this.getCached(key);
     if (cached) return this.mergeActiveState(cached.ai, context?.activeOrderState);
-
-    const fallback = await this.runSingleCall(message, {
+    const fallback = await this.enqueueAi(() => this.runSingleCall(message, {
       recentMessages,
       hasActiveOrder: Boolean(context?.activeOrderState),
       hasPendingNewOrder: Boolean(context?.activeOrderState?.flavors?.length),
@@ -153,7 +109,9 @@ export class MessengerSingleCallAiService {
         paymentMethod: context.activeOrderState.paymentMethod,
         preferredSchedule: undefined
       } : undefined
-    });
+    }));
+    fallback.key = key;
+    this.cache.set(key, fallback);
     this.handoff.set(this.handoffKey(message), fallback);
     return this.mergeActiveState(fallback.ai, context?.activeOrderState);
   }
@@ -162,12 +120,18 @@ export class MessengerSingleCallAiService {
     return this.renderApplicationResult(result);
   }
 
+  private async enqueueAi<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.aiQueue.then(task, task);
+    this.aiQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
   private async runSingleCall(message: string, context: { recentMessages?: string[]; hasActiveOrder?: boolean; hasPendingNewOrder?: boolean; existingDeliveryDetails?: { deliveryMethod?: string | null; address?: string | null; location?: string | null; contactNumber?: string | null; paymentMethod?: string | null; preferredSchedule?: string | null } }): Promise<CachedResult> {
-    const recent = (context.recentMessages ?? []).filter((line) => !/^APPLICATION AI ORDER ACTION:/.test(line)).slice(-16);
+    const recent = (context.recentMessages ?? []).filter((line) => !/^APPLICATION AI ORDER ACTION:/.test(line)).slice(-8);
     const delivery = context.existingDeliveryDetails ?? {};
-    const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
-    const user = `CURRENT DATE/TIME IN ASIA/MANILA: ${now}\nACTIVE DATABASE ORDER EXISTS: ${Boolean(context.hasActiveOrder)}\nPENDING NEW ORDER EXISTS: ${Boolean(context.hasPendingNewOrder)}\nEXISTING DELIVERY DETAILS: deliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}; scheduledAt=${delivery.preferredSchedule ?? "none"}\nRECENT CONVERSATION:\n${recent.join("\n") || "none"}\nCURRENT CUSTOMER MESSAGE:\n${message}`;
-    const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", keep_alive: "10m", options: { temperature: 0.15, num_predict: 448, num_ctx: 4096 }, messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: user }] });
+    const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(new Date());
+    const user = `CURRENT DATE/TIME IN ASIA/MANILA: ${now}\nACTIVE DATABASE ORDER EXISTS: ${Boolean(context.hasActiveOrder)}\nPENDING NEW ORDER EXISTS: ${Boolean(context.hasPendingNewOrder)}\nEXISTING DELIVERY: method=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contact=${delivery.contactNumber ?? "none"}; payment=${delivery.paymentMethod ?? "none"}; schedule=${delivery.preferredSchedule ?? "none"}\nRECENT CONVERSATION:\n${recent.join("\n") || "none"}\nCURRENT CUSTOMER MESSAGE:\n${message}`;
+    const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", keep_alive: "10m", options: { temperature: 0.1, num_predict: 256, num_ctx: 4096 }, messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: user }] });
     const raw = response.message?.content?.trim();
     if (!raw) throw new Error("Ollama returned an empty single-call Messenger response");
     const parsed = JSON.parse(this.cleanJson(raw)) as Partial<CombinedResponse>;
@@ -188,11 +152,7 @@ export class MessengerSingleCallAiService {
     const ai: AIIntentResult = {
       intent,
       confidence: action.confidence,
-      details: {
-        ...details,
-        confirmed,
-        missingFields: this.getMissingFields(details)
-      },
+      details: { ...details, confirmed, missingFields: this.getMissingFields(details) },
       suggestedReply: typeof parsed.suggestedReply === "string" && parsed.suggestedReply.trim() ? parsed.suggestedReply.trim() : this.defaultReply(orderAction, details),
       source: "ollama"
     };
@@ -209,19 +169,12 @@ export class MessengerSingleCallAiService {
     }).filter((item): item is NonNullable<typeof item> => item !== null) : [];
     const totalAmount = flavors.length ? flavors.reduce((sum, item) => sum + (item.subtotal ?? 0), 0) : undefined;
     return {
-      quantity: this.optionalNumber(source.quantity),
-      location: this.optionalString(source.location),
+      quantity: this.optionalNumber(source.quantity), location: this.optionalString(source.location),
       deliveryMethod: source.deliveryMethod === "pickup" || source.deliveryMethod === "maxim" ? source.deliveryMethod : undefined,
-      preferredTime: this.optionalString(source.preferredTime),
-      deliveryDate: this.cleanDate(source.deliveryDate),
-      address: this.optionalString(source.address),
-      landmark: this.optionalString(source.landmark),
-      contactNumber: this.optionalString(source.contactNumber),
+      preferredTime: this.optionalString(source.preferredTime), deliveryDate: this.cleanDate(source.deliveryDate),
+      address: this.optionalString(source.address), landmark: this.optionalString(source.landmark), contactNumber: this.optionalString(source.contactNumber),
       paymentMethod: source.paymentMethod === "cod" || source.paymentMethod === "gcash" ? source.paymentMethod : undefined,
-      flavors,
-      totalAmount,
-      confirmed: Boolean(source.confirmed),
-      missingFields: []
+      flavors, totalAmount, confirmed: Boolean(source.confirmed), missingFields: []
     };
   }
 
@@ -272,17 +225,23 @@ export class MessengerSingleCallAiService {
   private defaultReply(action: AIOrderAction, details: AIIntentResult["details"]): string {
     if (action === "summary") return details.flavors.length ? `Your current order is ${details.flavors.map((item) => `${item.quantity} pcs ${item.name}`).join(", ")}.` : "I don’t have a current order summary yet.";
     if (action === "confirm") return "Thanks! I’ll process the confirmed order.";
-    if (action === "new_order") return details.missingFields.length ? `Sure! Please provide the next missing order detail.` : "Sure! 😊";
+    if (action === "new_order") {
+      if (!details.flavors.length) return "Sure! What flavor and how many pieces would you like to order? 😊";
+      if (details.missingFields.includes("deliveryMethod")) return `Got it! I have ${details.flavors.map((item) => `${item.quantity} pcs ${item.name}`).join(", ")}. Would you like Pickup or Maxim delivery? 😊`;
+      if (details.missingFields.includes("paymentMethod")) return "Great! Would you like to pay via GCash or COD? 😊";
+      return "Got it! 😊";
+    }
+    if (action === "status") return "Let me check your current order status. 😊";
     return "Sure! How can I help? 😊";
   }
 
   private canonicalFlavor(value: string): string {
     const key = value.trim().toLowerCase();
     const aliases: Record<string, string> = {
-      "bacon with cheese": "Bacon with Cheese", "pork regular": "Pork Regular", "pork regular with egg": "Pork Regular with Egg",
-      "pork asado": "Pork Asado", "ham & cheese": "Ham & Cheese", "ham and cheese": "Ham & Cheese", "ham cheese": "Ham & Cheese", "ham": "Ham & Cheese",
-      "chicken": "Chicken", "chicken with egg": "Chicken with Egg", "ube": "Ube Empanada", "ube empanada": "Ube Empanada",
-      "mango": "Mango", "choco": "Choco", "chocolate": "Choco", "beef": "Beef", "beef with egg": "Beef with Egg"
+      "bacon with cheese": "Bacon with Cheese", "pork regular": "Pork Regular", "pork regular with egg": "Pork Regular with Egg", "pork asado": "Pork Asado",
+      "ham & cheese": "Ham & Cheese", "ham and cheese": "Ham & Cheese", "ham cheese": "Ham & Cheese", "ham with cheese": "Ham & Cheese", "ham": "Ham & Cheese",
+      "chicken": "Chicken", "chicken with egg": "Chicken with Egg", "ube": "Ube Empanada", "ube empanada": "Ube Empanada", "mango": "Mango",
+      "choco": "Choco", "chocolate": "Choco", "beef": "Beef", "beef with egg": "Beef with Egg"
     };
     return aliases[key] ?? FLAVORS.find((item) => item.toLowerCase() === key) ?? "";
   }
@@ -292,7 +251,6 @@ export class MessengerSingleCallAiService {
     if (action === "new_order" || action === "modify_existing" || action === "cancel_existing") return "reservation";
     if (action === "inquiry" && details.deliveryMethod === "maxim") return "delivery_request";
     if (action === "inquiry" && details.deliveryMethod === "pickup") return "pickup_request";
-    if (action === "inquiry" && details.flavors.length === 0) return "inquiry";
     return "inquiry";
   }
 
@@ -306,24 +264,25 @@ export class MessengerSingleCallAiService {
   private cleanTime(value: unknown): string | undefined { return typeof value === "string" && /^\d{2}:\d{2}$/.test(value.trim()) ? value.trim() : undefined; }
   private cleanJson(raw: string): string { const start = raw.indexOf("{"); const end = raw.lastIndexOf("}"); return start >= 0 && end > start ? raw.slice(start, end + 1) : raw; }
   private handoffKey(message: string): string { return message.trim(); }
-  private makeKey(message: string, recentMessages: string[], hasActiveOrder?: boolean, hasPendingNewOrder?: boolean): string { return `${message}\n${recentMessages.filter((line) => !/^APPLICATION /.test(line)).join("\n")}\n${Boolean(hasActiveOrder)}\n${Boolean(hasPendingNewOrder)}`; }
-  private getCached(key: string): CachedResult | undefined {
-    const cached = this.cache.get(key);
-    if (!cached) return undefined;
-    if (Date.now() - cached.createdAt > 60_000) { this.cache.delete(key); return undefined; }
-    return cached;
-  }
+  private makeKey(message: string, recentMessages: string[], hasActiveOrder?: boolean, hasPendingNewOrder?: boolean): string { return `${message}\n${recentMessages.filter((line) => !/^APPLICATION /.test(line)).slice(-8).join("\n")}\n${Boolean(hasActiveOrder)}\n${Boolean(hasPendingNewOrder)}`; }
+  private getCached(key: string): CachedResult | undefined { const cached = this.cache.get(key); if (!cached) return undefined; if (Date.now() - cached.createdAt > 120_000) { this.cache.delete(key); return undefined; } return cached; }
 
   private async chat(body: Record<string, unknown>): Promise<OllamaResponse> {
     const startedAt = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      const model = typeof body.model === "string" && body.model.trim() ? body.model : this.model;
       const response = await fetch(`${this.baseUrl}/api/chat`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
       const durationMs = Date.now() - startedAt;
-      this.logger.log(`Single-call Ollama completed: model=${this.model} durationMs=${durationMs}`);
+      this.logger.log(`Single-call Ollama completed: model=${model} durationMs=${durationMs}`);
       if (!response.ok) throw new Error(`Ollama request failed: ${response.status} ${await response.text()}`);
       return await response.json() as OllamaResponse;
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      if (error instanceof DOMException && error.name === "AbortError") this.logger.error(`Single-call Ollama timed out: model=${this.model} timeoutMs=${this.timeoutMs} durationMs=${durationMs}`);
+      else this.logger.error(`Single-call Ollama failed: model=${this.model} durationMs=${durationMs} error=${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -331,26 +290,7 @@ export class MessengerSingleCallAiService {
 }
 
 type CombinedResponse = {
-  orderAction?: unknown;
-  confidence?: unknown;
-  newOrderFlowActive?: unknown;
-  reuseExistingDelivery?: unknown;
-  referencedOrderDate?: unknown;
-  requestedDeliveryDate?: unknown;
-  requestedDeliveryTime?: unknown;
-  details?: {
-    flavorAction?: unknown;
-    flavors?: Array<{ name?: unknown; quantity?: unknown }>;
-    quantity?: unknown;
-    location?: unknown;
-    deliveryMethod?: unknown;
-    preferredTime?: unknown;
-    deliveryDate?: unknown;
-    address?: unknown;
-    landmark?: unknown;
-    contactNumber?: unknown;
-    paymentMethod?: unknown;
-    confirmed?: unknown;
-  };
+  orderAction?: unknown; confidence?: unknown; newOrderFlowActive?: unknown; reuseExistingDelivery?: unknown; referencedOrderDate?: unknown; requestedDeliveryDate?: unknown; requestedDeliveryTime?: unknown;
+  details?: { flavorAction?: unknown; flavors?: Array<{ name?: unknown; quantity?: unknown }>; quantity?: unknown; location?: unknown; deliveryMethod?: unknown; preferredTime?: unknown; deliveryDate?: unknown; address?: unknown; landmark?: unknown; contactNumber?: unknown; paymentMethod?: unknown; confirmed?: unknown };
   suggestedReply?: unknown;
 };
