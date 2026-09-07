@@ -1,10 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { Bot, KeyRound, ShieldCheck, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
-const sections = [
+type SettingsSection = {
+  href: Route;
+  title: string;
+  description: string;
+  icon: typeof Users;
+};
+
+const sections: SettingsSection[] = [
   { href: "/settings/users", title: "Users", description: "Create staff accounts, change roles, reset passwords, and remove access.", icon: Users },
   { href: "/settings/roles", title: "Roles & Permissions", description: "Review the permissions granted to Admin, Operations, Kitchen, Dispatcher, and Rider roles.", icon: ShieldCheck },
   { href: "/settings/ai-instructions", title: "AI Instructions", description: "Configure runtime instructions and customer-facing AI behavior.", icon: Bot }
