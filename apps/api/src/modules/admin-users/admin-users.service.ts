@@ -1,41 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import * as bcrypt from "bcryptjs";
 import { UserRole } from "@prisma/client";
+import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../../database/prisma.service";
-
-export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
-  admin: ["dashboard.view", "orders.view", "orders.manage", "inbox.view", "inbox.manage", "expenses.view", "expenses.manage", "inventory.view", "inventory.manage", "kitchen.view", "kitchen.manage", "deliveries.view", "deliveries.manage", "analytics.view", "referrals.view", "referrals.manage", "settings.view", "users.manage", "roles.manage"],
-  operations: ["dashboard.view", "orders.view", "orders.manage", "inbox.view", "inbox.manage", "expenses.view", "expenses.manage", "inventory.view", "deliveries.view", "deliveries.manage", "analytics.view", "referrals.view", "referrals.manage", "settings.view"],
-  kitchen: ["dashboard.view", "orders.view", "kitchen.view", "kitchen.manage", "inventory.view", "batches.view", "batches.manage"],
-  dispatcher: ["dashboard.view", "orders.view", "deliveries.view", "deliveries.manage", "delivery-network.view", "riders.manage"],
-  rider: ["dashboard.view", "deliveries.view", "deliveries.manage"]
-};
-
-export const PERMISSION_LABELS: Record<string, string> = {
-  "dashboard.view": "View dashboard",
-  "orders.view": "View orders",
-  "orders.manage": "Manage orders",
-  "inbox.view": "View inbox",
-  "inbox.manage": "Send/manage inbox messages",
-  "expenses.view": "View expenses",
-  "expenses.manage": "Manage expenses",
-  "inventory.view": "View inventory",
-  "inventory.manage": "Manage inventory",
-  "kitchen.view": "View kitchen",
-  "kitchen.manage": "Manage kitchen",
-  "batches.view": "View batches",
-  "batches.manage": "Manage batches",
-  "deliveries.view": "View deliveries",
-  "deliveries.manage": "Manage deliveries",
-  "delivery-network.view": "View delivery network",
-  "riders.manage": "Manage riders",
-  "analytics.view": "View analytics",
-  "referrals.view": "View referrals",
-  "referrals.manage": "Manage referrals",
-  "settings.view": "View settings",
-  "users.manage": "Manage users",
-  "roles.manage": "Manage roles and permissions"
-};
+import { PERMISSION_LABELS, ROLE_PERMISSIONS } from "../auth/permissions";
 
 @Injectable()
 export class AdminUsersService {
