@@ -20,6 +20,7 @@ export function MapScreen({ session, jobId, onBack }: { session: RiderSession; j
   const { rider, activeJobs, liveLocation, busy, advanceJob, token } = session;
   const mapRef = useRef<RiderMapHandle>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const wakeLockRequestRef = useRef(false);
   const currentJob = (jobId ? session.jobs.find(j => j.id === jobId) : null) ?? session.currentJob;
   const riderLocation = liveLocation ?? rider?.locations?.[0] ?? null;
   const pickup = currentJob && currentJob.pickupLatitude != null && currentJob.pickupLongitude != null ? { latitude: Number(currentJob.pickupLatitude), longitude: Number(currentJob.pickupLongitude) } : null;
@@ -32,38 +33,69 @@ export function MapScreen({ session, jobId, onBack }: { session: RiderSession; j
   const [drawerOpen, setDrawerOpen] = useState(true);
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof navigator === "undefined") return;
+    if (typeof window === "undefined" || typeof navigator === "undefined" || typeof document === "undefined") return;
     const nav = navigator as WakeLockNavigator;
     if (!nav.wakeLock?.request) return;
 
     let cancelled = false;
-    const acquireWakeLock = async () => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRetry = () => {
       if (cancelled || document.visibilityState !== "visible") return;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => { retryTimer = null; void acquireWakeLock(); }, 1500);
+    };
+
+    const acquireWakeLock = async () => {
+      if (cancelled || document.visibilityState !== "visible" || wakeLockRequestRef.current) return;
+      if (wakeLockRef.current && !wakeLockRef.current.released) return;
+
+      wakeLockRequestRef.current = true;
       try {
-        if (wakeLockRef.current && !wakeLockRef.current.released) return;
         const sentinel = await nav.wakeLock!.request("screen");
-        if (cancelled) {
+        if (cancelled || document.visibilityState !== "visible") {
           await sentinel.release().catch(() => undefined);
           return;
         }
         wakeLockRef.current = sentinel;
         sentinel.addEventListener("release", () => {
-          wakeLockRef.current = null;
-          if (!cancelled && document.visibilityState === "visible") void acquireWakeLock();
+          if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
+          if (!cancelled && document.visibilityState === "visible") scheduleRetry();
         });
       } catch {
-        // Wake Lock can be unavailable or denied by the browser/OS; navigation still works normally.
+        scheduleRetry();
+      } finally {
+        wakeLockRequestRef.current = false;
       }
     };
+
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") void acquireWakeLock();
+      if (document.visibilityState === "visible") {
+        void acquireWakeLock();
+      } else if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
     };
+    const handlePageShow = () => { void acquireWakeLock(); };
+    const handleFocus = () => { void acquireWakeLock(); };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("focus", handleFocus);
     void acquireWakeLock();
+
+    const keepAliveTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void acquireWakeLock();
+    }, 15000);
 
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("focus", handleFocus);
+      window.clearInterval(keepAliveTimer);
+      if (retryTimer) clearTimeout(retryTimer);
       const sentinel = wakeLockRef.current;
       wakeLockRef.current = null;
       if (sentinel && !sentinel.released) void sentinel.release().catch(() => undefined);
