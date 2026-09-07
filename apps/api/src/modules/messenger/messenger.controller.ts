@@ -5,12 +5,11 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MessengerService } from "./messenger.service";
 import { SendMessageDto } from "./dto";
 import { MetaAuthService } from "./meta-auth.service";
-import { MessengerOrderSummaryService } from "./messenger-order-summary.service";
 interface RawBodyRequest extends Request { rawBody?: Buffer }
 @Controller("messenger")
 export class MessengerController {
   private readonly logger = new Logger(MessengerController.name);
-  constructor(private readonly messengerService: MessengerService, private readonly metaAuthService: MetaAuthService, private readonly messengerOrderSummaryService: MessengerOrderSummaryService) {}
+  constructor(private readonly messengerService: MessengerService, private readonly metaAuthService: MetaAuthService) {}
   @Get("webhook") verify(@Query("hub.mode") mode?: string, @Query("hub.verify_token") token?: string, @Query("hub.challenge") challenge?: string) { const verified = this.messengerService.verify(mode, token, challenge); return verified ?? "Verification failed"; }
   @Post("webhook") @HttpCode(200)
   async handleWebhook(@Body() payload: any, @Headers("x-hub-signature-256") signature: string | undefined, @Req() request: RawBodyRequest) {
