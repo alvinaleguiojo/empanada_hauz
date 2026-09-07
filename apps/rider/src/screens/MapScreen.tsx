@@ -13,20 +13,62 @@ function distanceMeters(a: Coordinate, b: Coordinate) { const r = 6371000, p1 = 
 function decodePolyline(encoded: string): Coordinate[] { let i = 0, lat = 0, lng = 0, out: Coordinate[] = []; while (i < encoded.length) { let shift = 0, result = 0, b; do { b = encoded.charCodeAt(i++) - 63; result |= (b & 31) << shift; shift += 5; } while (b >= 32); lat += result & 1 ? ~(result >> 1) : result >> 1; shift = 0; result = 0; do { b = encoded.charCodeAt(i++) - 63; result |= (b & 31) << shift; shift += 5; } while (b >= 32); lng += result & 1 ? ~(result >> 1) : result >> 1; out.push({ latitude: lat / 1e5, longitude: lng / 1e5 }); } return out; }
 function regionFor(points: Coordinate[]) { const p = points.filter(valid); if (!p.length) return CEBU_CENTER; const l = p.map(x => x.latitude), g = p.map(x => x.longitude); return { latitude: (Math.min(...l) + Math.max(...l)) / 2, longitude: (Math.min(...g) + Math.max(...g)) / 2, latitudeDelta: Math.max(.015, (Math.max(...l) - Math.min(...l)) * 1.6), longitudeDelta: Math.max(.015, (Math.max(...g) - Math.min(...g)) * 1.6) }; }
 
+type WakeLockSentinel = { released: boolean; addEventListener: (type: "release", listener: () => void) => void; release: () => Promise<void> };
+type WakeLockNavigator = Navigator & { wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinel> } };
+
 export function MapScreen({ session, jobId, onBack }: { session: RiderSession; jobId?: string | null; onBack: () => void }) {
   const { rider, activeJobs, liveLocation, busy, advanceJob, token } = session;
   const mapRef = useRef<RiderMapHandle>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const currentJob = (jobId ? session.jobs.find(j => j.id === jobId) : null) ?? session.currentJob;
   const riderLocation = liveLocation ?? rider?.locations?.[0] ?? null;
   const pickup = currentJob && currentJob.pickupLatitude != null && currentJob.pickupLongitude != null ? { latitude: Number(currentJob.pickupLatitude), longitude: Number(currentJob.pickupLongitude) } : null;
   const dropoff = currentJob && currentJob.dropoffLatitude != null && currentJob.dropoffLongitude != null ? { latitude: Number(currentJob.dropoffLatitude), longitude: Number(currentJob.dropoffLongitude) } : null;
   const goingToDropoff = !!currentJob && ["picked_up", "delivering"].includes(currentJob.status);
   const returningToEmpanadaHauz = currentJob?.status === "delivered";
-  // After delivery, the job's pickup coordinates are the Empanada Hauz return destination.
   const destination = returningToEmpanadaHauz ? pickup : goingToDropoff ? dropoff : pickup ?? dropoff;
   const region = useMemo(() => regionFor([riderLocation, pickup, dropoff].filter(valid) as Coordinate[]), [riderLocation?.latitude, riderLocation?.longitude, pickup?.latitude, pickup?.longitude, dropoff?.latitude, dropoff?.longitude]);
   const [route, setRoute] = useState<Coordinate[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(true);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof navigator === "undefined") return;
+    const nav = navigator as WakeLockNavigator;
+    if (!nav.wakeLock?.request) return;
+
+    let cancelled = false;
+    const acquireWakeLock = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      try {
+        if (wakeLockRef.current && !wakeLockRef.current.released) return;
+        const sentinel = await nav.wakeLock!.request("screen");
+        if (cancelled) {
+          await sentinel.release().catch(() => undefined);
+          return;
+        }
+        wakeLockRef.current = sentinel;
+        sentinel.addEventListener("release", () => {
+          wakeLockRef.current = null;
+          if (!cancelled && document.visibilityState === "visible") void acquireWakeLock();
+        });
+      } catch {
+        // Wake Lock can be unavailable or denied by the browser/OS; navigation still works normally.
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void acquireWakeLock();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    void acquireWakeLock();
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      const sentinel = wakeLockRef.current;
+      wakeLockRef.current = null;
+      if (sentinel && !sentinel.released) void sentinel.release().catch(() => undefined);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
