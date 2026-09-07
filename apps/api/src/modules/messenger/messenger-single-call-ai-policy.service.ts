@@ -20,7 +20,7 @@ const SEMANTIC_GUARDRAILS = `APPLICATION SEMANTIC GUARDRAILS:
 
 @Injectable()
 export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiService {
-  constructor(config: ConfigService, private readonly prisma: PrismaService) {
+  constructor(config: ConfigService, private readonly prisma: PrismaService, private readonly appConfig: ConfigService) {
     super(config);
   }
 
@@ -83,7 +83,7 @@ export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiSer
       if (orderNumber) {
         const order = await this.prisma.order.findUnique({ where: { orderNumber }, select: { id: true, orderNumber: true, quantity: true, totalAmount: true, preferredSchedule: true, items: true } });
         if (order) {
-          const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, "");
+          const baseUrl = (this.appConfig.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, "");
           const trackingUrl = `${baseUrl}/track/${order.id}`;
           const itemText = Array.isArray(order.items) && order.items.length ? order.items.map((item) => `${Number((item as Record<string, unknown>)?.quantity ?? 0)} pcs ${(item as Record<string, unknown>)?.name ?? "item"}`).join(", ") : `${order.quantity} pcs`;
           const formattedSchedule = order.preferredSchedule ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(order.preferredSchedule) : undefined;
