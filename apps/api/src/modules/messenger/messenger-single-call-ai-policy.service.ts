@@ -107,8 +107,6 @@ export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiSer
           select: { id: true, orderNumber: true, quantity: true, totalAmount: true, preferredSchedule: true, items: true }
         });
         if (order) {
-          const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, "");
-          const trackingUrl = `${baseUrl}/track/${order.id}`;
           const itemText = Array.isArray(order.items) && order.items.length
             ? order.items.map((item) => `${Number((item as Record<string, unknown>)?.quantity ?? 0)} pcs ${(item as Record<string, unknown>)?.name ?? "item"}`).join(", ")
             : `${order.quantity} pcs`;
@@ -122,9 +120,7 @@ export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiSer
             `Order ID: ${order.id}`,
             `Items: ${itemText}`,
             `Food total: ₱${Number(order.totalAmount ?? 0).toFixed(2)}`,
-            formattedSchedule ? `Schedule: ${formattedSchedule}` : undefined,
-            "",
-            `Track your order: ${trackingUrl}`
+            formattedSchedule ? `Schedule: ${formattedSchedule}` : undefined
           ].filter(Boolean).join("\n");
         }
       }
