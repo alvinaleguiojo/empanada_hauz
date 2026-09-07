@@ -2,86 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AIIntentResult, CustomerIntent, DeliveryMethodValue } from "./types";
 import type { AIOrderAction } from "./ai-order-action.service";
-
-const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
-
-The CURRENT CUSTOMER MESSAGE is highest priority. Answer it directly.
-Interpret the CURRENT CUSTOMER MESSAGE semantically. Do not assume the customer's wording must match predefined aliases.
-Understand abbreviations, shorthand, misspellings, phonetic spellings, incomplete phrases, Cebuano/English mixed language, and casual Messenger-style wording.
-Use the recent conversation context to resolve references such as "that", "same", "10 pcs", "gcash", "cod", "max", and other follow-up replies.
-When answering a follow-up question, resolve omitted subjects, pronouns, and short replies against the most relevant recent customer message and active conversation context. Do not treat a contextual follow-up as a fresh standalone inquiry when its referent is clear.
-Do not discard previously known information merely because it is not repeated in the latest message.
-The application will merge your interpretation with the previous active order state.
-A greeting starts a fresh conversation unless the customer explicitly refers to an existing order.
-A flavor-only request needs a quantity; ask how many pcs only when the quantity is genuinely missing.
-An order with missing required fields is NOT ready for confirmation.
-Never ask for confirmation when required fields are missing.
-For Maxim delivery, collect Address, Landmark, and Contact # before confirmation.
-Pickup does not require delivery address details.
-CASH means COD. Only explicit GCash means GCash.
-A summary request means SHOW THE CURRENT ORDER SUMMARY; it is not itself a confirmation. When the application marks the current request as a summary request, return the available current order details and do not ask the customer to confirm them.
-When the customer asks for order status, use the live order-status application/tool result when available. If no order can be found, ask for the order ID. Never invent an order status.
-Never expose internal field names, JSON, intent names, tools, or MCP details.
-Never say an order is confirmed/placed/created unless the application actually created it.
-Use Cebuano when the customer uses Cebuano, otherwise English.
-Keep replies short, clear, natural, and helpful.
-Do not ask for information already provided.
-Do not ask for a preferred delivery or pickup time.
-Do not invent prices, delivery fees, times, policies, availability, or order details.
-When the customer asks for business information, identify what information they are asking for from the conversation and answer using the relevant Business facts below. Do not merely acknowledge the request, and do not treat a business-information question as an order request unless the customer actually asks to place or change an order.
-
-Existing-order changes:
-- A customer asking to move, reschedule, postpone, advance, update, or otherwise change an already-created order is modifying that existing order, not placing a new order.
-- A request to change only the delivery date or time is still an existing-order modification.
-- References such as "my reservation", "my order", "it", "that booking", or "the one on [date]" should be resolved against the existing database order supplied by the application.
-- Do not interpret a change request as a new order simply because the customer uses words such as "reservation", "reserve", "book", or "order".
-
-Date interpretation:
-- Use the CURRENT DATE/TIME IN ASIA/MANILA supplied in the prompt.
-- Resolve relative dates semantically. When the customer says "today", "tomorrow", "yesterday", "this Monday", "next Friday", or similar, convert the requested deliveryDate to the concrete calendar date in YYYY-MM-DD format.
-- Never return relative words such as "today" or "tomorrow" as the deliveryDate when the concrete date can be determined from the supplied current date/time.
-- When changing only a date, preserve the existing time unless the customer also asks to change the time and the application passes that existing time in context.
-
-Delivery availability:
-- Empanada Hauz DOES offer delivery through Maxim.
-- If the customer asks whether you deliver, offer delivery, have delivery, can deliver, or similar, answer YES and state that delivery is available via Maxim.
-- A simple delivery-availability question is not a request for the customer's address yet.
-- After answering delivery availability, you may naturally continue with: "What would you like to order?"
-- Do not respond to a simple "Do you deliver?" by asking what the customer wants to order without first answering the delivery question.
-- Do not ask for Address, Landmark, or Contact # unless the customer is actually proceeding with Maxim delivery/order setup.
-- If the customer asks about delivery availability and also asks about their own delivery area, answer availability first and then explain that the delivery fee varies by location.
-
-Confirmation interpretation rules:
-- The customer may confirm using natural language, shorthand, abbreviations, typos, misspellings, phonetic spellings, or casual Messenger wording.
-- Use the conversation context to determine whether the CURRENT CUSTOMER MESSAGE is accepting the immediately preceding complete order summary.
-- Examples of semantic confirmation include "yes", "yep", "correct", "go ahead", "okay", "sure", "please do", "confirm", and obvious misspellings such as "confir" or other close variants. Do not require an exact keyword.
-- Set confirmed=true only when the CURRENT CUSTOMER MESSAGE clearly means the customer accepts/confirms the current complete order.
-- A message that merely provides new order information, asks a question, changes an item, requests a date/time change, or requests a summary is not confirmation.
-- Do not mark a message as confirmed only because an earlier message was ready for confirmation. The CURRENT CUSTOMER MESSAGE itself must express acceptance.
-
-Discount rules:
-- Bulk order discount: Orders of 50 pcs or more qualify for a 10% discount on the food/order total.
-- Only mention, offer, or apply this bulk order discount when the customer explicitly asks about a discount or asks a follow-up question about a discount that was already discussed.
-- Do not proactively mention or offer this bulk order discount when the customer has not asked about discounts, even when the order quantity is 50 pcs or more.
-- When the customer asks a follow-up such as "pila ang discount?", "how much is the discount?", or equivalent wording, use the recent conversation context to determine which quantity or discount discussion they are referring to, then apply the applicable business rule.
-- Keep the 50+ pcs food/order discount separate from the 30+ pcs delivery-fee discount. Do not confuse the two rules.
-
-Business facts:
-- Minimum order: 10 pcs; mixed flavors allowed.
-- Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30.
-- Ham & Cheese ₱25; Chicken ₱20; Chicken with Egg ₱25; Ube Empanada ₱25.
-- Mango ₱25; Choco ₱30; Beef ₱35; Beef with Egg ₱40.
-- Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
-- Baked is ₱5 more. Preparation is about 1 hour.
-- Payment: GCash or COD. GCash: Alvin Aleguiojo, 09453916796.
-- Pickup/business location: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.
-- IMPORTANT LOCATION RULE: When the customer asks where Empanada Hauz is located, where your location is, where the shop/pickup point is, or asks for the business address/location, answer with the Empanada Hauz pickup/business location above. Do NOT ask the customer to provide their own address. The customer's address is only needed when arranging Maxim delivery.
-- Maxim delivery is available; Address, Landmark, and Contact # are required.
-- Delivery fee varies by location; current delivery fee and priority number are on https://www.empanadahauz.com.
-- 30+ pcs gets 20% off the delivery fee only when the customer asks about a discount.
-- If today is Sunday in Asia/Manila, the business is closed.
-- A complete pre-confirmation summary must end exactly with: Please confirm if all the details above are correct. 😊
-`;
+import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 
 interface OllamaResponse { message?: { content?: string } }
 type Details = AIIntentResult["details"];
@@ -140,6 +61,36 @@ const CANONICAL_FLAVORS = [
   "Beef with Egg"
 ];
 
+const EXTRACTION_FORMAT = {
+  type: "object",
+  properties: {
+    flavorAction: { type: "string", enum: ["none", "replace", "add", "remove"] },
+    flavors: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          quantity: { type: "number" }
+        },
+        required: ["name"],
+        additionalProperties: false
+      }
+    },
+    quantity: { type: "number" },
+    location: { type: "string" },
+    deliveryMethod: { type: "string", enum: ["pickup", "maxim"] },
+    preferredTime: { type: "string" },
+    deliveryDate: { type: "string" },
+    address: { type: "string" },
+    landmark: { type: "string" },
+    contactNumber: { type: "string" },
+    paymentMethod: { type: "string", enum: ["cod", "gcash"] }
+  },
+  required: ["flavorAction", "flavors"],
+  additionalProperties: false
+};
+
 @Injectable()
 export class AiService {
   protected readonly logger = new Logger(AiService.name);
@@ -147,7 +98,10 @@ export class AiService {
   protected readonly model: string;
   protected readonly interpretationModel: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly aiInstructionsService: AiInstructionsService
+  ) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
     this.interpretationModel = this.config.get<string>("OLLAMA_INTERPRET_MODEL", "qwen2.5:0.5b");
@@ -174,13 +128,12 @@ export class AiService {
     current.startsNewConversation = applicationAction === "inquiry" && !context?.activeOrderState;
 
     const details = this.mergeOrderState(context?.activeOrderState, current);
-    const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
+    const systemPrompt = await this.aiInstructionsService.getActivePromptBlock();
     const replyContext = this.buildReplyContext(message, recentMessages, details, applicationAction);
     const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
-    const intent = current.intent;
     const confidence = current.flavors.length || details.flavors.length || current.confirmed || applicationAction !== "inquiry" || Boolean(details.deliveryMethod) || Boolean(details.paymentMethod) ? 1 : 0;
     return {
-      intent,
+      intent: current.intent,
       confidence,
       details,
       suggestedReply,
@@ -212,15 +165,17 @@ export class AiService {
     const status = outcome === "created"
       ? `APPLICATION RESULT: The application successfully created the customer's confirmed order.${orderNumber ? ` Order number: ${orderNumber}.` : ""}`
       : "APPLICATION RESULT: The application could not create the customer's confirmed order.";
+    const systemPrompt = await this.aiInstructionsService.getActivePromptBlock();
+    const messages: Array<{ role: "system" | "user"; content: string }> = [
+      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      { role: "user", content: status }
+    ];
     const response = await this.ollamaChat({
       model: this.model,
       stream: false,
       think: false,
       options: { temperature: 0.2, num_predict: 96, num_ctx: 1536 },
-      messages: [
-        { role: "system", content: `${CUSTOMER_SYSTEM_PROMPT}\nGenerate only the final short customer-facing reply. Never mention internal tools or MCP.` },
-        { role: "user", content: status }
-      ]
+      messages
     }, "Ollama order result reply failed");
     const reply = response.message?.content?.trim();
     if (!reply) throw new Error("Ollama returned an empty order result reply");
@@ -229,27 +184,29 @@ export class AiService {
 
   private async extractCurrentOrderFields(message: string, now: string, recentMessages: string[], activeOrderState?: Details): Promise<CurrentInterpretation> {
     const conversationContext = recentMessages.length
-      ? `RECENT CONVERSATION (oldest to newest):\n${recentMessages.join("\n")}`
-      : "RECENT CONVERSATION: none.";
+      ? recentMessages.join("\n")
+      : "none";
     const activeStateContext = activeOrderState
-      ? `CURRENT APPLICATION ORDER STATE:\n${this.formatOrderContext(activeOrderState)}`
-      : "CURRENT APPLICATION ORDER STATE: none.";
+      ? this.formatOrderContext(activeOrderState)
+      : "none";
+    const systemPrompt = await this.aiInstructionsService.getActivePromptBlock();
+    const userContent = [
+      `CURRENT DATE/TIME IN ASIA/MANILA: ${now}`,
+      `RECENT CONVERSATION: ${conversationContext}`,
+      `CURRENT APPLICATION ORDER STATE: ${activeStateContext}`,
+      `CURRENT CUSTOMER MESSAGE: ${message}`
+    ].join("\n\n");
+    const messages: Array<{ role: "system" | "user"; content: string }> = [
+      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      { role: "user", content: userContent }
+    ];
     const response = await this.ollamaChat({
       model: this.interpretationModel,
       stream: false,
       think: false,
-      format: "json",
+      format: EXTRACTION_FORMAT,
       options: { temperature: 0.1, num_predict: 384, num_ctx: 4096 },
-      messages: [
-        {
-          role: "system",
-          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nYou are an order-field extractor. The application has already determined the customer's top-level action separately. Do NOT decide or return the customer's intent, action, or confirmation state. Extract only order fields explicitly stated or strongly implied by the CURRENT CUSTOMER MESSAGE in context. Return ONLY compact valid JSON. Do not use markdown or explanations.\n\nSchema:\n{\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash"\n}\nFor dates, resolve explicit or strongly implied relative dates from CURRENT DATE/TIME IN ASIA/MANILA. Do not classify the message as a new order, modification, cancellation, status request, summary, inquiry, or confirmation. Do not decide whether an order should be created or changed. Only extract customer-provided order fields.`
-        },
-        {
-          role: "user",
-          content: `${conversationContext}\n\n${activeStateContext}\n\nCURRENT CUSTOMER MESSAGE:\n${message}\n\nCURRENT DATE/TIME IN ASIA/MANILA:\n${now}`
-        }
-      ]
+      messages
     }, "Ollama order-field extraction failed");
 
     const raw = response.message?.content?.trim();
@@ -276,7 +233,7 @@ export class AiService {
       }
     }
 
-    this.logger.error("Qwen returned invalid structured order-field extraction", "Unable to parse or repair JSON");
+    this.logger.error("Qwen returned invalid structured order-field extraction");
     throw new Error("Qwen returned invalid order-field extraction JSON");
   }
 
@@ -342,19 +299,14 @@ export class AiService {
           escaped = false;
           continue;
         }
-        if (char === "\\") {
-          escaped = true;
-        } else if (char === '"') {
-          inString = false;
-        }
+        if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
         continue;
       }
 
-      if (char === '"') {
-        inString = true;
-      } else if (char === "{" || char === "[") {
-        stack.push(char);
-      } else if (char === "}" || char === "]") {
+      if (char === '"') inString = true;
+      else if (char === "{" || char === "[") stack.push(char);
+      else if (char === "}" || char === "]") {
         const expected = char === "}" ? "{" : "[";
         if (stack.at(-1) !== expected) return undefined;
         stack.pop();
@@ -363,7 +315,6 @@ export class AiService {
 
     let result = value.trimEnd();
     if (inString) result += '"';
-
     while (stack.length) {
       const opener = stack.pop();
       result += opener === "{" ? "}" : "]";
@@ -453,44 +404,13 @@ export class AiService {
   }
 
   private buildReplyContext(message: string, recentMessages: string[], details: Details, action: AIOrderAction): string {
-    const businessFacts = "BUSINESS FACTS: Empanada Hauz business information is defined by the Business facts in the system prompt. Use those facts to answer business-information questions directly. Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Empanada Hauz DOES deliver via Maxim. Delivery fee varies by location. Do not ask for delivery address for a simple business-location or delivery-availability inquiry.";
-
-    if (action === "status") {
-      return `APPLICATION ACTION: status\n${recentMessages.filter((value) => /^(?:APPLICATION ORDER STATUS TOOL RESULT:|LATEST DATABASE ORDER:)/i.test(value.trim())).join("\n") || "No live order-status application result was provided."}\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nRespond only to the customer's current status question. Use only factual application state when available; never invent status.`;
-    }
-
-    if (action === "summary") {
-      return details.flavors.length
-        ? `APPLICATION ACTION: summary\nSUMMARY MODE: The customer is asking to see the current order summary. This request is informational, NOT confirmation. Output the order details from APPLICATION ORDER FACTS. Do not ask for confirmation, do not append the pre-confirmation sentence, and do not treat this request as permission to place or change the order.\nAPPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nProvide the current order summary directly.`
-        : `APPLICATION ACTION: summary\nSUMMARY MODE: The customer is asking to see an order summary. This request is informational, NOT confirmation. Do not ask for confirmation.\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nTell the customer that there is no active order summary available yet.`;
-    }
-
-    if (details.flavors.length) {
-      return `APPLICATION ACTION: ${action}\nAPPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\n${businessFacts}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(action, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
-    }
-
-    return `APPLICATION ACTION: ${action}\n${businessFacts}\n\n${recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}` : "CONVERSATION CONTEXT: none."}`;
-  }
-
-  private buildNextActionDirective(action: AIOrderAction, details: Details): string {
-    if (action === "modify_existing") {
-      return "Explain the requested existing-order change using the supplied application state. Do not create a new order. Do not claim that the database was changed unless an application result explicitly confirms it.";
-    }
-    if (action === "cancel_existing") {
-      return "Explain the cancellation result from the application. Do not claim cancellation succeeded unless the application result explicitly confirms it.";
-    }
-    if (action === "confirm") {
-      return "Treat the customer message as confirmation only if the application has already determined it is a valid confirmation. Use the current order state and application result; never claim placement unless the application created the order.";
-    }
-    if (action === "new_order") {
-      if (details.deliveryMethod === "maxim") {
-        const deliveryMissing = details.missingFields.filter((field) => ["address", "landmark", "contactNumber"].includes(field));
-        if (deliveryMissing.length) return `Ask explicitly for these missing Maxim delivery details: ${this.humanMissing(deliveryMissing).join(", ")}. Do not ask for confirmation.`;
-      }
-      if (details.missingFields.length) return `Ask only for the missing required information: ${this.humanMissing(details.missingFields).join(", ")}. Do not present confirmation.`;
-      return "All required order fields are present. Present the complete order summary and end exactly with: Please confirm if all the details above are correct. 😊";
-    }
-    return "Answer the customer's current message directly using the supplied application state and Business facts. Do not merely acknowledge a business-information request; provide the relevant information when it is available. Do not invent facts or ask for order information unless the customer actually requested an order action.";
+    const lines = [
+      `APPLICATION ACTION: ${action}`,
+      `CURRENT CUSTOMER MESSAGE: ${message}`,
+      `ORDER STATE: ${this.formatOrderContext(details)}`,
+      `RECENT CONVERSATION: ${recentMessages.slice(-16).join("\n") || "none"}`
+    ];
+    return lines.join("\n\n");
   }
 
   private formatOrderContext(details: Details): string {
@@ -608,15 +528,16 @@ export class AiService {
   }
 
   private async generateCustomerReply(systemPrompt: string, message: string, context: string): Promise<string> {
+    const messages: Array<{ role: "system" | "user"; content: string }> = [
+      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      { role: "user", content: `${context}\n\nCURRENT CUSTOMER MESSAGE: ${message}` }
+    ];
     const response = await this.ollamaChat({
       model: this.model,
       stream: false,
       think: false,
       options: { temperature: 0.15, num_predict: 320, num_ctx: 4096 },
-      messages: [
-        { role: "system", content: `${systemPrompt}\nGenerate only the final short customer-facing reply.` },
-        { role: "user", content: `${context}\n\nCURRENT CUSTOMER MESSAGE: ${message}` }
-      ]
+      messages
     }, "Ollama customer reply failed");
     const reply = response.message?.content?.trim();
     if (!reply) throw new Error("Ollama returned an empty customer reply");
