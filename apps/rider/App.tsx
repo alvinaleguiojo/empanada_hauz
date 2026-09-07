@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -18,6 +18,15 @@ function RiderApp() {
   const [tab, setTab] = useState<Tab>("orders");
   const [navigationJobId, setNavigationJobId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!navigationJobId) return;
+    const navigationJob = session.jobs.find((job) => job.id === navigationJobId);
+    if (navigationJob?.status === "delivered") {
+      setNavigationJobId(null);
+      setTab("deliveries");
+    }
+  }, [navigationJobId, session.jobs]);
+
   if (session.booting) return <SafeAreaView style={styles.loading}><ActivityIndicator color={colors.orange} size="large" /></SafeAreaView>;
 
   if (!session.token || !session.rider) {
@@ -31,7 +40,7 @@ function RiderApp() {
       <View style={styles.content}>
         {tab === "orders" ? <HomeScreen session={session} onOpenNavigation={openNavigation} onOpenDeliveries={() => setTab("deliveries")} onOpenEarnings={() => setTab("earnings")} /> : null}
         {tab === "deliveries" ? <DeliveriesScreen session={session} onOpenNavigation={openNavigation} /> : null}
-        {tab === "map" ? <MapScreen session={session} jobId={navigationJobId} onBack={() => { setNavigationJobId(null); setTab("orders"); }} /> : null}
+        {tab === "map" ? <MapScreen session={session} jobId={navigationJobId} onBack={() => { setNavigationJobId(null); setTab("deliveries"); }} /> : null}
         {tab === "earnings" ? <EarningsScreen session={session} /> : null}
         {tab === "notifications" ? <NotificationsScreen session={session} /> : null}
         {tab === "profile" ? <ProfileScreen session={session} /> : null}
