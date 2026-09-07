@@ -46,6 +46,26 @@ export class AiRuntimeService {
     let lastToolResult: unknown;
     let lastAction: string | undefined;
 
+    const directReadTool = this.detectDirectReadTool(request.message);
+    if (directReadTool) {
+      try {
+        lastAction = directReadTool;
+        lastToolResult = await this.toolRegistry.execute(directReadTool, {}, {
+          customerId: request.customerId,
+          conversationId: request.conversationId,
+          channel: request.channel
+        });
+        return {
+          reply: this.renderReadToolReply(directReadTool, lastToolResult),
+          tool: lastAction,
+          toolResult: lastToolResult,
+          state: await this.stateService.get(request.conversationId, request.customerId)
+        };
+      } catch (error) {
+        this.logger.warn(`Direct AI read tool failed: ${directReadTool}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     for (let step = 0; step < 4; step += 1) {
       const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction });
       if (plan.type === "final") {
@@ -87,6 +107,18 @@ export class AiRuntimeService {
       toolResult: lastToolResult,
       state: await this.stateService.get(request.conversationId, request.customerId)
     };
+  }
+
+  private detectDirectReadTool(message: string): "list_products" | "get_delivery_pricing" | undefined {
+    const text = message.toLowerCase().trim();
+    if (!text) return undefined;
+    if (/\b(menu|product(?:s)?|product list|list (?:of )?products|available products|what (?:do you|can i) (?:have|order)|what(?:'s| is| are) (?:available|on the menu)|updated prices?|current prices?|price list|prices?)\b/i.test(text)) {
+      return "list_products";
+    }
+    if (/\b(delivery (?:fee|fees|price|pricing|rate|rates)|delivery cost|how much (?:is|for) delivery|delivery charge)\b/i.test(text)) {
+      return "get_delivery_pricing";
+    }
+    return undefined;
   }
 
   private buildContext(request: RuntimeRequest, products: ProductRecord[], deliveryPricing: { baseFare: number; perKmRate: number }, draft: unknown, tools: AiToolDefinition[]) {
