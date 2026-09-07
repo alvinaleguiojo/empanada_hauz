@@ -91,31 +91,8 @@ export class OrdersService {
   }
 
   async track(id: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id },
-      include: {
-        customer: true,
-        delivery: true,
-        orderNotes: { orderBy: { createdAt: "desc" }, take: 5 },
-        deliveryJobs: {
-          where: { status: { notIn: ["cancelled"] } },
-          orderBy: { requestedAt: "desc" },
-          take: 1,
-          include: {
-            rider: {
-              include: {
-                user: { select: { id: true, name: true, email: true } },
-                vehicles: { where: { isActive: true } },
-                locations: { orderBy: { createdAt: "desc" }, take: 1 }
-              }
-            }
-          }
-        }
-      }
-    });
+    const order = await this.prisma.order.findUnique({ where: { id }, include: { customer: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" }, take: 5 } } });
     if (!order) throw new NotFoundException("Order not found");
-
-    const job = order.deliveryJobs[0];
     return {
       id: order.id, orderNumber: order.orderNumber, status: order.status, quantity: order.quantity,
       unitPrice: order.unitPrice, totalAmount: order.totalAmount, deliveryFee: order.deliveryFee,
@@ -128,33 +105,6 @@ export class OrdersService {
         eta: order.delivery.eta, trackingLink: order.delivery.trackingLink, riderName: order.delivery.riderName,
         riderPlate: order.delivery.riderPlate, bookingNotes: order.delivery.bookingNotes,
         copyPayload: order.delivery.copyPayload, updatedAt: order.delivery.updatedAt
-      } : null,
-      deliveryJob: job ? {
-        id: job.id,
-        status: job.status,
-        riderId: job.riderId,
-        pickupAddress: job.pickupAddress,
-        pickupLatitude: job.pickupLatitude,
-        pickupLongitude: job.pickupLongitude,
-        dropoffAddress: job.dropoffAddress,
-        dropoffLatitude: job.dropoffLatitude,
-        dropoffLongitude: job.dropoffLongitude,
-        estimatedDurationMinutes: job.estimatedDurationMinutes,
-        estimatedArrivalAt: job.estimatedArrivalAt,
-        rider: job.rider ? {
-          name: job.rider.user.name,
-          phoneNumber: job.rider.phoneNumber,
-          plateNumber: job.rider.vehicles[0]?.plateNumber ?? null,
-          vehicleType: job.rider.vehicles[0]?.type ?? null,
-          location: job.rider.locations[0] ? {
-            latitude: job.rider.locations[0].latitude,
-            longitude: job.rider.locations[0].longitude,
-            heading: job.rider.locations[0].heading,
-            speed: job.rider.locations[0].speed,
-            createdAt: job.rider.locations[0].createdAt
-          } : null
-        } : null,
-        updatedAt: job.updatedAt
       } : null,
       orderNotes: order.orderNotes.map((note) => ({ id: note.id, body: note.body, createdAt: note.createdAt }))
     };
@@ -308,22 +258,102 @@ export class OrdersService {
     });
     const phoneMatch = phoneNumber ? candidates.find((customer) => normalizePhoneNumber(customer.phoneNumber) === phoneNumber) : null;
     if (phoneMatch) return phoneMatch;
-
-    const addressMatch = address ? candidates.find((customer) => normalizeCustomerAddress(customer.defaultAddress) === address) : null;
-    return addressMatch ?? null;
+    if (!name || !name.includes(" ")) return null;
+    const nameMatches = candidates.filter((customer) => normalizeCustomerName(customer.name) === name);
+    if (address) {
+      const addressMatch = nameMatches.find((customer) => normalizeCustomerAddress(customer.defaultAddress) === address);
+      if (addressMatch) return addressMatch;
+    }
+    return nameMatches.length === 1 ? nameMatches[0] : null;
   }
 
-  // ... existing methods below remain unchanged ...
+  async updateStatus(id: string, status: OrderStatus) {
+    const existing = await this.prisma.order.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Order not found");
+    const order = await this.prisma.order.update({
+      where: { id }, data: { status }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } }
+    });
+    this.realtime.emit("orders.updated", order);
+    return order;
+  }
+
+  async update(id: string, dto: UpdateOrderDto) {
+    const existing = await this.prisma.order.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Order not found");
+    const deliveryFee = dto.deliveryFee ?? existing.deliveryFee ?? 0;
+    const discountAmount = dto.discountAmount ?? existing.discountAmount ?? 0;
+    const quantity = dto.quantity ?? existing.quantity;
+    const unitPrice = dto.unitPrice ?? Number(existing.unitPrice);
+    const totalAmount = Math.max(0, quantity * unitPrice + deliveryFee - discountAmount);
+    const order = await this.prisma.order.update({
+      where: { id },
+      data: {
+        ...(dto.quantity !== undefined ? { quantity } : {}),
+        ...(dto.unitPrice !== undefined ? { unitPrice } : {}),
+        ...(dto.deliveryFee !== undefined ? { deliveryFee } : {}),
+        ...(dto.discountAmount !== undefined ? { discountAmount } : {}),
+        ...(dto.deliveryMethod !== undefined ? { deliveryMethod: dto.deliveryMethod } : {}),
+        ...(dto.paymentMethod !== undefined ? { paymentMethod: dto.paymentMethod } : {}),
+        ...(dto.location !== undefined ? { location: dto.location } : {}),
+        ...(dto.address !== undefined ? { address: dto.address } : {}),
+        ...(dto.preferredSchedule !== undefined ? { preferredSchedule: new Date(dto.preferredSchedule) } : {}),
+        ...(dto.items !== undefined ? { items: dto.items } : {}),
+        ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        ...(dto.adLabel !== undefined ? { adLabel: dto.adLabel || null } : {}),
+        ...(dto.customerName !== undefined || dto.phoneNumber !== undefined
+          ? {
+              customer: {
+                update: {
+                  ...(dto.customerName !== undefined ? { name: dto.customerName } : {}),
+                  ...(dto.phoneNumber !== undefined ? { phoneNumber: dto.phoneNumber || null } : {})
+                }
+              }
+            }
+          : {}),
+        totalAmount
+      },
+      include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } }
+    });
+    this.realtime.emit("orders.updated", order);
+    return order;
+  }
+
+  async remove(id: string) {
+    const existing = await this.prisma.order.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Order not found");
+    await this.prisma.order.delete({ where: { id } });
+    this.realtime.emit("orders.updated", { id, deleted: true });
+    return { ok: true };
+  }
+
+  async addNote(id: string, body: string) {
+    const order = await this.prisma.order.findUnique({ where: { id } });
+    if (!order) throw new NotFoundException("Order not found");
+    const note = await this.prisma.orderNote.create({ data: { orderId: id, body: body.trim() } });
+    this.realtime.emit("orders.updated", { id, note });
+    return note;
+  }
+
+  async exportToGoogleDrive(orderIds: string[]) {
+    const ids = [...new Set(orderIds.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))];
+    if (!ids.length) throw new BadRequestException("No orders selected for export");
+
+    const orders = await this.prisma.order.findMany({
+      where: { id: { in: ids } },
+      include: {
+        customer: true,
+        orderNotes: { orderBy: { createdAt: "desc" } }
+      }
+    });
+
+    if (!orders.length) throw new NotFoundException("No selected orders were found");
+
+    return this.googleDriveOrderExport.uploadOrders(orders);
+  }
 }
 
 function normalizePhoneNumber(value?: string | null) {
-  return value?.replace(/\D/g, "") || "";
+  return (value ?? "").replace(/\D/g, "").replace(/^0(?=9)/, "63");
 }
-
-function normalizeCustomerName(value?: string | null) {
-  return value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
-}
-
-function normalizeCustomerAddress(value?: string | null) {
-  return value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
-}
+function normalizeCustomerName(value?: string | null) { return (value ?? "").trim().toLowerCase().replace(/\s+/g, " "); }
+function normalizeCustomerAddress(value?: string | null) { return (value ?? "").trim().toLowerCase().replace(/\s+/g, " "); }
