@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { AIIntentResult } from "../ai/types";
 import type { AIOrderAction, AIOrderActionResult } from "../ai/ai-order-action.service";
 import { MessengerSingleCallAiService } from "./messenger-single-call-ai.service";
@@ -16,6 +17,10 @@ const SEMANTIC_GUARDRAILS = `APPLICATION SEMANTIC GUARDRAILS:
 
 @Injectable()
 export class MessengerSingleCallAiPolicyService extends MessengerSingleCallAiService {
+  constructor(config: ConfigService) {
+    super(config);
+  }
+
   async analyze(message: string, context: Parameters<MessengerSingleCallAiService["analyze"]>[1]): Promise<AIOrderActionResult> {
     return super.analyze(message, {
       ...context,
