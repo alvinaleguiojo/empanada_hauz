@@ -20,27 +20,27 @@ export class AiApplicationToolsService {
   async execute(tool: AiApplicationToolName, args: Record<string, unknown>) {
     switch (tool) {
       case "get_order_summary":
-        return this.getCustomerOrderSummary(this.stringArg(args.customerId), this.stringArg(args.orderNumber));
+        return this.getCustomerOrderSummary(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
       case "check_order_status":
-        return this.getCustomerOrderStatus(this.stringArg(args.customerId), this.stringArg(args.orderNumber));
+        return this.getCustomerOrderStatus(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
       case "create_order":
         return this.createCustomerOrder(args);
       case "update_order":
         return this.updateCustomerOrder(this.stringArg(args.customerId), args);
       case "cancel_order":
-        return this.cancelCustomerOrder(this.stringArg(args.customerId), this.stringArg(args.orderNumber));
+        return this.cancelCustomerOrder(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
       case "delete_order":
-        return this.deleteCustomerOrder(this.stringArg(args.customerId), this.stringArg(args.orderNumber));
+        return this.deleteCustomerOrder(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
     }
   }
 
-  private async getCustomerOrderSummary(customerId: string, orderNumber?: string) {
-    const order = await this.findCustomerOrder(customerId, orderNumber);
+  private async getCustomerOrderSummary(customerId: string, orderNumber?: string, id?: string) {
+    const order = await this.findCustomerOrder(customerId, orderNumber, id);
     return this.mcpOrdersService.getOrder({ id: order.id });
   }
 
-  private async getCustomerOrderStatus(customerId: string, orderNumber?: string) {
-    const order = await this.findCustomerOrder(customerId, orderNumber);
+  private async getCustomerOrderStatus(customerId: string, orderNumber?: string, id?: string) {
+    const order = await this.findCustomerOrder(customerId, orderNumber, id);
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -69,13 +69,13 @@ export class AiApplicationToolsService {
     return this.mcpOrdersService.updateOrder(payload);
   }
 
-  private async cancelCustomerOrder(customerId: string, orderNumber?: string) {
-    const order = await this.findCustomerOrder(customerId, orderNumber);
+  private async cancelCustomerOrder(customerId: string, orderNumber?: string, id?: string) {
+    const order = await this.findCustomerOrder(customerId, orderNumber, id);
     return this.mcpOrdersService.updateOrder({ id: order.id, status: "cancelled" });
   }
 
-  private async deleteCustomerOrder(customerId: string, orderNumber?: string) {
-    const order = await this.findCustomerOrder(customerId, orderNumber);
+  private async deleteCustomerOrder(customerId: string, orderNumber?: string, id?: string) {
+    const order = await this.findCustomerOrder(customerId, orderNumber, id);
     if (["completed", "cancelled"].includes(order.status)) throw new BadRequestException("Closed orders cannot be deleted from Messenger.");
     return this.mcpOrdersService.deleteOrder({ id: order.id });
   }
