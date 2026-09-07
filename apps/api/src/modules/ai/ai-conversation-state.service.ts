@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 
 export interface AiOrderDraft {
@@ -38,8 +39,8 @@ export class AiConversationStateService {
     if (!conversationId || !customerId) throw new BadRequestException("Conversation and customer context are required.");
     const now = new Date();
     const existing = await this.get(conversationId, customerId);
-    const identity = { conversationId, customerId, updatedAt: now, draft };
-    await this.prisma.$runCommandRaw({
+    const identity = { conversationId, customerId, updatedAt: now, draft: draft as unknown as Prisma.InputJsonValue };
+    const command = {
       update: this.collection,
       updates: [{
         q: { conversationId, customerId },
@@ -47,13 +48,15 @@ export class AiConversationStateService {
         upsert: true,
         multi: false
       }]
-    });
-    return { _id: existing?._id ?? `${customerId}:${conversationId}`, ...identity };
+    } as unknown as Prisma.InputJsonValue;
+    await this.prisma.$runCommandRaw(command);
+    return { _id: existing?._id ?? `${customerId}:${conversationId}`, conversationId, customerId, updatedAt: now, draft };
   }
 
   async clear(conversationId: string, customerId: string) {
     if (!conversationId || !customerId) return { ok: true };
-    await this.prisma.$runCommandRaw({ delete: this.collection, deletes: [{ q: { conversationId, customerId }, limit: 1 }] });
+    const command = { delete: this.collection, deletes: [{ q: { conversationId, customerId }, limit: 1 }] } as unknown as Prisma.InputJsonValue;
+    await this.prisma.$runCommandRaw(command);
     return { ok: true };
   }
 }
