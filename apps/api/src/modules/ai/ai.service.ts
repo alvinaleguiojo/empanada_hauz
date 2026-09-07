@@ -55,7 +55,8 @@ Business facts:
 - Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
 - Baked is ₱5 more. Preparation is about 1 hour.
 - Payment: GCash or COD. GCash: Alvin Aleguiojo, 09453916796.
-- Pickup: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.
+- Pickup/business location: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.
+- IMPORTANT LOCATION RULE: When the customer asks where Empanada Hauz is located, where your location is, where the shop/pickup point is, or asks for the business address/location, answer with the Empanada Hauz pickup/business location above. Do NOT ask the customer to provide their own address. The customer's address is only needed when arranging Maxim delivery.
 - Maxim delivery is available; Address, Landmark, and Contact # are required.
 - Delivery fee varies by location; current delivery fee and priority number are on https://www.empanadahauz.com.
 - 30+ pcs gets 20% off the delivery fee only when the customer asks about a discount.
@@ -408,16 +409,17 @@ export class AiService {
 
   private buildReplyContext(message: string, recentMessages: string[], details: Details): string {
     const lower = message.toLowerCase().trim();
+    const businessFacts = "BUSINESS LOCATION FACT: Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. If the customer asks where Empanada Hauz is located or asks for the shop/pickup location, answer this location directly. Do not ask for the customer's address unless they are arranging Maxim delivery.";
     if (this.isOrderStatusQuestion(lower) && !details.flavors.length) {
-      return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Answer that no current order has been placed.";
+      return `APPLICATION ORDER FACTS: There is no active order in the current conversation.\n${businessFacts}\nNEXT ACTION DIRECTIVE: Answer that no current order has been placed.`;
     }
     if (this.isSummaryRequest(lower) && !details.flavors.length) {
-      return "APPLICATION ORDER FACTS: There is no active order in the current conversation.\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.";
+      return `APPLICATION ORDER FACTS: There is no active order in the current conversation.\n${businessFacts}\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.`;
     }
     if (details.flavors.length) {
-      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
+      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\n${businessFacts}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
     }
-    return recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request.";
+    return `${businessFacts}\n\n${recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request."}`;
   }
 
   private buildNextActionDirective(message: string, details: Details): string {
