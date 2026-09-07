@@ -105,6 +105,7 @@ export class MessengerSingleCallAiService {
   private readonly model: string;
   private readonly timeoutMs: number;
   private readonly cache = new Map<string, CachedResult>();
+  private readonly handoff = new Map<string, CachedResult>();
 
   constructor(private readonly config: ConfigService) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
@@ -114,15 +115,27 @@ export class MessengerSingleCallAiService {
   }
 
   async analyze(message: string, context: { recentMessages?: string[]; hasActiveOrder?: boolean; hasPendingNewOrder?: boolean; existingDeliveryDetails?: { deliveryMethod?: string | null; address?: string | null; location?: string | null; contactNumber?: string | null; paymentMethod?: string | null; preferredSchedule?: string | null } }): Promise<AIOrderActionResult> {
+    const handoff = this.handoff.get(this.handoffKey(message));
+    if (handoff && Date.now() - handoff.createdAt <= 30_000) return handoff.action;
+
     const key = this.makeKey(message, context.recentMessages ?? [], context.hasActiveOrder, context.hasPendingNewOrder);
     const cached = this.getCached(key);
-    if (cached) return cached.action;
+    if (cached) {
+      this.handoff.set(this.handoffKey(message), cached);
+      return cached.action;
+    }
     const result = await this.runSingleCall(message, context);
     this.cache.set(key, result);
+    this.handoff.set(this.handoffKey(message), result);
     return result.action;
   }
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: AIIntentResult["details"] }): Promise<AIIntentResult> {
+    const handoff = this.handoff.get(this.handoffKey(message));
+    if (handoff && Date.now() - handoff.createdAt <= 30_000) {
+      return this.mergeActiveState(handoff.ai, context?.activeOrderState);
+    }
+
     const recentMessages = context?.recentMessages ?? [];
     const key = this.makeKey(message, recentMessages.filter((line) => !/^APPLICATION /.test(line)), Boolean(context?.activeOrderState), Boolean(context?.activeOrderState?.flavors?.length));
     const cached = this.getCached(key);
@@ -141,6 +154,7 @@ export class MessengerSingleCallAiService {
         preferredSchedule: undefined
       } : undefined
     });
+    this.handoff.set(this.handoffKey(message), fallback);
     return this.mergeActiveState(fallback.ai, context?.activeOrderState);
   }
 
@@ -291,6 +305,7 @@ export class MessengerSingleCallAiService {
   private cleanDate(value: unknown): string | undefined { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : undefined; }
   private cleanTime(value: unknown): string | undefined { return typeof value === "string" && /^\d{2}:\d{2}$/.test(value.trim()) ? value.trim() : undefined; }
   private cleanJson(raw: string): string { const start = raw.indexOf("{"); const end = raw.lastIndexOf("}"); return start >= 0 && end > start ? raw.slice(start, end + 1) : raw; }
+  private handoffKey(message: string): string { return message.trim(); }
   private makeKey(message: string, recentMessages: string[], hasActiveOrder?: boolean, hasPendingNewOrder?: boolean): string { return `${message}\n${recentMessages.filter((line) => !/^APPLICATION /.test(line)).join("\n")}\n${Boolean(hasActiveOrder)}\n${Boolean(hasPendingNewOrder)}`; }
   private getCached(key: string): CachedResult | undefined {
     const cached = this.cache.get(key);
