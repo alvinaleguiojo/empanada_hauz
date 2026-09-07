@@ -40,7 +40,7 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
       const enriched = await this.enrichDeliveryFeeContext(message, context);
       const result = await original(message, enriched.context);
 
-      if (enriched.estimatedFare !== undefined && this.isDeliveryFeeQuestion(message)) {
+      if (enriched.estimatedFare !== undefined && this.isDeliveryFeeQuestion(message, context?.recentMessages)) {
         const feeLine = `Delivery fee to your location is ₱${enriched.estimatedFare}.`;
         const reply = result.suggestedReply?.trim() ?? "";
         const normalizedFee = `₱${enriched.estimatedFare}`;
@@ -55,11 +55,13 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
     const recentMessages = [...(context?.recentMessages ?? [])];
     const hasPendingLocationOptions = recentMessages.some((entry) => entry.startsWith("APPLICATION DELIVERY LOCATION OPTIONS:"));
     const isLocationSelection = hasPendingLocationOptions && /^(?:[1-5]|one|two|three|four|five)\.?$/i.test(message.trim());
+    const isDeliveryFeeQuestion = this.isDeliveryFeeQuestion(message, recentMessages);
+    const isDeliveryFeeFollowUp = this.isDeliveryFeeLocationFollowUp(message, recentMessages);
 
-    if (!this.isDeliveryFeeQuestion(message) && !isLocationSelection) return { context, estimatedFare: undefined };
+    if (!isDeliveryFeeQuestion && !isLocationSelection && !isDeliveryFeeFollowUp) return { context, estimatedFare: undefined };
 
     let activeOrderState = context?.activeOrderState;
-    const requestedLocation = this.extractRequestedDeliveryLocation(message);
+    const requestedLocation = this.extractRequestedDeliveryLocation(message, isDeliveryFeeFollowUp);
 
     if (isLocationSelection) {
       const selected = this.resolveLocationSelection(message, recentMessages);
@@ -162,8 +164,17 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
     }
   }
 
-  private extractRequestedDeliveryLocation(message: string) {
-    const match = message.match(/(?:delivery\s*(?:fee|charge)|shipping\s*fee|\bdf\b)\s+(?:in|at|to|for|sa)\s+(.+?)(?:\?|$)/i);
+  private extractRequestedDeliveryLocation(message: string, isFollowUp = false) {
+    if (isFollowUp) {
+      const followUpLocation = message
+        .replace(/[.!,;?]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (followUpLocation && !/^(?:my area|your area|there|here)$/i.test(followUpLocation)) return followUpLocation;
+      return undefined;
+    }
+
+    const match = message.match(/(?:delivery\s*(?:fee|charge)|shipping\s*fee|\bdf\b)\s+(?:in|at|to|for|sa|is)\s+(.+?)(?:\?|$)/i);
     if (!match?.[1]) return undefined;
 
     const location = match[1]
@@ -173,6 +184,19 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
 
     if (!location || /^(?:my area|your area|there|here)$/i.test(location)) return undefined;
     return location;
+  }
+
+  private isDeliveryFeeLocationFollowUp(message: string, recentMessages: string[]) {
+    const location = message.trim();
+    if (!location || location.length > 120) return false;
+    if (/^(?:yes|no|okay|ok|sure|thanks|thank you|there|here|my area|your area)$/i.test(location)) return false;
+
+    const askedForDeliveryLocation = recentMessages.some((entry) =>
+      /(?:provide|send|give|share|what(?:'s| is|s)?)\b.{0,80}\b(?:delivery\s+)?(?:address|location|area)\b/i.test(entry)
+      || /\bdelivery\s+fee\b.{0,100}\b(?:check|quote|calculate)\b/i.test(entry)
+    );
+
+    return askedForDeliveryLocation && !/\b(?:price|menu|order|bacon|chicken|pork|beef|ube|mango|choco|ham|cheese|gcash|cod|pickup)\b/i.test(location);
   }
 
   private formatLocationOptions(candidates: LocationCandidate[]) {
@@ -228,7 +252,8 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
     return value.toLowerCase().replace(/\s+/g, " ").replace(/\s*,\s*/g, ",").trim();
   }
 
-  private isDeliveryFeeQuestion(message: string) {
-    return /\b(delivery\s*fee|delivery\s*charge|shipping\s*fee|df|how much (?:is )?(?:the )?delivery)\b/i.test(message);
+  private isDeliveryFeeQuestion(message: string, recentMessages: string[] = []) {
+    return /\b(delivery\s*fee|delivery\s*charge|shipping\s*fee|df|how much (?:is )?(?:the )?delivery)\b/i.test(message)
+      || this.isDeliveryFeeLocationFollowUp(message, recentMessages);
   }
 }
