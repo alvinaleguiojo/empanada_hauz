@@ -3,6 +3,10 @@ import { ConfigService } from "@nestjs/config";
 
 type Coordinates = { latitude: number; longitude: number };
 
+export type LocationCandidate = Coordinates & {
+  formattedAddress: string;
+};
+
 export type RouteEstimate = {
   origin: Coordinates;
   destination: Coordinates;
@@ -16,7 +20,10 @@ type RoutePoint = { address: string; latitude?: number; longitude?: number };
 type GeocodingResponse = {
   status: string;
   error_message?: string;
-  results?: Array<{ geometry: { location: { lat: number; lng: number } } }>;
+  results?: Array<{
+    formatted_address?: string;
+    geometry: { location: { lat: number; lng: number } };
+  }>;
 };
 
 type RoutesResponse = {
@@ -30,6 +37,39 @@ export class MapsService {
 
   constructor(private readonly config: ConfigService) {}
 
+  async findLocationCandidates(address: string, limit = 5): Promise<LocationCandidate[]> {
+    const apiKey = this.config.get<string>("GOOGLE_MAPS_API_KEY");
+    if (!apiKey || !address?.trim()) return [];
+
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    url.searchParams.set("address", address.trim());
+    url.searchParams.set("region", this.config.get<string>("GOOGLE_MAPS_REGION", "ph"));
+    url.searchParams.set("components", "country:PH");
+    url.searchParams.set("key", apiKey);
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Geocoding request failed with ${response.status}`);
+      const payload = (await response.json()) as GeocodingResponse;
+      if (payload.status !== "OK" || !payload.results?.length) {
+        this.logger.warn(`Location candidate search failed for "${address}": ${payload.error_message ?? payload.status}`);
+        return [];
+      }
+
+      return payload.results
+        .map((result) => ({
+          formattedAddress: result.formatted_address?.trim() || address.trim(),
+          latitude: result.geometry.location.lat,
+          longitude: result.geometry.location.lng
+        }))
+        .filter((candidate) => this.isExpectedRegion(candidate))
+        .slice(0, Math.max(1, limit));
+    } catch (error) {
+      this.logger.warn(`Unable to find location candidates for "${address}": ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  }
+
   async estimateRoute(originPoint: RoutePoint, destinationPoint: RoutePoint): Promise<RouteEstimate | null> {
     const apiKey = this.config.get<string>("GOOGLE_MAPS_API_KEY");
 
@@ -42,10 +82,6 @@ export class MapsService {
         const firstAttempt = await this.tryComputeRoute(origin, destination, apiKey, "supplied");
         if (firstAttempt) return this.toRouteEstimate(origin, destination, firstAttempt.distanceKm, firstAttempt.durationMinutes);
 
-        // A valid coordinate can still be a stale/wrong pin. If routing fails,
-        // geocode the addresses and retry once using Google's address result.
-        // This protects the route pipeline without silently changing valid pins
-        // when the original coordinates are routable.
         const [geocodedOrigin, geocodedDestination] = await Promise.all([
           this.geocodeAddress(originPoint.address, apiKey),
           this.geocodeAddress(destinationPoint.address, apiKey)
@@ -59,10 +95,14 @@ export class MapsService {
             return this.toRouteEstimate(origin, destination, secondAttempt.distanceKm, secondAttempt.durationMinutes);
           }
         }
+
+        // A failed Google route is NOT a valid delivery quote. Never turn a
+        // failed route into a large straight-line distance and fare.
+        return null;
       }
 
-      // Google routing is optional. Use a bounded straight-line estimate so a
-      // transient Routes API failure does not break delivery creation/quoting.
+      // Google routing is optional for non-AI/internal flows. If no Maps key
+      // is configured, retain the bounded local estimate behavior.
       const fallback = this.estimateRouteFromCoordinates(origin, destination);
       return this.toRouteEstimate(origin, destination, fallback.distanceKm, fallback.durationMinutes);
     } catch (error) {
