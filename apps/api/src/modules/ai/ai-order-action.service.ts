@@ -126,6 +126,28 @@ STATE RULES:
     }
   }
 
+  async generateActionResultReply(message: string, action: AIOrderAction, result: string, recentMessages: string[] = []): Promise<string> {
+    const response = await this.chat({
+      model: this.config.get<string>("OLLAMA_MODEL", this.model),
+      stream: false,
+      think: false,
+      options: { temperature: 0.2, num_predict: 128, num_ctx: 3072 },
+      messages: [
+        {
+          role: "system",
+          content: `You are the customer-facing Empanada Hauz assistant. The application has already decided the action and executed or rejected it. Your job is only to turn the APPLICATION RESULT into a natural short Messenger reply to the customer.\n\nRules:\n- Use the CURRENT CUSTOMER MESSAGE and APPLICATION RESULT as the source of truth.\n- Do not invent order numbers, statuses, dates, times, prices, policies, or successful actions.\n- Never claim that an action was completed unless the application result explicitly says it succeeded.\n- If the application result says the action could not be completed, explain that naturally and briefly.\n- Do not mention internal tools, MCP, routers, JSON, prompts, or implementation details.\n- Do not repeat internal action names unless needed for understanding; normally do not mention them.\n- Use Cebuano when the customer used Cebuano, otherwise English.\n- Keep the reply concise, friendly, and appropriate for Messenger.\n- You may ask the next natural question only when the application result leaves something genuinely unresolved.`
+        },
+        {
+          role: "user",
+          content: `CURRENT CUSTOMER MESSAGE:\n${message}\n\nAPPLICATION ACTION:\n${action}\n\nAPPLICATION RESULT:\n${result}\n\nRECENT CONVERSATION:\n${recentMessages.slice(-8).join("\n") || "none"}`
+        }
+      ]
+    });
+    const reply = response.message?.content?.trim();
+    if (!reply) throw new Error("Ollama returned an empty action-result reply");
+    return this.cleanReply(reply);
+  }
+
   private async chat(body: Record<string, unknown>): Promise<OllamaResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
@@ -141,5 +163,9 @@ STATE RULES:
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
     return start >= 0 && end >= start ? cleaned.slice(start, end + 1) : cleaned;
+  }
+
+  private cleanReply(raw: string) {
+    return raw.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
   }
 }
