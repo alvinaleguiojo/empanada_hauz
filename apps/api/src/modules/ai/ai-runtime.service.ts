@@ -188,7 +188,7 @@ ${input.context}`;
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0, num_predict: 256, num_ctx: 8192 },
+      options: { temperature: 0, num_predict: 256, num_ctx: 16384 },
       messages: [{ role: "system", content: system }, { role: "user", content: user }]
     });
     const raw = response.message?.content?.trim();
