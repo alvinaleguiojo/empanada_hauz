@@ -1,12 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
 import { AiControlService } from "../ai/ai-control.service";
-import { AiOrderActionService } from "../ai/ai-order-action.service";
-import { AiService } from "../ai/ai.service";
-import { AiApplicationToolsService, AiApplicationToolName } from "../ai/ai-application-tools.service";
+import { AiRuntimeService } from "../ai/ai-runtime.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { MetaAuthService } from "./meta-auth.service";
 
@@ -16,382 +13,63 @@ interface MetaMessage { id?: string; message?: string; created_time?: string; fr
 interface MetaConversation { id: string; updated_time?: string; participants?: { data?: MetaParticipant[] } }
 interface MetaPage<T> { data?: T[]; paging?: { next?: string } }
 
-type OrderDetails = Awaited<ReturnType<AiService["classifyAndExtract"]>>["details"];
-type LatestOrder = {
-  id: string;
-  orderNumber: string;
-  status: string;
-  quantity: number;
-  deliveryMethod: string;
-  paymentMethod: string;
-  location: string | null;
-  address: string | null;
-  preferredSchedule: Date | null;
-  items: unknown;
-  customer: { phoneNumber: string | null };
-};
-type ActionAnalysis = Awaited<ReturnType<AiOrderActionService["analyze"]>>;
-
 @Injectable()
 export class MessengerService {
   private readonly logger = new Logger(MessengerService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly customersService: CustomersService,
     private readonly aiControl: AiControlService,
-    private readonly aiService: AiService,
-    private readonly aiOrderActionService: AiOrderActionService,
-    private readonly aiApplicationToolsService: AiApplicationToolsService,
+    private readonly aiRuntime: AiRuntimeService,
     private readonly notificationsService: NotificationsService,
     private readonly metaAuthService: MetaAuthService
   ) {}
 
   async processIncoming(event: { senderId: string; messageId?: string; text: string; rawPayload: unknown }) {
-    this.logger.log(`Messenger AI processing started: sender=${event.senderId} messageId=${event.messageId ?? "unknown"}`);
+    this.logger.log(`Messenger AI runtime started: sender=${event.senderId} messageId=${event.messageId ?? "unknown"}`);
     const stored = await this.persistInbound(event);
-    this.logger.log(`Messenger inbound persisted: sender=${event.senderId} messageId=${event.messageId ?? "unknown"} message=${stored.id}`);
     const conversation = await this.prisma.conversation.findUniqueOrThrow({ where: { id: stored.conversationId }, include: { customer: true } });
-
     const aiState = await this.aiControl.getCustomerState(conversation.customer.id);
-    if (!aiState.effectiveEnabled) {
-      this.logger.log(`Messenger AI disabled: customer=${conversation.customer.id} sender=${event.senderId} override=${aiState.customerOverride} global=${aiState.globalEnabled}`);
-      return { ai: null, reply: "", aiEnabled: false };
-    }
+    if (!aiState.effectiveEnabled) return { ai: null, reply: "", aiEnabled: false };
 
-    const recentMessages = await this.prisma.message.findMany({ where: { conversationId: stored.conversationId, id: { not: stored.id } }, orderBy: { createdAt: "desc" }, take: 20, select: { direction: true, content: true, extractedOrder: true } });
-    const contextMessages = recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`);
-    const persistedActiveOrderState = this.findLatestValidOrderState(recentMessages.map((item) => item.extractedOrder));
-    const hasPendingNewOrder = Boolean(persistedActiveOrderState?.flavors?.some((item) => Number(item.quantity ?? 0) > 0));
-    const customerName = conversation.customer?.name?.trim();
-    const latestOrder = conversation.customer?.id
-      ? await this.prisma.order.findFirst({
-          where: { customerId: conversation.customer.id, status: { notIn: ["completed", "cancelled"] } },
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          select: { id: true, orderNumber: true, status: true, createdAt: true, quantity: true, unitPrice: true, totalAmount: true, deliveryFee: true, discountAmount: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true, customer: { select: { phoneNumber: true } } }
-        })
-      : customerName
-        ? await this.prisma.order.findFirst({
-            where: { status: { notIn: ["completed", "cancelled"] }, customer: { name: { equals: customerName, mode: Prisma.QueryMode.insensitive } } },
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            select: { id: true, orderNumber: true, status: true, createdAt: true, quantity: true, unitPrice: true, totalAmount: true, deliveryFee: true, discountAmount: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true, customer: { select: { phoneNumber: true } } }
-          })
-        : null;
-
-    const actionContext = await this.aiOrderActionService.analyze(event.text, {
-      recentMessages: contextMessages,
-      hasActiveOrder: Boolean(latestOrder),
-      hasPendingNewOrder,
-      existingDeliveryDetails: latestOrder ? { deliveryMethod: latestOrder.deliveryMethod, address: latestOrder.address, location: latestOrder.location, contactNumber: latestOrder.customer?.phoneNumber, paymentMethod: latestOrder.paymentMethod, preferredSchedule: latestOrder.preferredSchedule?.toISOString() } : undefined
+    const recentMessages = await this.prisma.message.findMany({
+      where: { conversationId: stored.conversationId, id: { not: stored.id } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { direction: true, content: true }
+    });
+    const runtime = await this.aiRuntime.process({
+      customerId: conversation.customer.id,
+      conversationId: conversation.id,
+      channel: "messenger",
+      customerName: conversation.customer?.name ?? undefined,
+      message: event.text,
+      recentMessages: recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`)
     });
 
-    const effectiveOrderAction = actionContext.orderAction;
-    const inNewOrderFlow = effectiveOrderAction === "new_order" && (hasPendingNewOrder || (!latestOrder && actionContext.newOrderFlowActive));
-    const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && inNewOrderFlow && Boolean(latestOrder);
-    const reusedDeliveryState: Partial<OrderDetails> = shouldReuseExistingDelivery && latestOrder ? { deliveryMethod: latestOrder.deliveryMethod === "pickup" || latestOrder.deliveryMethod === "maxim" ? latestOrder.deliveryMethod : undefined, address: latestOrder.address ?? undefined, landmark: latestOrder.location ?? undefined, contactNumber: latestOrder.customer?.phoneNumber ?? undefined } : {};
-
-    const baseState = persistedActiveOrderState;
-    const activeOrderState: OrderDetails = { ...(baseState ?? {}), ...reusedDeliveryState, flavors: baseState?.flavors ?? [], missingFields: baseState?.missingFields ?? [], confirmed: false };
-    const hasActiveOrderState = Boolean(activeOrderState.flavors.length || activeOrderState.quantity !== undefined || activeOrderState.deliveryMethod || activeOrderState.paymentMethod || activeOrderState.address || activeOrderState.location || activeOrderState.contactNumber);
-    const orderValidation = hasActiveOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
-    const latestOrderContext = latestOrder ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}; scheduledAt=${latestOrder.preferredSchedule?.toISOString() ?? "none"}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.` : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
-    contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
-    contextMessages.push(latestOrderContext);
-    contextMessages.push(`APPLICATION AI ORDER ACTION: ${effectiveOrderAction}; newOrderFlowActive=${inNewOrderFlow}; reuseExistingDelivery=${shouldReuseExistingDelivery}`);
-    if (shouldReuseExistingDelivery) contextMessages.push(`APPLICATION REUSED DELIVERY FACTS: deliveryMethod=${activeOrderState.deliveryMethod ?? "none"}; address=${activeOrderState.address ?? "none"}; landmark=${activeOrderState.landmark ?? "none"}; contactNumber=${activeOrderState.contactNumber ?? "none"}; paymentMethod=${activeOrderState.paymentMethod ?? "none"}`);
-
-    this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct")}`);
-    const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages, activeOrderState: hasActiveOrderState ? activeOrderState : undefined });
-    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${effectiveOrderAction} newOrderFlowActive=${inNewOrderFlow} reuseExistingDelivery=${shouldReuseExistingDelivery}`);
-    await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
-
-    let reply = ai.suggestedReply?.trim() ?? "";
-
-    if (effectiveOrderAction === "new_order" && shouldReuseExistingDelivery) {
-      reply = await this.aiActionReply(event.text, effectiveOrderAction, this.buildApplicationOrderSummary(activeOrderState, true), contextMessages, reply);
-    } else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) {
-      reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: The customer already has an active order, so a separate new order was not started. The customer should choose whether to modify the existing order or place a separate new order.", contextMessages, reply);
-    } else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai)) {
-      reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The pending new-order draft was updated but cannot be placed yet. ${this.describeOrderValidation(ai.details)} Current order state: ${this.formatOrderStateForReply(ai.details)}. Ask naturally for the next genuinely missing required information.`, contextMessages, reply);
-    } else if ((effectiveOrderAction === "new_order" || effectiveOrderAction === "confirm") && this.isConfirmedOrder(ai)) {
-      reply = await this.executeAiApplicationTool("create_order", {
-        customerId: conversation.customer.id,
-        customerName: conversation.customer?.name || "Messenger Customer",
-        phoneNumber: ai.details.contactNumber,
-        quantity: Number(ai.details.quantity),
-        deliveryMethod: ai.details.deliveryMethod,
-        paymentMethod: ai.details.paymentMethod,
-        location: ai.details.landmark,
-        address: ai.details.address,
-        preferredSchedule: this.toManilaIso(ai.details.deliveryDate, ai.details.preferredTime),
-        items: (ai.details.flavors ?? []).map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })),
-        notes: `Confirmed via Messenger. Original confirmation: ${event.text}`
-      }, event.text, effectiveOrderAction, contextMessages, reply, async (created) => {
-        const result = created as { id: string; orderNumber: string };
-        this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: result.id, orderNumber: result.orderNumber });
-        this.logger.log(`Created confirmed Messenger order ${result.orderNumber} for ${event.senderId} via centralized AI application tool`);
-        return `${this.successResult(created)} Tracking URL: ${this.trackingUrl(result.id)}`;
-      });
-    } else if (effectiveOrderAction === "modify_existing") {
-      const requestedOrder = await this.findOrderForModification(conversation.customer.id, actionContext.referencedOrderDate, actionContext.requestedDeliveryDate, latestOrder);
-      this.logger.log(`Messenger modify order selection: action=modify_existing referencedOrderDate=${actionContext.referencedOrderDate ?? "none"} selectedOrder=${requestedOrder?.orderNumber ?? "none"} selectedScheduledAt=${requestedOrder?.preferredSchedule?.toISOString() ?? "none"}`);
-
-      if (!requestedOrder) {
-        const result = actionContext.referencedOrderDate
-          ? `APPLICATION RESULT: No active order was found for the referenced schedule date ${this.formatReferenceDate(actionContext.referencedOrderDate)}. No order was changed.`
-          : "APPLICATION RESULT: No active order was found to update. No order was changed.";
-        reply = await this.aiActionReply(event.text, effectiveOrderAction, result, contextMessages, reply);
-      } else if (this.shouldUpdateCustomerOrder(ai.intent, ai.details, requestedOrder)) {
-        const updateArgs = await this.buildUpdateOrderArgs(ai, requestedOrder, actionContext.requestedDeliveryDate, actionContext.requestedDeliveryTime);
-        reply = await this.executeAiApplicationTool("update_order", { customerId: conversation.customer.id, ...updateArgs, id: requestedOrder.id }, event.text, effectiveOrderAction, contextMessages, reply, (updated) => {
-          const result = updated as { orderNumber: string };
-          this.logger.log(`Updated Messenger order ${result.orderNumber} for ${event.senderId} via centralized AI application tool`);
-          return this.successResult(updated);
-        });
-      } else {
-        reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The customer referred to an existing order, but the current application state did not contain a supported field change to apply. No order was changed. Current order state: ${this.formatOrderStateForReply(ai.details)}.`, contextMessages, reply);
-      }
-    } else if (effectiveOrderAction === "summary" || effectiveOrderAction === "status" || effectiveOrderAction === "cancel_existing") {
-      const requestedOrder = await this.findOrderForAction(conversation.customer.id, actionContext.referencedOrderDate, latestOrder);
-      if (!requestedOrder) {
-        reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: No active order was found for this customer. No order action was completed.", contextMessages, reply);
-      } else {
-        const tool: AiApplicationToolName = effectiveOrderAction === "summary" ? "get_order_summary" : effectiveOrderAction === "status" ? "check_order_status" : "cancel_order";
-        reply = await this.executeAiApplicationTool(tool, { customerId: conversation.customer.id, id: requestedOrder.id }, event.text, effectiveOrderAction, contextMessages, reply, (result) => {
-          if (effectiveOrderAction === "cancel_existing") this.logger.log(`Cancelled Messenger order ${requestedOrder.orderNumber} for ${event.senderId} via centralized AI application tool`);
-          return this.successResult(result);
-        });
+    if (runtime.tool === "create_order" && runtime.toolResult && typeof runtime.toolResult === "object") {
+      const created = runtime.toolResult as { id?: string; orderNumber?: string };
+      if (created.id && created.orderNumber) {
+        this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
+        this.logger.log(`Created Messenger order ${created.orderNumber} through AI runtime tool execution`);
       }
     }
 
+    const reply = runtime.reply?.trim() ?? "";
     if (reply) {
-      this.logger.log(`Sending Qwen Messenger reply: sender=${event.senderId}`);
-      try { await this.sendText(event.senderId, reply); this.logger.log(`Qwen Messenger reply sent: sender=${event.senderId}`); }
-      catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}: ${error instanceof Error ? error.message : String(error)}`); }
+      try { await this.sendText(event.senderId, reply); }
+      catch (error) { this.logger.error(`Failed to send Messenger AI runtime reply to ${event.senderId}: ${error instanceof Error ? error.message : String(error)}`); }
     }
-    return { ai, reply, aiEnabled: true };
-  }
-
-  private async executeAiApplicationTool(
-    tool: AiApplicationToolName,
-    args: Record<string, unknown>,
-    message: string,
-    action: ActionAnalysis["orderAction"],
-    recentMessages: string[],
-    fallback: string,
-    onSuccess?: (result: unknown) => string | Promise<string>
-  ) {
-    try {
-      const result = await this.aiApplicationToolsService.execute(tool, args);
-      const applicationResult = onSuccess ? await onSuccess(result) : this.successResult(result);
-      return await this.aiActionReply(message, action, `APPLICATION RESULT: The requested application action succeeded. ${applicationResult}`, recentMessages, fallback);
-    } catch (error) {
-      this.logger.error(`AI application tool failed: tool=${tool}`, error instanceof Error ? error.stack : String(error));
-      try {
-        return await this.aiActionReply(message, action, `APPLICATION RESULT: The requested application action could not be completed. No successful change was recorded. Reason: ${error instanceof Error ? error.message : "application error"}.`, recentMessages, fallback);
-      } catch (replyError) {
-        this.logger.error(`Qwen action-result reply generation failed after tool error: tool=${tool}`, replyError instanceof Error ? replyError.stack : String(replyError));
-        return fallback;
-      }
-    }
-  }
-
-  private successResult(result: unknown) {
-    try { return JSON.stringify(result); } catch { return "The application returned a successful result."; }
-  }
-
-  private async aiActionReply(message: string, action: ActionAnalysis["orderAction"], result: string, recentMessages: string[], fallback: string) {
-    try {
-      return await this.aiOrderActionService.generateActionResultReply(message, action, result, recentMessages);
-    } catch (error) {
-      this.logger.warn(`Action-result AI reply generation failed: ${error instanceof Error ? error.message : String(error)}`);
-      return fallback;
-    }
-  }
-
-  private formatOrderStateForReply(details: OrderDetails) {
-    return [
-      details.flavors.length ? `items=${details.flavors.map((item) => `${item.quantity} pcs ${item.name}`).join(", ")}` : "items=none",
-      details.deliveryMethod ? `deliveryMethod=${details.deliveryMethod}` : "deliveryMethod=missing",
-      details.paymentMethod ? `paymentMethod=${details.paymentMethod}` : "paymentMethod=missing",
-      details.address ? `address=${details.address}` : "address=missing",
-      details.landmark ? `landmark=${details.landmark}` : "landmark=missing",
-      details.contactNumber ? `contactNumber=${details.contactNumber}` : "contactNumber=missing",
-      details.deliveryDate ? `deliveryDate=${details.deliveryDate}` : "deliveryDate=unchanged/not provided",
-      details.preferredTime ? `preferredTime=${details.preferredTime}` : "preferredTime=unchanged/not provided",
-      `missing=${details.missingFields.length ? details.missingFields.join(", ") : "none"}`
-    ].join("; ");
-  }
-
-  private buildApplicationOrderSummary(details: OrderDetails, reusedDelivery: boolean) {
-    const flavorLines = details.flavors.length
-      ? details.flavors.map((item) => `• ${item.quantity} pcs ${item.name} — ₱${Number(item.unitPrice ?? 0).toFixed(2)} each`).join("\n")
-      : "• Your selected items";
-    const total = Number(details.totalAmount ?? 0).toFixed(2);
-    const intro = reusedDelivery
-      ? "Sure — I’ll keep your existing delivery details for this new order. Here’s the updated summary:"
-      : "Here’s your order summary:";
-    const lines = [intro, "", "🛒 Order details", flavorLines, `Total food amount: ₱${total}`, "", "🚚 Delivery", `Method: ${details.deliveryMethod === "maxim" ? "Maxim" : details.deliveryMethod === "pickup" ? "Pickup" : this.titleCase(details.deliveryMethod ?? "")}`];
-    if (details.address?.trim()) lines.push(`Address: ${details.address.trim()}`);
-    if (details.landmark?.trim()) lines.push(`Landmark: ${details.landmark.trim()}`);
-    if (details.contactNumber?.trim()) lines.push(`Contact #: ${details.contactNumber.trim()}`);
-    lines.push("", "💳 Payment", `Method: ${details.paymentMethod === "cod" ? "COD" : details.paymentMethod === "gcash" ? "GCash" : this.titleCase(details.paymentMethod ?? "")}`);
-    if (details.deliveryDate?.trim()) lines.push("", "📅 Delivery date", details.deliveryDate.trim());
-    if (details.preferredTime?.trim()) lines.push(`Preferred time: ${details.preferredTime.trim()}`);
-    lines.push("", "Please confirm that all the details above are correct. 😊");
-    return lines.join("\n").trim();
-  }
-
-  private formatReferenceDate(value: string) {
-    const parsed = new Date(`${value}T00:00:00+08:00`);
-    return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium" }).format(parsed);
-  }
-
-  private titleCase(value: string) { return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()); }
-  async getAiSettings() { return this.aiControl.getState(); }
-  async setGlobalAiEnabled(enabled: boolean) { this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`); return this.aiControl.setGlobalEnabled(enabled); }
-  async getCustomerAiSettings(customerId: string) { return this.aiControl.getCustomerState(customerId); }
-  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) { return this.aiControl.setCustomerOverride(customerId, enabled); }
-
-  private findLatestValidOrderState(values: unknown[]): OrderDetails | undefined {
-    for (const value of values) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      const candidate = value as Partial<OrderDetails>;
-      const flavors = Array.isArray(candidate.flavors) ? candidate.flavors : [];
-      const hasOrderData = flavors.length > 0 || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod || candidate.address || candidate.location || candidate.contactNumber;
-      if (!hasOrderData) continue;
-      const hasMeaningfulOrderState = flavors.some((item) => Number((item as Record<string, unknown>)?.quantity ?? 0) > 0) || candidate.quantity !== undefined || candidate.deliveryMethod || candidate.paymentMethod;
-      if (hasMeaningfulOrderState) return { ...candidate, flavors: flavors as OrderDetails["flavors"], missingFields: Array.isArray(candidate.missingFields) ? candidate.missingFields : [], confirmed: Boolean(candidate.confirmed) };
-    }
-    return undefined;
-  }
-
-  private trackingUrl(orderId: string) { const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, ""); return `${baseUrl}/track/${orderId}`; }
-
-  private async findActiveOrderByScheduleDate(customerId: string, dateValue: string) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return null;
-    const start = new Date(`${dateValue}T00:00:00+08:00`);
-    const end = new Date(`${dateValue}T00:00:00+08:00`);
-    end.setUTCDate(end.getUTCDate() + 1);
-    return this.prisma.order.findFirst({
-      where: { customerId, status: { notIn: ["completed", "cancelled"] }, preferredSchedule: { gte: start, lt: end } },
-      orderBy: [{ preferredSchedule: "asc" }, { createdAt: "desc" }, { id: "desc" }],
-      select: { id: true, orderNumber: true, status: true, quantity: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true, customer: { select: { phoneNumber: true } } }
-    });
-  }
-
-  private async findOrderForModification(customerId: string, referencedOrderDate: string | undefined, requestedDeliveryDate: string | undefined, latestOrder: LatestOrder | null) {
-    if (!referencedOrderDate) return latestOrder;
-
-    const scheduledOrder = await this.findActiveOrderByScheduleDate(customerId, referencedOrderDate);
-    if (scheduledOrder) return scheduledOrder;
-
-    const today = this.getTodayDate();
-    const isTodaySource = referencedOrderDate === today;
-    const isMovingToAnotherDate = Boolean(requestedDeliveryDate && requestedDeliveryDate !== referencedOrderDate);
-    if (isTodaySource && isMovingToAnotherDate && latestOrder && !latestOrder.preferredSchedule) {
-      this.logger.log(`No active order is scheduled for today; falling back to latest unscheduled active order ${latestOrder.orderNumber} for today's reschedule request`);
-      return latestOrder;
-    }
-
-    return null;
-  }
-
-  private async findOrderForAction(customerId: string, referencedOrderDate: string | undefined, latestOrder: LatestOrder | null) {
-    if (!referencedOrderDate) return latestOrder;
-    return (await this.findActiveOrderByScheduleDate(customerId, referencedOrderDate)) ?? latestOrder;
-  }
-
-  private shouldUpdateCustomerOrder(intent: string, details: OrderDetails, latestOrder: LatestOrder) {
-    if (["completed", "cancelled"].includes(latestOrder.status)) return false;
-    if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length && details.deliveryDate === undefined && details.preferredTime === undefined) return false;
-    if (!details.flavors.length && details.quantity === undefined && !details.deliveryMethod && !details.paymentMethod && details.address === undefined && details.location === undefined && details.contactNumber === undefined && details.deliveryDate === undefined && details.preferredTime === undefined) return false;
-    const existingItems = Array.isArray(latestOrder.items) ? latestOrder.items.map((item) => ({ name: String((item as Record<string, unknown>)?.name ?? ""), quantity: Number((item as Record<string, unknown>)?.quantity ?? 0) })).filter((item) => item.name) : [];
-    const newItems = details.flavors.map((item) => ({ name: item.name, quantity: Number(item.quantity) }));
-    const itemsChanged = details.flavors.length > 0 && JSON.stringify(existingItems) !== JSON.stringify(newItems);
-    const quantityChanged = details.quantity !== undefined && Number(details.quantity) !== Number(latestOrder.quantity);
-    const deliveryChanged = details.deliveryMethod !== undefined && details.deliveryMethod !== latestOrder.deliveryMethod;
-    const paymentChanged = details.paymentMethod !== undefined && details.paymentMethod !== latestOrder.paymentMethod;
-    const locationChanged = details.location !== undefined && details.location !== (latestOrder.location ?? undefined);
-    const addressChanged = details.address !== undefined && details.address !== (latestOrder.address ?? undefined);
-    const contactChanged = details.contactNumber !== undefined && details.contactNumber !== (latestOrder.customer.phoneNumber ?? undefined);
-    const proposedSchedule = details.deliveryDate && details.preferredTime ? this.toManilaIso(details.deliveryDate, details.preferredTime) : undefined;
-    const scheduleChanged = proposedSchedule !== undefined && proposedSchedule !== (latestOrder.preferredSchedule?.toISOString() ?? undefined);
-    const dateOnlyChange = details.deliveryDate !== undefined && details.preferredTime === undefined;
-    const timeOnlyChange = details.preferredTime !== undefined && details.deliveryDate === undefined;
-    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged || dateOnlyChange || timeOnlyChange;
-  }
-
-  private async buildUpdateOrderArgs(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, latestOrder: LatestOrder, requestedDeliveryDate?: string, requestedDeliveryTime?: string) {
-    const details = ai.details;
-    const flavors = details.flavors ?? [];
-    const deliveryDate = requestedDeliveryDate || details.deliveryDate;
-    const deliveryTime = requestedDeliveryTime || details.preferredTime;
-    let preferredSchedule: string | undefined;
-    if (deliveryDate && deliveryTime) {
-      preferredSchedule = this.toManilaIso(deliveryDate, deliveryTime);
-    } else if (deliveryDate) {
-      const scheduleParts = latestOrder.preferredSchedule ? this.getScheduleParts(latestOrder.preferredSchedule) : undefined;
-      preferredSchedule = this.toManilaIso(deliveryDate, scheduleParts?.time ?? "12:00");
-    } else if (deliveryTime) {
-      preferredSchedule = this.toManilaIso(this.getTodayDate(), deliveryTime);
-    }
-    return {
-      orderNumber: latestOrder.orderNumber,
-      ...(flavors.length ? { items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })) } : {}),
-      ...(details.quantity !== undefined ? { quantity: Number(details.quantity) } : {}),
-      ...(details.deliveryMethod ? { deliveryMethod: details.deliveryMethod } : {}),
-      ...(details.paymentMethod ? { paymentMethod: details.paymentMethod } : {}),
-      ...(details.address !== undefined ? { address: details.address } : {}),
-      ...(details.location !== undefined ? { location: details.location } : {}),
-      ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}),
-      ...(preferredSchedule ? { preferredSchedule } : {})
-    };
-  }
-
-  private getTodayDate() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date()); }
-
-  private toManilaIso(date?: string, time?: string) {
-    if (!date || !time) return undefined;
-    if (/^\d{4}-\d{2}-\d{2}T/.test(time)) return new Date(time).toISOString();
-    const match = time.match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i); if (!match) return undefined;
-    let hour = Number(match[1]); const minute = Number(match[2]); const meridiem = match[3]?.toUpperCase();
-    if (meridiem === "PM" && hour < 12) hour += 12; if (meridiem === "AM" && hour === 12) hour = 0; if (hour > 23 || minute > 59) return undefined;
-    return new Date(`${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`).toISOString();
-  }
-
-  private getScheduleParts(value: Date) {
-    const parts = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(value);
-    const get = (type: string) => parts.find((part) => part.type === type)?.value;
-    const year = get("year");
-    const month = get("month");
-    const day = get("day");
-    const hour = get("hour");
-    const minute = get("minute");
-    const date = year && month && day ? `${year}-${month}-${day}` : undefined;
-    const time = hour && minute ? `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}` : undefined;
-    return { date, time };
-  }
-
-  private describeOrderValidation(details: OrderDetails) {
-    const missing = Array.isArray(details.missingFields) ? details.missingFields : [];
-    if (missing.length === 0 && details.flavors.length > 0) return "READY for MCP placement only if the current customer message is an explicit confirmation. The application has all required order fields.";
-    return `NOT READY for MCP placement. Missing required fields: ${missing.length ? missing.join(", ") : "order details"}. A customer confirmation must not be described as an order being placed.`;
-  }
-
-  private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>) {
-    const details = ai.details;
-    const quantity = Number(details.quantity ?? 0);
-    const flavors = details.flavors ?? [];
-    const flavorQuantity = flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
-    const requiredFieldsPresent = flavors.length > 0 && flavorQuantity === quantity && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
-    return Boolean(details.confirmed) && requiredFieldsPresent && details.missingFields.length === 0;
+    return { ai: { tool: runtime.tool, state: runtime.state }, reply, aiEnabled: true };
   }
 
   async handleStandbyEvent(event: { senderId: string; messageId?: string; text?: string; rawPayload: unknown }) {
-    const text = event.text; if (text) await this.persistInbound({ senderId: event.senderId, messageId: event.messageId, text, rawPayload: event.rawPayload });
-    const autoRequest = this.config.get<string>("META_AUTO_REQUEST_THREAD_CONTROL")?.toLowerCase() === "true"; if (!autoRequest) return { action: "observed" as const };
+    const text = event.text;
+    if (text) await this.persistInbound({ senderId: event.senderId, messageId: event.messageId, text, rawPayload: event.rawPayload });
+    const autoRequest = this.config.get<string>("META_AUTO_REQUEST_THREAD_CONTROL")?.toLowerCase() === "true";
+    if (!autoRequest) return { action: "observed" as const };
     const result = await this.requestThreadControl(event.senderId, "Empanada Hauz backend requests control after receiving a standby message");
     return { action: result ? "thread_control_requested" as const : "thread_control_request_failed" as const };
   }
@@ -403,44 +81,63 @@ export class MessengerService {
   async getMessengerProfileName(psid: string) {
     try {
       const profile = await this.metaGet<{ name?: string; first_name?: string; last_name?: string }>(`https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(psid)}?fields=name,first_name,last_name`);
-      const name = profile.name?.trim() || [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim();
-      return name || undefined;
-    } catch (err) { this.logger.warn(`Unable to fetch Messenger profile name for ${psid}: ${err instanceof Error ? err.message : String(err)}`); return undefined; }
+      return profile.name?.trim() || [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim() || undefined;
+    } catch (err) {
+      this.logger.warn(`Unable to fetch Messenger profile name for ${psid}: ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
   }
 
   private async metaGet<T>(url: string): Promise<T> {
-    const token = await this.metaAuthService.getPageToken(); if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
-    const requestUrl = new URL(url); requestUrl.searchParams.set("access_token", token); const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 10000);
-    try { const response = await fetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal }); const body = await response.text(); if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`); return JSON.parse(body) as T; }
-    finally { clearTimeout(timeout); }
+    const token = await this.metaAuthService.getPageToken();
+    if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
+    const requestUrl = new URL(url); requestUrl.searchParams.set("access_token", token);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal });
+      const body = await response.text();
+      if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
+      return JSON.parse(body) as T;
+    } finally { clearTimeout(timeout); }
   }
 
   private async metaPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
-    const token = await this.metaAuthService.getPageToken(); if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
-    const endpoint = `https://graph.facebook.com/${this.graphVersion()}${path}`; const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
-    try { const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal }); const responseBody = await response.text(); if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`); return JSON.parse(responseBody) as T; }
-    finally { clearTimeout(timeout); }
+    const token = await this.metaAuthService.getPageToken();
+    if (!token) throw new Error("Meta Page authentication is not configured. Reconnect Meta first.");
+    const endpoint = `https://graph.facebook.com/${this.graphVersion()}${path}`;
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+      const responseBody = await response.text();
+      if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
+      return JSON.parse(responseBody) as T;
+    } finally { clearTimeout(timeout); }
   }
 
   async requestThreadControl(psid: string, metadata?: string) {
-    this.logger.warn(`Requesting Messenger thread control: psid=${psid}`);
-    try { const result = await this.metaPost<{ success?: boolean }>("/me/request_thread_control", { recipient: { id: psid }, ...(metadata ? { metadata } : {}) }); this.logger.log(`Messenger thread control request result: psid=${psid} success=${Boolean(result.success)}`); return Boolean(result.success); }
-    catch (err) { this.logger.error(`Messenger thread control request failed: psid=${psid}`, err instanceof Error ? err.message : String(err)); return false; }
+    try {
+      const result = await this.metaPost<{ success?: boolean }>("/me/request_thread_control", { recipient: { id: psid }, ...(metadata ? { metadata } : {}) });
+      return Boolean(result.success);
+    } catch (err) {
+      this.logger.error(`Messenger thread control request failed: psid=${psid}`, err instanceof Error ? err.message : String(err));
+      return false;
+    }
   }
 
   async syncFromMeta(options: { maxConversations?: number; maxMessagesPerConversation?: number } = {}) {
     await this.metaAuthService.ensureAuthenticated();
-    const maxConversations = Math.max(1, options.maxConversations ?? 100); const maxMessagesPerConversation = Math.max(1, options.maxMessagesPerConversation ?? 1000);
+    const maxConversations = Math.max(1, options.maxConversations ?? 100);
+    const maxMessagesPerConversation = Math.max(1, options.maxMessagesPerConversation ?? 1000);
     const pageId = this.pageId(); if (!pageId) throw new Error("META_PAGE_ID is not configured");
     let nextUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(pageId)}/conversations?fields=id,participants,updated_time&limit=100`;
     let conversationsSeen = 0, conversationsImported = 0, messagesImported = 0;
     while (nextUrl && conversationsSeen < maxConversations) {
-      const page: MetaPage<MetaConversation> = await this.metaGet<MetaPage<MetaConversation>>(nextUrl);
+      const page = await this.metaGet<MetaPage<MetaConversation>>(nextUrl);
       for (const metaConversation of page.data ?? []) {
         if (conversationsSeen >= maxConversations) break;
         conversationsSeen += 1;
         const participant = this.findCustomerParticipant(metaConversation.participants?.data ?? [], pageId);
-        if (!participant?.id) { this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`); continue; }
+        if (!participant?.id) continue;
         const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
         let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
         if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
@@ -449,14 +146,15 @@ export class MessengerService {
         let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
         let conversationMessageCount = 0; let newestMessage: MetaMessage | undefined;
         while (messageUrl && conversationMessageCount < maxMessagesPerConversation) {
-          const messagesPage: MetaPage<MetaMessage> = await this.metaGet<MetaPage<MetaMessage>>(messageUrl);
+          const messagesPage = await this.metaGet<MetaPage<MetaMessage>>(messageUrl);
           for (const metaMessage of messagesPage.data ?? []) {
             if (conversationMessageCount >= maxMessagesPerConversation || !metaMessage.id) break;
             conversationMessageCount += 1;
             if (!newestMessage || this.messageTime(metaMessage) > this.messageTime(newestMessage)) newestMessage = metaMessage;
             const existing = await this.prisma.message.findFirst({ where: { metaMessageId: metaMessage.id } });
             const data = { conversationId: conversation.id, metaMessageId: metaMessage.id, direction: (metaMessage.from?.id === pageId ? "outbound" : "inbound") as "outbound" | "inbound", type: (this.hasAttachments(metaMessage) ? "attachment" : "text") as "attachment" | "text", content: this.messageContent(metaMessage), rawPayload: metaMessage as never, ...(metaMessage.created_time ? { createdAt: new Date(metaMessage.created_time) } : {}) };
-            if (existing) await this.prisma.message.update({ where: { id: existing.id }, data }); else await this.prisma.message.create({ data }); messagesImported += 1;
+            if (existing) await this.prisma.message.update({ where: { id: existing.id }, data }); else await this.prisma.message.create({ data });
+            messagesImported += existing ? 0 : 1;
           }
           if (conversationMessageCount >= maxMessagesPerConversation) break;
           messageUrl = messagesPage.paging?.next;
@@ -477,25 +175,40 @@ export class MessengerService {
   private async getOrCreateConversationByPsid(psid: string, lastMessage?: string, name?: string) {
     const customer = await this.customersService.findOrCreateByMessenger(psid, name || "Messenger Customer");
     const existing = await this.prisma.conversation.findFirst({ where: { customerId: customer.id, channel: "messenger" } });
-    if (existing) { if (lastMessage !== undefined) return this.prisma.conversation.update({ where: { id: existing.id }, data: { lastMessage, updatedAt: new Date() } }); return existing; }
+    if (existing) {
+      if (lastMessage !== undefined) return this.prisma.conversation.update({ where: { id: existing.id }, data: { lastMessage, updatedAt: new Date() } });
+      return existing;
+    }
     return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
   }
 
   async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown; type?: "text" | "attachment" }) {
     const profileName = await this.getMessengerProfileName(payload.senderId);
     const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
-    if (payload.messageId) { const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } }); if (existing) return existing; }
+    if (payload.messageId) {
+      const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } });
+      if (existing) return existing;
+    }
     const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
     this.notificationsService.notify("messenger.message_received", { conversationId: conversation.id, senderId: payload.senderId, messageId: payload.messageId, message: payload.text, createdAt: new Date().toISOString() });
     return message;
   }
 
   async sendText(recipientPsid: string, text: string) {
-    const pageToken = await this.metaAuthService.getPageToken(); const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`; const payload = { recipient: { id: recipientPsid }, messaging_type: "RESPONSE", message: { text } };
-    if (!pageToken) { this.logger.warn("Meta Page authentication not configured; outbound send skipped"); return { skipped: true, payload }; }
+    const pageToken = await this.metaAuthService.getPageToken();
+    const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`;
+    const payload = { recipient: { id: recipientPsid }, messaging_type: "RESPONSE", message: { text } };
+    if (!pageToken) return { skipped: true, payload };
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
-    try { const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal }); if (!response.ok) throw new Error(`Meta send failed: ${response.status}: ${await response.text()}`); const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid); const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } }); this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() }); return metaResult; }
-    finally { clearTimeout(timeout); }
+    try {
+      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
+      if (!response.ok) throw new Error(`Meta send failed: ${response.status}: ${await response.text()}`);
+      const metaResult = await response.json() as { message_id?: string };
+      const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
+      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
+      this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
+      return metaResult;
+    } finally { clearTimeout(timeout); }
   }
 
   listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
