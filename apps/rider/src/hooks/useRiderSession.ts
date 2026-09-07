@@ -14,7 +14,7 @@ import {
   updateRiderLocation,
   updateRiderStatus as updateRiderStatusRequest
 } from "../api";
-import { ACTIVE_JOB_STATUSES, Coordinate, DeliveryJob, RiderProfile, RiderStatus } from "../types";
+import { ACTIVE_JOB_STATUSES, Coordinate, DeliveryJob, isCompletedDelivery, RiderProfile, RiderStatus } from "../types";
 
 export function useRiderSession() {
   const [booting, setBooting] = useState(true);
@@ -26,8 +26,8 @@ export function useRiderSession() {
   const [busy, setBusy] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
-  const activeJobs = useMemo(() => jobs.filter((job) => ACTIVE_JOB_STATUSES.includes(job.status)), [jobs]);
-  const deliveredJobs = useMemo(() => jobs.filter((job) => job.status === "delivered"), [jobs]);
+  const activeJobs = useMemo(() => jobs.filter((job) => ACTIVE_JOB_STATUSES.includes(job.status) && !isCompletedDelivery(job)), [jobs]);
+  const deliveredJobs = useMemo(() => jobs.filter((job) => job.status === "delivered" || job.order?.status === "completed"), [jobs]);
   const currentJob = activeJobs[0] ?? null;
   const todayEarnings = useMemo(
     () => deliveredJobs.reduce((sum, job) => sum + Number(job.finalFare ?? job.estimatedFare ?? 0), 0),
