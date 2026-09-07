@@ -170,14 +170,16 @@ export function useRiderSession() {
 
   const advanceJob = useCallback(
     async (job: DeliveryJob, nextStatus: string) => {
-      if (!token) return;
+      if (!token) return false;
       setBusy(true);
       try {
         const updated = await updateJobStatusRequest(token, job.id, nextStatus);
         setJobs((prev) => prev.map((existing) => (existing.id === updated.id ? updated : existing)));
         await refresh(token);
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to update this order");
+        return false;
       } finally {
         setBusy(false);
       }
