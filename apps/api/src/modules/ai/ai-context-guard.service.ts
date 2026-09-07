@@ -52,6 +52,21 @@ export class AiContextGuardService implements OnModuleInit {
 
       if (action === "inquiry") {
         const applicationResults = this.extractApplicationResults(sanitizedContext?.recentMessages ?? []);
+        const authoritativeDeliveryFee = this.extractAuthoritativeDeliveryFee(sanitizedContext?.recentMessages ?? []);
+
+        // Delivery fees are already calculated by the application. Do not send
+        // the authoritative amount back through a generative model that can
+        // echo/paraphrase the question or omit the fee.
+        if (authoritativeDeliveryFee !== undefined && this.isDeliveryFeeQuestion(message)) {
+          return {
+            intent: "inquiry",
+            confidence: 1,
+            details: { flavors: [], missingFields: [], confirmed: false },
+            suggestedReply: `The delivery fee to your requested location is ₱${authoritativeDeliveryFee}.`,
+            source: "ollama"
+          };
+        }
+
         const inquiryResult = `APPLICATION RESULT: This is a general Empanada Hauz business inquiry. Answer the customer's current question directly using the supplied business knowledge and any authoritative application results below. Do not ask for order details unless the customer actually asks to place an order.\n\n${INQUIRY_BUSINESS_KNOWLEDGE}\n\n${applicationResults}`;
         let suggestedReply = await this.generateInquiryReply(message, inquiryResult);
 
@@ -186,6 +201,18 @@ export class AiContextGuardService implements OnModuleInit {
         || /^APPLICATION DELIVERY LOCATION RESULT:/i.test(text);
     });
     return results.length ? `AUTHORITATIVE APPLICATION RESULTS:\n${results.join("\n")}` : "AUTHORITATIVE APPLICATION RESULTS: none.";
+  }
+
+  private extractAuthoritativeDeliveryFee(recentMessages: string[]) {
+    for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+      const match = recentMessages[index].match(/^APPLICATION DELIVERY FEE TOOL RESULT:[\s\S]*?current calculated delivery fee is ₱(\d+(?:\.\d+)?)/i);
+      if (match?.[1]) return Number(match[1]);
+    }
+    return undefined;
+  }
+
+  private isDeliveryFeeQuestion(message: string) {
+    return /\b(?:delivery\s*fee|delivery\s*charge|shipping\s*fee|df|how much (?:is )?(?:the )?delivery)\b/i.test(message);
   }
 
   private removeUnrequestedOrderNumber(message: string, reply?: string) {
