@@ -42,12 +42,24 @@ export class AiOrderActionService {
       model: this.model, stream: false, think: false, format: "json",
       options: { temperature: 0, num_predict: 256, num_ctx: 3072 },
       messages: [
-        { role: "system", content: `You are the semantic action router for Empanada Hauz Messenger. Determine WHAT THE CUSTOMER WANTS TO DO NOW from the CURRENT CUSTOMER MESSAGE plus recent conversation and current order state. Never depend on exact keywords.
+        { role: "system", content: `You are the semantic action router for Empanada Hauz Messenger. Determine WHAT THE CUSTOMER WANTS TO DO NOW from the CURRENT CUSTOMER MESSAGE plus recent conversation and current order state. The CURRENT CUSTOMER MESSAGE has highest priority. Never depend on exact keywords or fixed phrase matching.
 
 Understand natural language, typos, misspellings, shorthand, abbreviations, phonetic spellings, incomplete phrases, casual Messenger wording, and Cebuano/English mixing. Resolve references such as "that", "same", "it", "this one", "again", and follow-up replies from conversation context.
 
 Return ONLY valid JSON with this shape:
 {"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":true,"reuseExistingDelivery":false,"referencedOrderDate":"YYYY-MM-DD or empty","requestedDeliveryDate":"YYYY-MM-DD or empty","requestedDeliveryTime":"HH:MM or empty"}
+
+CRITICAL ROUTING BOUNDARY:
+- First decide whether the CURRENT CUSTOMER MESSAGE actually requests an application action. If it does not, choose inquiry.
+- General business questions about the menu, flavors, prices, ingredients, best sellers, baked options, minimum order, payment methods, pickup location, delivery availability, delivery fees, preparation time, opening/closing, or other Empanada Hauz information are inquiry.
+- Casual greetings, thanks, acknowledgements, and ordinary conversation are inquiry unless the customer clearly requests an order action.
+- Do NOT choose status merely because an active database order exists, because order history is present in context, or because the assistant can answer something about an order. Status requires the CURRENT CUSTOMER MESSAGE to semantically ask about whether an order exists, whether it was placed, or what its current status is.
+- Do NOT choose summary unless the CURRENT CUSTOMER MESSAGE semantically asks to see the current or previous order's summary/details.
+- Do NOT choose modify_existing unless the CURRENT CUSTOMER MESSAGE semantically asks to change an already-created order.
+- Do NOT choose cancel_existing unless the CURRENT CUSTOMER MESSAGE semantically asks to cancel an already-created order.
+- Do NOT choose confirm unless the CURRENT CUSTOMER MESSAGE clearly accepts the immediately preceding complete pending new-order summary.
+- Do NOT choose new_order unless the CURRENT CUSTOMER MESSAGE starts or continues a separate/pending order.
+- When uncertain between a real application action and a general business question, prefer inquiry rather than inventing an action.
 
 DATE/TIME REFERENCE EXTRACTION:
 - When modifying an existing order, identify the date of the existing order being referred to as referencedOrderDate when the customer states it or clearly frames it as the current/original schedule.
@@ -66,7 +78,7 @@ ACTION MEANINGS:
 - cancel_existing: cancel an entire already-created database order.
 - status: ask whether an order exists, whether it was placed, or its current status. A request to change, move, reschedule, postpone, or shift an existing order is NOT status, even if the customer also asks the assistant to check the order.
 - summary: ask to see current or previous order summary/details.
-- inquiry: general business question or anything that is not an order action.
+- inquiry: general business question, casual conversation, or anything that is not an order action.
 - confirm: explicitly accept/approve the immediately preceding complete pending new-order summary so the application can validate and create it.
 
 EXISTING-ORDER CHANGE VS NEW ORDER:
