@@ -166,7 +166,7 @@ export class AiService {
 
     const details = this.mergeOrderState(context?.activeOrderState, current);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
-    const replyContext = this.buildReplyContext(message, recentMessages, details);
+    const replyContext = this.buildReplyContext(message, recentMessages, details, applicationAction);
     const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
     const intent = current.intent;
     const confidence = current.flavors.length || details.flavors.length || current.confirmed || applicationAction !== "inquiry" || Boolean(details.deliveryMethod) || Boolean(details.paymentMethod) ? 1 : 0;
@@ -443,42 +443,45 @@ export class AiService {
     return finalized;
   }
 
-  private buildReplyContext(message: string, recentMessages: string[], details: Details): string {
-    const lower = message.toLowerCase().trim();
-    const businessFacts = "BUSINESS FACTS: Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Empanada Hauz DOES deliver via Maxim. If the customer asks whether you deliver, answer YES, state that Maxim delivery is available, and then you may ask: What would you like to order? Do not ask for the customer's address for a simple delivery-availability question.";
-    if (this.isOrderStatusQuestion(lower) && !details.flavors.length) {
-      return `APPLICATION ORDER FACTS: There is no active order in the current conversation.\n${businessFacts}\nNEXT ACTION DIRECTIVE: Answer that no current order has been placed.`;
+  private buildReplyContext(message: string, recentMessages: string[], details: Details, action: AIOrderAction): string {
+    const businessFacts = "BUSINESS FACTS: Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Empanada Hauz DOES deliver via Maxim. Delivery fee varies by location. Do not ask for delivery address for a simple business-location or delivery-availability inquiry.";
+
+    if (action === "status") {
+      return `APPLICATION ACTION: status\n${recentMessages.filter((value) => /^(?:APPLICATION ORDER STATUS TOOL RESULT:|LATEST DATABASE ORDER:)/i.test(value.trim())).join("\n") || "No live order-status application result was provided."}\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nRespond only to the customer's current status question. Use only factual application state when available; never invent status.`;
     }
-    if (this.isSummaryRequest(lower) && !details.flavors.length) {
-      return `APPLICATION ORDER FACTS: There is no active order in the current conversation.\n${businessFacts}\nNEXT ACTION DIRECTIVE: Tell the customer there is no active order summary available yet.`;
+
+    if (action === "summary") {
+      return details.flavors.length
+        ? `APPLICATION ACTION: summary\nAPPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nProvide the current order summary. Do not treat the summary request as confirmation.`
+        : `APPLICATION ACTION: summary\n${businessFacts}\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\nTell the customer that there is no active order summary available yet.`;
     }
+
     if (details.flavors.length) {
-      return `APPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\n${businessFacts}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(message, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
+      return `APPLICATION ACTION: ${action}\nAPPLICATION ORDER FACTS:\n${this.formatOrderContext(details)}\n\n${businessFacts}\n\nCONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}\n\nNEXT ACTION DIRECTIVE:\n${this.buildNextActionDirective(action, details)}\n\nThe application state above is the current merged order state. The current message itself always wins.`;
     }
-    return `${businessFacts}\n\n${recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}` : "CONVERSATION CONTEXT: none. Treat this as a fresh request."}`;
+
+    return `APPLICATION ACTION: ${action}\n${businessFacts}\n\n${recentMessages.length ? `CONVERSATION CONTEXT:\n${recentMessages.slice(-16).join("\n")}` : "CONVERSATION CONTEXT: none."}`;
   }
 
-  private buildNextActionDirective(message: string, details: Details): string {
-    const lower = message.toLowerCase().trim();
-    if (this.isOrderStatusQuestion(lower)) return "Answer order status only. Use the live application order-status result when present. If no order was found, ask the customer for their order ID. Do not invent an order status.";
-    if (/\b(do you deliver|deliver|delivery available|do you offer delivery|can you deliver)\b/i.test(lower)) return "Answer the delivery-availability question first: Yes, we deliver via Maxim. Then naturally ask: What would you like to order? Do not ask for the customer's address yet.";
-    if (this.isSummaryRequest(lower)) {
-      return details.missingFields.length
-        ? `Provide the current order summary first. Then mention only the missing customer information: ${this.humanMissing(details.missingFields).join(", ")}. Do not ask for confirmation.`
-        : "Provide the complete order summary. Then end exactly with: Please confirm if all the details above are correct. 😊";
+  private buildNextActionDirective(action: AIOrderAction, details: Details): string {
+    if (action === "modify_existing") {
+      return "Explain the requested existing-order change using the supplied application state. Do not create a new order. Do not claim that the database was changed unless an application result explicitly confirms it.";
     }
-    if (/\b(total|total cost|how much is the total|how much total)\b/i.test(lower) && details.flavors.length) {
-      return `Answer the total directly. Food total is ₱${details.totalAmount ?? 0}. Do not ask for confirmation unless there are no missing required fields.`;
+    if (action === "cancel_existing") {
+      return "Explain the cancellation result from the application. Do not claim cancellation succeeded unless the application result explicitly confirms it.";
     }
-    if (/\b(how long|how much time|delivery time|when will it arrive|when can it arrive|how soon)\b/i.test(lower)) {
-      return "Answer directly that preparation takes about 1 hour. Do not treat this as confirmation.";
+    if (action === "confirm") {
+      return "Treat the customer message as confirmation only if the application has already determined it is a valid confirmation. Use the current order state and application result; never claim placement unless the application created the order.";
     }
-    if (details.deliveryMethod === "maxim") {
-      const deliveryMissing = details.missingFields.filter((field) => ["address", "landmark", "contactNumber"].includes(field));
-      if (deliveryMissing.length) return `Ask explicitly for these missing Maxim delivery details: ${this.humanMissing(deliveryMissing).join(", ")}. Do not ask for confirmation.`;
+    if (action === "new_order") {
+      if (details.deliveryMethod === "maxim") {
+        const deliveryMissing = details.missingFields.filter((field) => ["address", "landmark", "contactNumber"].includes(field));
+        if (deliveryMissing.length) return `Ask explicitly for these missing Maxim delivery details: ${this.humanMissing(deliveryMissing).join(", ")}. Do not ask for confirmation.`;
+      }
+      if (details.missingFields.length) return `Ask only for the missing required information: ${this.humanMissing(details.missingFields).join(", ")}. Do not present confirmation.`;
+      return "All required order fields are present. Present the complete order summary and end exactly with: Please confirm if all the details above are correct. 😊";
     }
-    if (details.missingFields.length) return `Ask only for the missing required information: ${this.humanMissing(details.missingFields).join(", ")}. Do not present confirmation.`;
-    return "All required order fields are present. Present the complete order summary and end exactly with: Please confirm if all the details above are correct. 😊";
+    return "Answer the customer's current message directly using the supplied application state and business facts. Do not invent facts or ask for order information unless the customer actually requested an order action.";
   }
 
   private formatOrderContext(details: Details): string {
@@ -536,7 +539,7 @@ export class AiService {
   }
 
   private isBusinessRelatedMessage(message: string) {
-    return /\b(?:empanada|order|orders|pork|chicken|beef|ube|mango|choco|bacon|ham|cheese|pcs?|pieces?|gcash|cod|cash|pickup|pick\s*up|maxim|delivery|deliver|address|landmark|contact|payment|price|pricing|cost|how much|hm|df|status|summary|book|reserve|buy|availab|available|discount|promo|reschedule|rescheduled|move|moved|moving|postpone|postponed|advance|change|changed|modify|modified|today|tomorrow|yesterday)\b/i.test(message);
+    return /\b(?:empanada|order|orders|pork|chicken|beef|ube|mango|choco|bacon|ham|cheese|pcs?|pieces?|gcash|cod|cash|pickup|pick\s*up|maxim|delivery|deliver|address|landmark|contact|payment|price|pricing|cost|how much|hm|df|status|summary|book|reserve|buy|availab|available|discount|promo|reschedule|rescheduled|move|moved|moving|postpone|postponed|advance|change|changed|today|tomorrow|yesterday)\b/i.test(message);
   }
 
   private isOutOfScopeRequest(message: string) {
@@ -546,9 +549,6 @@ export class AiService {
     if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank you|okay|ok|yes|no|sure|alright|bye|goodbye)[!.\s]*$/i.test(lower)) return false;
     return /\b(?:javascript|typescript|python|java|c\+\+|c#|ruby|php|golang|rust|html|css|sql|react|angular|vue|node(?:\.js)?|coding|code|programming|program|script|software|api|database|algorithm|homework|essay|assignment|write\s+(?:a|an)\s+(?:code|program|script)|debug|debugging|developer|programmer)\b/i.test(lower);
   }
-
-  private isSummaryRequest(lower: string) { return /\b(summary|summarize|summarize my order|send.*summary|show.*summary)\b/i.test(lower); }
-  private isOrderStatusQuestion(lower: string) { return /\b(did you place my order|have you placed my order|was my order placed|is my order placed|order status|has my order been placed)\b/i.test(lower); }
 
   private normalizeFlavorName(value?: string) {
     const raw = this.optionalText(value);
