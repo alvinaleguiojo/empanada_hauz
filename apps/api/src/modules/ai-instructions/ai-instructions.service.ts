@@ -1,11 +1,8 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { PrismaService } from "../../database/prisma.service";
 import { AiInstructionKind, CreateAiInstructionDto, UpdateAiInstructionDto } from "./dto";
-
-// Prisma's $runCommandRaw accepts JSON-compatible MongoDB command documents.
-// Keep update fields JSON-safe so strict TypeScript builds accept the payload.
-type JsonObject = { [key: string]: string | number | boolean | Date | null };
 
 type AiInstructionDocument = {
   _id: string;
@@ -87,7 +84,7 @@ export class AiInstructionsService {
   }
 
   async update(id: string, dto: UpdateAiInstructionDto): Promise<AiInstructionDocument> {
-    const $set: JsonObject = { updatedAt: new Date() };
+    const $set: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.title !== undefined) $set.title = dto.title.trim();
     if (dto.content !== undefined) $set.content = dto.content.trim();
     if (dto.kind !== undefined) $set.kind = dto.kind;
@@ -99,7 +96,7 @@ export class AiInstructionsService {
       updates: [
         {
           q: { _id: id },
-          u: { $set },
+          u: { $set: $set as Prisma.InputJsonObject },
           upsert: false,
           multi: false
         }
