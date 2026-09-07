@@ -74,14 +74,14 @@ export class MessengerService {
             where: { status: { notIn: ["completed", "cancelled"] }, customer: { name: { equals: customerName, mode: Prisma.QueryMode.insensitive } } },
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             select: { id: true, orderNumber: true, status: true, createdAt: true, quantity: true, unitPrice: true, totalAmount: true, deliveryFee: true, discountAmount: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true, customer: { select: { phoneNumber: true } } }
-          })
+          )
         : null;
 
     const actionContext = await this.aiOrderActionService.analyze(event.text, {
       recentMessages: contextMessages,
       hasActiveOrder: Boolean(latestOrder),
       hasPendingNewOrder,
-      existingDeliveryDetails: latestOrder ? { deliveryMethod: latestOrder.deliveryMethod, address: latestOrder.address, location: latestOrder.location, contactNumber: latestOrder.customer?.phoneNumber, paymentMethod: latestOrder.paymentMethod } : undefined
+      existingDeliveryDetails: latestOrder ? { deliveryMethod: latestOrder.deliveryMethod, address: latestOrder.address, location: latestOrder.location, contactNumber: latestOrder.customer?.phoneNumber, paymentMethod: latestOrder.paymentMethod, preferredSchedule: latestOrder.preferredSchedule?.toISOString() } : undefined
     });
 
     const inNewOrderFlow = actionContext.orderAction === "new_order" && (hasPendingNewOrder || (!latestOrder && actionContext.newOrderFlowActive));
@@ -93,7 +93,7 @@ export class MessengerService {
     const activeOrderState: OrderDetails = { ...(baseState ?? {}), ...reusedDeliveryState, flavors: baseState?.flavors ?? [], missingFields: baseState?.missingFields ?? [], confirmed: false };
     const hasActiveOrderState = Boolean(activeOrderState.flavors.length || activeOrderState.quantity !== undefined || activeOrderState.deliveryMethod || activeOrderState.paymentMethod || activeOrderState.address || activeOrderState.location || activeOrderState.contactNumber);
     const orderValidation = hasActiveOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
-    const latestOrderContext = latestOrder ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.` : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
+    const latestOrderContext = latestOrder ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}; scheduledAt=${latestOrder.preferredSchedule?.toISOString() ?? "none"}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.` : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
     contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
     contextMessages.push(latestOrderContext);
     contextMessages.push(`APPLICATION AI ORDER ACTION: ${effectiveOrderAction}; newOrderFlowActive=${inNewOrderFlow}; reuseExistingDelivery=${shouldReuseExistingDelivery}`);
@@ -101,14 +101,14 @@ export class MessengerService {
 
     this.logger.log(`Calling Qwen via Ollama: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct")}`);
     const ai = await this.aiService.classifyAndExtract(event.text, { customerName: conversation.customer?.name ?? undefined, recentMessages: contextMessages, activeOrderState: hasActiveOrderState ? activeOrderState : undefined });
-    this.logger.log(`Qwen response received: sender=${event.senderId} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${effectiveOrderAction} newOrderFlowActive=${inNewOrderFlow} reuseExistingDelivery=${shouldReuseExistingDelivery}`);
+    this.logger.log(`Qwen response received: sender=${event.senderId} model=${this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct")} intent=${ai.intent} confidence=${ai.confidence} confirmed=${Boolean(ai.details.confirmed)} missing=${JSON.stringify(ai.details.missingFields)} action=${effectiveOrderAction} newOrderFlowActive=${inNewOrderFlow} reuseExistingDelivery=${shouldReuseExistingDelivery}`);
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
     if (effectiveOrderAction === "new_order" && shouldReuseExistingDelivery) reply = this.buildApplicationOrderSummary(activeOrderState, true);
     else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
     else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai)) reply = this.buildNewOrderProgressReply(ai.details);
-    else if (this.isConfirmedOrder(ai)) {
+    else if ((effectiveOrderAction === "new_order" || effectiveOrderAction === "confirm") && this.isConfirmedOrder(ai)) {
       try {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
@@ -210,7 +210,7 @@ export class MessengerService {
   private shouldUpdateCustomerOrder(intent: string, details: OrderDetails, latestOrder: LatestOrder) {
     if (["completed", "cancelled"].includes(latestOrder.status)) return false;
     if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length) return false;
-    if (!details.flavors.length && details.quantity === undefined && !details.deliveryMethod && !details.paymentMethod && details.address === undefined && details.location === undefined && details.contactNumber === undefined) return false;
+    if (!details.flavors.length && details.quantity === undefined && !details.deliveryMethod && !details.paymentMethod && details.address === undefined && details.location === undefined && details.contactNumber === undefined && details.deliveryDate === undefined && details.preferredTime === undefined) return false;
     const existingItems = Array.isArray(latestOrder.items) ? latestOrder.items.map((item) => ({ name: String((item as Record<string, unknown>)?.name ?? ""), quantity: Number((item as Record<string, unknown>)?.quantity ?? 0) })).filter((item) => item.name) : [];
     const newItems = details.flavors.map((item) => ({ name: item.name, quantity: Number(item.quantity) }));
     const itemsChanged = details.flavors.length > 0 && JSON.stringify(existingItems) !== JSON.stringify(newItems);
