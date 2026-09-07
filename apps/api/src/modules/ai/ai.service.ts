@@ -27,12 +27,24 @@ Do not ask for information already provided.
 Do not ask for a preferred delivery or pickup time.
 Do not invent prices, delivery fees, times, policies, availability, or order details.
 
+Existing-order changes:
+- A customer asking to move, reschedule, postpone, advance, update, or otherwise change an already-created order is modifying that existing order, not placing a new order.
+- A request to change only the delivery date or time is still an existing-order modification.
+- References such as "my reservation", "my order", "it", "that booking", or "the one on [date]" should be resolved against the existing database order supplied by the application.
+- Do not interpret a change request as a new order simply because the customer uses words such as "reservation", "reserve", "book", or "order".
+
+Date interpretation:
+- Use the CURRENT DATE/TIME IN ASIA/MANILA supplied in the prompt.
+- Resolve relative dates semantically. When the customer says "today", "tomorrow", "yesterday", "this Monday", "next Friday", or similar, convert the requested deliveryDate to the concrete calendar date in YYYY-MM-DD format.
+- Never return relative words such as "today" or "tomorrow" as the deliveryDate when the concrete date can be determined from the supplied current date/time.
+- When changing only a date, preserve the existing time unless the customer also asks to change the time and the application passes that existing time in context.
+
 Confirmation interpretation rules:
 - The customer may confirm using natural language, shorthand, abbreviations, typos, misspellings, phonetic spellings, or casual Messenger wording.
 - Use the conversation context to determine whether the CURRENT CUSTOMER MESSAGE is accepting the immediately preceding complete order summary.
 - Examples of semantic confirmation include "yes", "yep", "correct", "go ahead", "okay", "sure", "please do", "confirm", and obvious misspellings such as "confir" or other close variants. Do not require an exact keyword.
 - Set confirmed=true only when the CURRENT CUSTOMER MESSAGE clearly means the customer accepts/confirms the current complete order.
-- A message that merely provides new order information, asks a question, changes an item, or requests a summary is not confirmation.
+- A message that merely provides new order information, asks a question, changes an item, requests a date/time change, or requests a summary is not confirmation.
 - Do not mark a message as confirmed only because an earlier message was ready for confirmation. The CURRENT CUSTOMER MESSAGE itself must express acceptance.
 
 Business facts:
@@ -185,7 +197,7 @@ export class AiService {
       messages: [
         {
           role: "system",
-          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nConfirmation is semantic, not keyword based. When the immediately preceding conversation contains a complete order summary awaiting confirmation, interpret the CURRENT CUSTOMER MESSAGE as confirmed=true when it clearly accepts that summary, even when it contains a typo, abbreviation, phonetic spelling, shorthand, or casual wording. For example, "confir" should be understood as a likely confirmation in that context. Do not require an exact spelling. Set confirmed=false when the customer is asking a question, supplying new order details, requesting changes, or otherwise not accepting the current summary. A customer asking "can I order...", "can I get...", "may I order...", or similar wording is a new-order request, not a confirmation. A customer saying what they want to order without an explicit confirmation is not a confirmation. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
+          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nFor any explicit or strongly implied date, return deliveryDate as a concrete YYYY-MM-DD value. Resolve relative dates such as today/tomorrow/yesterday and weekday references from CURRENT DATE/TIME IN ASIA/MANILA. When changing an existing order date, use the requested new date and do not turn the message into a new-order request.\nConfirmation is semantic, not keyword based. When the immediately preceding conversation contains a complete order summary awaiting confirmation, interpret the CURRENT CUSTOMER MESSAGE as confirmed=true when it clearly accepts that summary, even when it contains a typo, abbreviation, phonetic spelling, shorthand, or casual wording. For example, "confir" should be understood as a likely confirmation in that context. Do not require an exact spelling. Set confirmed=false when the customer is asking a question, supplying new order details, requesting changes, including date/time changes, or otherwise not accepting the current summary. A customer asking "can I order...", "can I get...", "may I order...", or similar wording is a new-order request, not a confirmation. A customer saying what they want to order without an explicit confirmation is not a confirmation. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
         },
         {
           role: "user",
@@ -485,7 +497,7 @@ export class AiService {
   }
 
   private isBusinessRelatedMessage(message: string) {
-    return /\b(?:empanada|order|orders|pork|chicken|beef|ube|mango|choco|bacon|ham|cheese|pcs?|pieces?|gcash|cod|cash|pickup|pick\s*up|maxim|delivery|deliver|address|landmark|contact|payment|price|pricing|cost|how much|hm|df|status|summary|book|reserve|buy|availab|available|discount|promo)\b/i.test(message);
+    return /\b(?:empanada|order|orders|pork|chicken|beef|ube|mango|choco|bacon|ham|cheese|pcs?|pieces?|gcash|cod|cash|pickup|pick\s*up|maxim|delivery|deliver|address|landmark|contact|payment|price|pricing|cost|how much|hm|df|status|summary|book|reserve|buy|availab|available|discount|promo|reschedule|rescheduled|move|moved|moving|postpone|postponed|advance|change|changed|modify|modified|today|tomorrow|yesterday)\b/i.test(message);
   }
 
   private isOutOfScopeRequest(message: string) {
