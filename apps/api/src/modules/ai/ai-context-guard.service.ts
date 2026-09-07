@@ -98,10 +98,7 @@ export class AiContextGuardService implements OnModuleInit {
         ...effectiveContext,
         recentMessages: [
           ...(effectiveContext?.recentMessages ?? []),
-          action === "inquiry" ? INQUIRY_BUSINESS_KNOWLEDGE : "",
-          action === "inquiry"
-            ? "AI RESPONSE RETRY: Answer the customer's current business question directly from the supplied business knowledge. Do not echo the question, describe what the customer is asking, ask for order details, or redirect to an order flow unless the customer actually requested an order. Return only the customer-facing answer."
-            : "AI RESPONSE RETRY: Answer the CURRENT CUSTOMER MESSAGE directly. Do not echo the message, describe what the customer is asking, or tell the customer what the assistant should do. Use the Empanada Hauz business knowledge from the system prompt."
+          "AI RESPONSE RETRY: Answer the CURRENT CUSTOMER MESSAGE directly. Do not echo the message, describe what the customer is asking, or tell the customer what the assistant should do. Use the Empanada Hauz business knowledge from the system prompt."
         ].filter(Boolean).slice(-18)
       } as AiContext;
 
