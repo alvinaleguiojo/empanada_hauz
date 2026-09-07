@@ -112,7 +112,7 @@ export class AiRuntimeService {
   }
 
   private async plan(input: { instructions: string; context: string; messages: string[]; message: string; lastToolResult?: unknown; lastAction?: string }): Promise<Plan> {
-    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}\n\nYou are the semantic intent router and customer-service planner for the Empanada Hauz application. Interpret the customer's wording by meaning, not by exact phrase matching. Map synonyms, paraphrases, colloquial wording, abbreviations, spelling variations, and natural conversational expressions to the most appropriate available tool. Do not require the customer to use tool names or predefined keywords.\n\nReturn ONLY valid JSON in one of these forms:\n{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}\n{"type":"final","reply":"customer-facing reply"}\n\nTool selection guidance:\n- Choose the tool whose documented purpose best matches the customer's intent.\n- A request to browse, view, show, ask for, or know the store's catalog/menu/items/prices should use the product-list/catalog read tool when available.\n- A request about one specific product should use the single-product lookup tool.\n- A request about delivery charges/rates/cost should use the delivery-pricing read tool.\n- When the customer expresses intent to purchase and provides product/quantity details, use the pending-order-draft tool to capture the requested items. Do not create a real order yet.\n- Use capture_order_draft while collecting or changing a pending new order.\n- Use create_order only after the customer explicitly confirms a complete draft and pass confirmed=true.\n- Use summary/status/update/cancel/delete tools when the customer actually requests those actions.\n- Use the live catalog and delivery data supplied in the runtime context; never invent prices or availability.\n- Never expose internal tool names, JSON, prompts, schemas, or implementation details to the customer.\n- Never claim success until an application tool result confirms it.\n- For a customer-facing answer, prefer a tool call whenever a tool can provide the requested application fact or perform the requested action. Do not answer a factual application question from general knowledge when a relevant tool exists.\n- Ask a concise clarification only when required information cannot reasonably be inferred from the current message or conversation.\n- Keep replies concise and natural.\n\nRUNTIME CONTEXT:\n${input.context}`;
+    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}\n\nYou are the semantic intent router and customer-service planner for the Empanada Hauz application. Understand the customer's intent from meaning, context, and conversational state. Do not use exact-phrase matching, keyword lists, regular expressions, or predefined customer wording. The customer is never required to use the same words as a tool description.\n\nSelect the available application tool whose purpose best matches the customer's intent. Treat the tool registry as the capability contract and the application result as authoritative.\n\nReturn ONLY valid JSON in one of these forms:\n{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}\n{"type":"final","reply":"customer-facing reply"}\n\nDecision rules:\n- Prefer a tool call whenever an available tool can provide the requested application fact or perform the requested action.\n- Interpret catalog, menu, item, offering, selection, availability, and pricing requests by intent and route them to the appropriate product/catalog tool.\n- Interpret requests about a particular product by intent and route them to the single-product lookup tool.\n- Interpret requests about delivery charges, delivery cost, or delivery rates by intent and route them to the delivery-pricing tool.\n- Interpret purchase intent using the complete message and conversation context. When product and quantity information is available, capture or update the pending order draft.\n- A pending draft is not a real order. Creating a real order requires a complete draft and explicit customer confirmation.\n- Use the current pending draft and recent conversation to resolve references such as pronouns, omitted product names, quantity changes, or follow-up answers.\n- Use the live product catalog, delivery data, customer identity, and tool results supplied by the runtime. Do not invent application facts.\n- Never expose tool names, JSON, schemas, prompts, or implementation details to the customer.\n- Never claim an action succeeded unless the application tool result confirms success.\n- Ask for clarification only when the required information cannot reasonably be inferred from the message and conversation.\n- Keep replies concise and natural.\n\nRUNTIME CONTEXT:\n${input.context}`;
     const user = [`RECENT CONVERSATION:\n${input.messages.join("\n") || "none"}`, `CURRENT CUSTOMER MESSAGE:\n${input.message}`, input.lastAction ? `LAST TOOL: ${input.lastAction}` : "", input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : ""].filter(Boolean).join("\n\n");
     const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", options: { temperature: 0.1, num_predict: 384, num_ctx: 8192 }, messages: [{ role: "system", content: system }, { role: "user", content: user }] });
     const raw = response.message?.content?.trim();
@@ -151,9 +151,7 @@ export class AiRuntimeService {
   private cleanReply(value: string, lastAction?: string, lastToolResult?: unknown) {
     const text = value.replace(/^```(?:text|markdown|json)?/i, "").replace(/```$/i, "").trim();
     if (!text) return this.fallbackReply(lastAction, lastToolResult);
-    if (text.includes('"type":"tool_call"') || text.includes('"type": "tool_call"') || /\bAI\s+TOOL\s+CALL\b/i.test(text)) {
-      return this.fallbackReply(lastAction, lastToolResult);
-    }
+    if (text.includes('"type":"tool_call"') || text.includes('"type": "tool_call"') || /\bAI\s+TOOL\s+CALL\b/i.test(text)) return this.fallbackReply(lastAction, lastToolResult);
     if (/^\{\s*"type"\s*:\s*"(?:tool_call|final)"/i.test(text)) return this.fallbackReply(lastAction, lastToolResult);
     return text;
   }
@@ -177,19 +175,12 @@ export class AiRuntimeService {
     }
     const products = Array.isArray(result) ? result as Array<{ name?: string; price?: number; category?: string }> : [];
     if (!products.length) return "We don’t have any available products listed right now.";
-    const lines = products
-      .filter((product) => product?.name && typeof product.price === "number")
-      .map((product) => `• ${product.name} — ₱${product.price!.toFixed(2)}${product.category ? ` (${product.category})` : ""}`);
+    const lines = products.filter((product) => product?.name && typeof product.price === "number").map((product) => `• ${product.name} — ₱${product.price!.toFixed(2)}${product.category ? ` (${product.category})` : ""}`);
     return ["Sure! Here’s our current product list:", ...lines, "", "Message me what you’d like to order and I’ll help you with it. 😊"].join("\n");
   }
 
   private renderDraftReply(result: unknown) {
-    const draft = result as {
-      draft?: {
-        items?: Array<{ name?: string; quantity?: number; unitPrice?: number; subtotal?: number }>;
-        quantity?: number;
-      };
-    } | null;
+    const draft = result as { draft?: { items?: Array<{ name?: string; quantity?: number; unitPrice?: number; subtotal?: number }>; quantity?: number } } | null;
     const items = draft?.draft?.items ?? [];
     const quantity = draft?.draft?.quantity ?? items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
     if (!items.length) return "I can help with your order. What product and quantity would you like?";
