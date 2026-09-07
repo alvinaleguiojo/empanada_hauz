@@ -47,28 +47,47 @@ const ACTIVE_STATUSES = new Set(["requested", "searching_rider", "assigned", "ac
 
 let mapsLoader: Promise<any> | null = null;
 
-function loadGoogleMaps() {
-  if ((window as GoogleMapsWindow).google?.maps) return Promise.resolve((window as GoogleMapsWindow).google!.maps);
+async function loadGoogleMaps() {
+  if ((window as GoogleMapsWindow).google?.maps) return (window as GoogleMapsWindow).google!.maps;
   if (mapsLoader) return mapsLoader;
-  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || "";
-  if (!key) return Promise.reject(new Error("Google Maps API key is not configured."));
-  mapsLoader = new Promise((resolve, reject) => {
-    const existing = document.getElementById("empanada-google-maps") as HTMLScriptElement | null;
-    if (existing) {
-      existing.addEventListener("load", () => resolve((window as GoogleMapsWindow).google!.maps));
-      existing.addEventListener("error", reject);
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "empanada-google-maps";
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}`;
-    script.onload = () => resolve((window as GoogleMapsWindow).google!.maps);
-    script.onerror = () => reject(new Error("Unable to load Google Maps."));
-    document.head.appendChild(script);
-  });
-  return mapsLoader;
+
+  mapsLoader = fetch("/api/google-maps-key", { cache: "no-store" })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Google Maps key endpoint returned ${response.status}`);
+      const data = await response.json() as { apiKey?: string };
+      const key = data.apiKey?.trim();
+      if (!key) throw new Error("Google Maps API key is not configured.");
+
+      const existing = document.getElementById("empanada-google-maps") as HTMLScriptElement | null;
+      if (existing) {
+        if ((window as GoogleMapsWindow).google?.maps) return (window as GoogleMapsWindow).google!.maps;
+        await new Promise<void>((resolve, reject) => {
+          existing.addEventListener("load", () => resolve(), { once: true });
+          existing.addEventListener("error", () => reject(new Error("Unable to load Google Maps.")), { once: true });
+        });
+        return (window as GoogleMapsWindow).google!.maps;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement("script");
+        script.id = "empanada-google-maps";
+        script.async = true;
+        script.defer = true;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}`;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Unable to load Google Maps."));
+        document.head.appendChild(script);
+      });
+
+      return (window as GoogleMapsWindow).google!.maps;
+    });
+
+  try {
+    return await mapsLoader;
+  } catch (error) {
+    mapsLoader = null;
+    throw error;
+  }
 }
 
 function point(value?: { latitude?: number | null; longitude?: number | null } | null) {
@@ -78,25 +97,11 @@ function point(value?: { latitude?: number | null; longitude?: number | null } |
 }
 
 function riderIcon(maps: any) {
-  return {
-    path: maps.SymbolPath.CIRCLE,
-    scale: 9,
-    fillColor: "#FFFFFF",
-    fillOpacity: 1,
-    strokeColor: RIDER_ORANGE,
-    strokeWeight: 3
-  };
+  return { path: maps.SymbolPath.CIRCLE, scale: 9, fillColor: "#FFFFFF", fillOpacity: 1, strokeColor: RIDER_ORANGE, strokeWeight: 3 };
 }
 
 function endpointIcon(maps: any, kind: "Pickup" | "Drop-off") {
-  return {
-    path: maps.SymbolPath.CIRCLE,
-    scale: 13,
-    fillColor: kind === "Pickup" ? RIDER_ORANGE : RIDER_RED,
-    fillOpacity: 1,
-    strokeColor: "#FFFFFF",
-    strokeWeight: 3
-  };
+  return { path: maps.SymbolPath.CIRCLE, scale: 13, fillColor: kind === "Pickup" ? RIDER_ORANGE : RIDER_RED, fillOpacity: 1, strokeColor: "#FFFFFF", strokeWeight: 3 };
 }
 
 function isFresh(location?: TrackingJob["rider"]["location"]) {
@@ -138,20 +143,8 @@ export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
   useEffect(() => {
     if (!mapsReady || !mapElementRef.current || mapRef.current) return;
     const maps = (window as GoogleMapsWindow).google!.maps;
-    mapRef.current = new maps.Map(mapElementRef.current, {
-      center: { lat: 10.3157, lng: 123.8854 },
-      zoom: 12,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-      clickableIcons: false,
-      backgroundColor: MAP_BACKGROUND
-    });
-    directionsRef.current = new maps.DirectionsRenderer({
-      map: mapRef.current,
-      suppressMarkers: true,
-      polylineOptions: { strokeColor: RIDER_ORANGE, strokeOpacity: 0.95, strokeWeight: 5 }
-    });
+    mapRef.current = new maps.Map(mapElementRef.current, { center: { lat: 10.3157, lng: 123.8854 }, zoom: 12, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false, backgroundColor: MAP_BACKGROUND });
+    directionsRef.current = new maps.DirectionsRenderer({ map: mapRef.current, suppressMarkers: true, polylineOptions: { strokeColor: RIDER_ORANGE, strokeOpacity: 0.95, strokeWeight: 5 } });
   }, [mapsReady]);
 
   const refresh = async () => {
@@ -189,13 +182,7 @@ export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
     }
 
     if (route.riderLocation) {
-      riderMarkerRef.current = new maps.Marker({
-        map,
-        position: route.riderLocation,
-        title: job?.rider?.name ? `${job.rider.name} — Rider` : "Rider",
-        icon: riderIcon(maps),
-        zIndex: 3
-      });
+      riderMarkerRef.current = new maps.Marker({ map, position: route.riderLocation, title: job?.rider?.name ? `${job.rider.name} — Rider` : "Rider", icon: riderIcon(maps), zIndex: 3 });
     }
     if (route.pickup) endpointMarkersRef.current.push(new maps.Marker({ map, position: route.pickup, title: "Pickup", icon: endpointIcon(maps, "Pickup"), zIndex: 2 }));
     if (route.dropoff) endpointMarkersRef.current.push(new maps.Marker({ map, position: route.dropoff, title: "Drop-off", icon: endpointIcon(maps, "Drop-off"), zIndex: 2 }));
@@ -211,11 +198,7 @@ export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
       return;
     }
 
-    new maps.DirectionsService().route({
-      origin: route.riderLocation,
-      destination: route.destination,
-      travelMode: maps.TravelMode.DRIVING
-    }, (result: any, status: string) => {
+    new maps.DirectionsService().route({ origin: route.riderLocation, destination: route.destination, travelMode: maps.TravelMode.DRIVING }, (result: any, status: string) => {
       if (status === "OK" && result) {
         directionsRef.current?.setDirections(result);
         map.fitBounds(result.routes[0].bounds, 56);
@@ -238,19 +221,13 @@ export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
           <p className="mt-1 text-sm text-foreground/52">The rider location refreshes automatically while your delivery is active.</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", hasFreshLocation ? "bg-emerald-500/12 text-emerald-700" : "bg-black/8 text-foreground/50")}>
-            <Radio size={12} /> {hasFreshLocation ? "Live" : "Waiting for GPS"}
-          </span>
-          <button type="button" onClick={() => void refresh()} aria-label="Refresh tracking" className="flex h-9 w-9 items-center justify-center rounded-full border border-line/80 bg-white hover:bg-black/5">
-            <RefreshCw size={15} />
-          </button>
+          <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", hasFreshLocation ? "bg-emerald-500/12 text-emerald-700" : "bg-black/8 text-foreground/50")}><Radio size={12} /> {hasFreshLocation ? "Live" : "Waiting for GPS"}</span>
+          <button type="button" onClick={() => void refresh()} aria-label="Refresh tracking" className="flex h-9 w-9 items-center justify-center rounded-full border border-line/80 bg-white hover:bg-black/5"><RefreshCw size={15} /></button>
         </div>
       </div>
 
       <div className="relative mt-4 overflow-hidden rounded-[22px] bg-[#E8EDF2]">
-        <div ref={mapElementRef} className="h-[460px] w-full bg-[#E8EDF2]">
-          {!mapsReady ? <div className="flex h-full items-center justify-center text-sm text-foreground/45">Loading Google Maps…</div> : null}
-        </div>
+        <div ref={mapElementRef} className="h-[460px] w-full bg-[#E8EDF2]">{!mapsReady ? <div className="flex h-full items-center justify-center text-sm text-foreground/45">Loading Google Maps…</div> : null}</div>
         <button type="button" onClick={() => {
           const map = mapRef.current;
           const points = [route?.riderLocation, route?.pickup, route?.dropoff].filter(Boolean);
@@ -259,26 +236,14 @@ export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
           const bounds = new maps.LatLngBounds();
           points.forEach((p: any) => bounds.extend(p));
           map.fitBounds(bounds, 56);
-        }} aria-label="Recenter map" className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-md hover:bg-white/95">
-          <LocateFixed size={18} />
-        </button>
+        }} aria-label="Recenter map" className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-md hover:bg-white/95"><LocateFixed size={18} /></button>
         {error ? <div className="absolute bottom-3 left-3 right-3 rounded-xl border border-red-200 bg-white/95 px-3 py-2 text-xs font-semibold text-red-700 shadow-sm">{error}</div> : null}
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-line/70 bg-black/[0.03] px-3 py-3">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-foreground/35">Delivery</p>
-          <p className="mt-1 text-sm font-semibold capitalize">{job?.status?.replaceAll("_", " ") ?? "Not assigned yet"}</p>
-        </div>
-        <div className="rounded-xl border border-line/70 bg-black/[0.03] px-3 py-3">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-foreground/35">Rider</p>
-          <p className="mt-1 text-sm font-semibold">{job?.rider?.name ?? "Waiting for rider"}</p>
-          {job?.rider?.plateNumber ? <p className="mt-1 text-xs text-foreground/50">{job.rider.vehicleType ?? "Vehicle"} · {job.rider.plateNumber}</p> : null}
-        </div>
-        <div className="rounded-xl border border-line/70 bg-black/[0.03] px-3 py-3">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-foreground/35">Last GPS</p>
-          <p className="mt-1 text-sm font-semibold">{lastRefresh ? lastRefresh.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "—"}</p>
-        </div>
+        <div className="rounded-xl border border-line/70 bg-black/[0.03] px-3 py-3"><p className="text-[11px] uppercase tracking-[0.14em] text-foreground/35">Delivery</p><p className="mt-1 text-sm font-semibold capitalize">{job?.status?.replaceAll("_", " ") ?? "Not assigned yet"}</p></div>
+        <div className="rounded-xl border border-line/70 bg-black/[0.03] px-3 py-3"><p className="text-[11px] uppercase tracking-[0.14em] text-foreground/35">Rider</p><p className="mt-1 text-sm font-semibold">{job?.rider?.name ?? "Waiting for rider"}</p>{job?.rider?.plateNumber ? <p className="mt-1 text-xs text-foreground/50">{job.rider.vehicleType ?? "Vehicle"} · {job.rider.plateNumber}</p> : null}</div>
+        <div className="rounded-xl border border-line/70 bg-black/[0.03] px-3 py-3"><p className="text-[11px] uppercase tracking-[0.14em] text-foreground/35">Last GPS</p><p className="mt-1 text-sm font-semibold">{lastRefresh ? lastRefresh.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "—"}</p></div>
       </div>
     </section>
   );
