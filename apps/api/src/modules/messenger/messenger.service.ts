@@ -151,16 +151,36 @@ export class MessengerService {
   }
 
   private buildApplicationOrderSummary(details: OrderDetails, reusedDelivery: boolean) {
-    const flavors = details.flavors.length ? details.flavors.map((item) => `${item.quantity} pcs ${item.name} (₱${item.unitPrice ?? 0} each)`).join(", ") : "none";
-    const deliveryMethod = details.deliveryMethod ?? "missing";
-    const paymentMethod = details.paymentMethod ?? "missing";
-    const address = details.address ?? "none";
-    const landmark = details.landmark ?? "none";
-    const contactNumber = details.contactNumber ?? "none";
-    const deliveryDate = details.deliveryDate ?? "none";
-    const preferredTime = details.preferredTime ?? "none";
-    const intro = reusedDelivery ? "Sure — I’ll use your existing delivery details for this new order. Here’s the updated summary:" : "Here’s your order summary:";
-    return [intro, `Flavors: ${flavors}`, `Total food amount: ₱${details.totalAmount ?? 0}`, `Delivery method: ${deliveryMethod === "maxim" ? "Maxim" : deliveryMethod === "pickup" ? "Pickup" : deliveryMethod}`, `Payment method: ${paymentMethod === "cod" ? "COD" : paymentMethod === "gcash" ? "GCash" : paymentMethod}`, `Address: ${address}`, `Landmark: ${landmark}`, `Contact #: ${contactNumber}`, `Delivery date: ${deliveryDate}`, `Preferred time: ${preferredTime}`, "Please confirm if all the details above are correct. 😊"].join("\n");
+    const flavorLines = details.flavors.length
+      ? details.flavors.map((item) => `• ${item.quantity} pcs ${item.name} — ₱${Number(item.unitPrice ?? 0).toFixed(2)} each`).join("\n")
+      : "• Your selected items";
+    const total = Number(details.totalAmount ?? 0).toFixed(2);
+    const intro = reusedDelivery
+      ? "Sure — I’ll keep your existing delivery details for this new order. Here’s the updated summary:"
+      : "Here’s your order summary:";
+
+    const lines = [
+      intro,
+      "",
+      "🛒 Order details",
+      flavorLines,
+      `Total food amount: ₱${total}`,
+      "",
+      "🚚 Delivery",
+      `Method: ${details.deliveryMethod === "maxim" ? "Maxim" : details.deliveryMethod === "pickup" ? "Pickup" : this.titleCase(details.deliveryMethod ?? "")}`
+    ];
+
+    if (details.address?.trim()) lines.push(`Address: ${details.address.trim()}`);
+    if (details.landmark?.trim()) lines.push(`Landmark: ${details.landmark.trim()}`);
+    if (details.contactNumber?.trim()) lines.push(`Contact #: ${details.contactNumber.trim()}`);
+
+    lines.push("", "💳 Payment", `Method: ${details.paymentMethod === "cod" ? "COD" : details.paymentMethod === "gcash" ? "GCash" : this.titleCase(details.paymentMethod ?? "")}`);
+
+    if (details.deliveryDate?.trim()) lines.push("", "📅 Delivery date", details.deliveryDate.trim());
+    if (details.preferredTime?.trim()) lines.push(`Preferred time: ${details.preferredTime.trim()}`);
+
+    lines.push("", "Please confirm that all the details above are correct. 😊");
+    return lines.join("\n").trim();
   }
 
   async getAiSettings() { return this.aiControl.getState(); }
@@ -336,7 +356,7 @@ export class MessengerService {
     const pageToken = await this.metaAuthService.getPageToken(); const endpoint = `https://graph.facebook.com/${this.graphVersion()}/me/messages`; const payload = { recipient: { id: recipientPsid }, messaging_type: "RESPONSE", message: { text } };
     if (!pageToken) { this.logger.warn("Meta Page authentication not configured; outbound send skipped"); return { skipped: true, payload }; }
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
-    try { const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal }); if (!response.ok) throw new Error(`Meta send failed: ${response.status} ${await response.text()}`); const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid); const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } }); this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() }); return metaResult; }
+    try { const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal }); if (!response.ok) throw new Error(`Meta send failed: ${response.status}: ${await response.text()}`); const metaResult = await response.json() as { message_id?: string }; const conversation = await this.getOrCreateConversationByPsid(recipientPsid); const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } }); this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() }); return metaResult; }
     finally { clearTimeout(timeout); }
   }
 
