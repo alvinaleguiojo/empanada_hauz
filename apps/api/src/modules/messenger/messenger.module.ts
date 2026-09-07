@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AiModule } from "../ai/ai.module";
+import { AiInstructionsModule } from "../ai-instructions/ai-instructions.module";
 import { AiOrderActionService } from "../ai/ai-order-action.service";
 import { AiService } from "../ai/ai.service";
 import { CustomersModule } from "../customers/customers.module";
@@ -15,7 +16,7 @@ import { MessengerSingleCallAiService } from "./messenger-single-call-ai.service
 import { MessengerSingleCallAiPolicyService } from "./messenger-single-call-ai-policy.service";
 
 @Module({
-  imports: [AiModule, CustomersModule, OrdersModule, McpModule, NotificationsModule],
+  imports: [AiModule, AiInstructionsModule, CustomersModule, OrdersModule, McpModule, NotificationsModule],
   controllers: [MessengerController],
   providers: [
     MessengerService,
