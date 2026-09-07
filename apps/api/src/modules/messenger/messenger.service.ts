@@ -84,9 +84,9 @@ export class MessengerService {
       existingDeliveryDetails: latestOrder ? { deliveryMethod: latestOrder.deliveryMethod, address: latestOrder.address, location: latestOrder.location, contactNumber: latestOrder.customer?.phoneNumber, paymentMethod: latestOrder.paymentMethod } : undefined
     });
 
-    const inNewOrderFlow = hasPendingNewOrder || (!latestOrder && actionContext.orderAction === "new_order" && actionContext.newOrderFlowActive);
-    const effectiveOrderAction = inNewOrderFlow ? "new_order" : actionContext.orderAction;
-    const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && hasPendingNewOrder && Boolean(latestOrder);
+    const inNewOrderFlow = actionContext.orderAction === "new_order" && (hasPendingNewOrder || (!latestOrder && actionContext.newOrderFlowActive));
+    const effectiveOrderAction = actionContext.orderAction;
+    const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && inNewOrderFlow && Boolean(latestOrder);
     const reusedDeliveryState: Partial<OrderDetails> = shouldReuseExistingDelivery && latestOrder ? { deliveryMethod: latestOrder.deliveryMethod === "pickup" || latestOrder.deliveryMethod === "maxim" ? latestOrder.deliveryMethod : undefined, address: latestOrder.address ?? undefined, landmark: latestOrder.location ?? undefined, contactNumber: latestOrder.customer?.phoneNumber ?? undefined } : {};
 
     const baseState = persistedActiveOrderState;
@@ -190,7 +190,7 @@ export class MessengerService {
   async getAiSettings() { return this.aiControl.getState(); }
   async setGlobalAiEnabled(enabled: boolean) { this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`); return this.aiControl.setGlobalEnabled(enabled); }
   async getCustomerAiSettings(customerId: string) { return this.aiControl.getCustomerState(customerId); }
-  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) { this.logger.warn(`Messenger AI customer switch changed: customer=${customerId} override=${enabled}`); return this.aiControl.setCustomerOverride(customerId, enabled); }
+  async setCustomerAiEnabled(customerId: string, enabled: boolean | null) { return this.aiControl.setCustomerOverride(customerId, enabled); }
 
   private findLatestValidOrderState(values: unknown[]): OrderDetails | undefined {
     for (const value of values) {
@@ -313,7 +313,7 @@ export class MessengerService {
         if (!participant?.id) { this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`); continue; }
         const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
         let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
-        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
+        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) });
         else conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
         conversationsImported += 1;
         let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
