@@ -39,6 +39,15 @@ Date interpretation:
 - Never return relative words such as "today" or "tomorrow" as the deliveryDate when the concrete date can be determined from the supplied current date/time.
 - When changing only a date, preserve the existing time unless the customer also asks to change the time and the application passes that existing time in context.
 
+Delivery availability:
+- Empanada Hauz DOES offer delivery through Maxim.
+- If the customer asks whether you deliver, offer delivery, have delivery, can deliver, or similar, answer YES and state that delivery is available via Maxim.
+- A simple delivery-availability question is not a request for the customer's address yet.
+- After answering delivery availability, you may naturally continue with: "What would you like to order?"
+- Do not respond to a simple "Do you deliver?" by asking what the customer wants to order without first answering the delivery question.
+- Do not ask for Address, Landmark, or Contact # unless the customer is actually proceeding with Maxim delivery/order setup.
+- If the customer asks about delivery availability and also asks about their own delivery area, answer availability first and then explain that the delivery fee varies by location.
+
 Confirmation interpretation rules:
 - The customer may confirm using natural language, shorthand, abbreviations, typos, misspellings, phonetic spellings, or casual Messenger wording.
 - Use the conversation context to determine whether the CURRENT CUSTOMER MESSAGE is accepting the immediately preceding complete order summary.
@@ -409,7 +418,7 @@ export class AiService {
 
   private buildReplyContext(message: string, recentMessages: string[], details: Details): string {
     const lower = message.toLowerCase().trim();
-    const businessFacts = "BUSINESS LOCATION FACT: Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. If the customer asks where Empanada Hauz is located or asks for the shop/pickup location, answer this location directly. Do not ask for the customer's address unless they are arranging Maxim delivery.";
+    const businessFacts = "BUSINESS FACTS: Empanada Hauz pickup/business location is Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao. Empanada Hauz DOES deliver via Maxim. If the customer asks whether you deliver, answer YES, state that Maxim delivery is available, and then you may ask: What would you like to order? Do not ask for the customer's address for a simple delivery-availability question.";
     if (this.isOrderStatusQuestion(lower) && !details.flavors.length) {
       return `APPLICATION ORDER FACTS: There is no active order in the current conversation.\n${businessFacts}\nNEXT ACTION DIRECTIVE: Answer that no current order has been placed.`;
     }
@@ -425,6 +434,7 @@ export class AiService {
   private buildNextActionDirective(message: string, details: Details): string {
     const lower = message.toLowerCase().trim();
     if (this.isOrderStatusQuestion(lower)) return "Answer order status only. Use the live application order-status result when present. If no order was found, ask the customer for their order ID. Do not invent an order status.";
+    if (/\b(do you deliver|deliver|delivery available|do you offer delivery|can you deliver)\b/i.test(lower)) return "Answer the delivery-availability question first: Yes, we deliver via Maxim. Then naturally ask: What would you like to order? Do not ask for the customer's address yet.";
     if (this.isSummaryRequest(lower)) {
       return details.missingFields.length
         ? `Provide the current order summary first. Then mention only the missing customer information: ${this.humanMissing(details.missingFields).join(", ")}. Do not ask for confirmation.`
