@@ -27,10 +27,13 @@ export class AiOrderActionService {
   private readonly logger = new Logger(AiOrderActionService.name);
   private readonly baseUrl: string;
   private readonly model: string;
+  private readonly timeoutMs: number;
 
   constructor(private readonly config: ConfigService) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
     this.model = this.config.get<string>("OLLAMA_INTERPRET_MODEL", this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct"));
+    const configuredTimeout = Number(this.config.get<string>("OLLAMA_TIMEOUT_MS", "120000"));
+    this.timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 1000 ? configuredTimeout : 120000;
   }
 
   async analyze(message: string, context: { recentMessages?: string[]; hasActiveOrder?: boolean; hasPendingNewOrder?: boolean; existingDeliveryDetails?: { deliveryMethod?: string | null; address?: string | null; location?: string | null; contactNumber?: string | null; paymentMethod?: string | null; preferredSchedule?: string | null } }): Promise<AIOrderActionResult> {
@@ -161,13 +164,38 @@ STATE RULES:
   }
 
   private async chat(body: Record<string, unknown>): Promise<OllamaResponse> {
+    const model = typeof body.model === "string" && body.model.trim() ? body.model : this.model;
+    const startedAt = Date.now();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          ...body,
+          keep_alive: "10m"
+        })
+      });
+
+      const durationMs = Date.now() - startedAt;
+      this.logger.log(`Ollama request completed: model=${model} durationMs=${durationMs}`);
+
       if (!response.ok) throw new Error(`Ollama order-action request failed: ${response.status} ${await response.text()}`);
       return await response.json() as OllamaResponse;
-    } finally { clearTimeout(timeout); }
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        this.logger.error(`Ollama request timed out: model=${model} timeoutMs=${this.timeoutMs} durationMs=${durationMs}`);
+      } else {
+        this.logger.error(`Ollama request failed: model=${model} durationMs=${durationMs} error=${error instanceof Error ? error.message : String(error)}`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private cleanJson(raw: string) {
