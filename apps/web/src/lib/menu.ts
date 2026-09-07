@@ -37,8 +37,8 @@ export const MENU_ITEMS: MenuItem[] = [...DEFAULT_MENU_ITEMS];
 
 export function replaceMenuItems(products: ProductCatalogItem[]) {
   const metadataByName = new Map(DEFAULT_MENU_ITEMS.map((item) => [item.value.toLowerCase(), item]));
-  const next = products
-    .filter((product) => product.available)
+  const next: MenuItem[] = products
+    .filter((product) => product.available && product.name.trim())
     .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || a.name.localeCompare(b.name))
     .map((product) => {
       const name = product.name.trim();
@@ -50,9 +50,8 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
         ...(metadata?.popular ? { popular: true } : {}),
         ...(metadata?.isNew ? { isNew: true } : {})
       };
-    })
-    .filter((item) => item.name !== undefined && item.name.length > 0) as Array<MenuItem & { name?: string }>;
+    });
 
   if (!next.length) return;
-  MENU_ITEMS.splice(0, MENU_ITEMS.length, ...next.map(({ name: _name, ...item }) => item));
+  MENU_ITEMS.splice(0, MENU_ITEMS.length, ...next);
 }
