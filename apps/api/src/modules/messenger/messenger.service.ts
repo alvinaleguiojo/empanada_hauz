@@ -158,22 +158,10 @@ export class MessengerService {
     const intro = reusedDelivery
       ? "Sure — I’ll keep your existing delivery details for this new order. Here’s the updated summary:"
       : "Here’s your order summary:";
-
-    const lines = [
-      intro,
-      "",
-      "🛒 Order details",
-      flavorLines,
-      `Total food amount: ₱${total}`,
-      "",
-      "🚚 Delivery",
-      `Method: ${details.deliveryMethod === "maxim" ? "Maxim" : details.deliveryMethod === "pickup" ? "Pickup" : this.titleCase(details.deliveryMethod ?? "")}`
-    ];
-
+    const lines = [intro, "", "🛒 Order details", flavorLines, `Total food amount: ₱${total}`, "", "🚚 Delivery", `Method: ${details.deliveryMethod === "maxim" ? "Maxim" : details.deliveryMethod === "pickup" ? "Pickup" : this.titleCase(details.deliveryMethod ?? "")}`];
     if (details.address?.trim()) lines.push(`Address: ${details.address.trim()}`);
     if (details.landmark?.trim()) lines.push(`Landmark: ${details.landmark.trim()}`);
     if (details.contactNumber?.trim()) lines.push(`Contact #: ${details.contactNumber.trim()}`);
-
     lines.push("", "💳 Payment", `Method: ${details.paymentMethod === "cod" ? "COD" : details.paymentMethod === "gcash" ? "GCash" : this.titleCase(details.paymentMethod ?? "")}`);
     if (details.deliveryDate?.trim()) lines.push("", "📅 Delivery date", details.deliveryDate.trim());
     if (details.preferredTime?.trim()) lines.push(`Preferred time: ${details.preferredTime.trim()}`);
@@ -227,7 +215,7 @@ export class MessengerService {
     if (details.deliveryDate && details.preferredTime) {
       preferredSchedule = this.toManilaIso(details.deliveryDate, details.preferredTime);
     } else if (details.deliveryDate) {
-      preferredSchedule = this.mergeDateWithExistingOrderTime(details.deliveryDate, orderNumber);
+      preferredSchedule = await this.mergeDateWithExistingOrderTime(details.deliveryDate, orderNumber);
     } else if (details.preferredTime) {
       preferredSchedule = this.toManilaIso(this.getTodayDate(), details.preferredTime);
     }
@@ -255,7 +243,11 @@ export class MessengerService {
   private getScheduleParts(value: Date) {
     const parts = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(value);
     const get = (type: string) => parts.find((part) => part.type === type)?.value;
-    const year = get("year"); const month = get("month"); const day = get("day"); const hour = get("hour"); const minute = get("minute");
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    const hour = get("hour");
+    const minute = get("minute");
     const date = year && month && day ? `${year}-${month}-${day}` : undefined;
     const time = hour && minute ? `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}` : undefined;
     return { date, time };
@@ -269,7 +261,8 @@ export class MessengerService {
 
   private isConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>) {
     const details = ai.details;
-    const quantity = Number(details.quantity ?? 0); const flavors = details.flavors ?? [];
+    const quantity = Number(details.quantity ?? 0);
+    const flavors = details.flavors ?? [];
     const flavorQuantity = flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
     const requiredFieldsPresent = flavors.length > 0 && flavorQuantity === quantity && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
@@ -335,11 +328,8 @@ export class MessengerService {
         if (!participant?.id) { this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`); continue; }
         const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
         let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
-        if (!conversation) {
-          conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
-        } else {
-          conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
-        }
+        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
+        else conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
         conversationsImported += 1;
         let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
         let conversationMessageCount = 0; let newestMessage: MetaMessage | undefined;
