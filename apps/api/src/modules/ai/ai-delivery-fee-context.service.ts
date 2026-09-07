@@ -62,6 +62,9 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
       const selected = this.resolveLocationSelection(message, recentMessages);
       if (selected) {
         activeOrderState = {
+          flavors: [...(activeOrderState?.flavors ?? [])],
+          missingFields: [...(activeOrderState?.missingFields ?? [])],
+          confirmed: activeOrderState?.confirmed ?? false,
           ...activeOrderState,
           address: selected.formattedAddress,
           location: selected.formattedAddress
