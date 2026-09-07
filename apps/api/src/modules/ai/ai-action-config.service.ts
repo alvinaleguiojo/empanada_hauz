@@ -1,0 +1,106 @@
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
+import { PrismaService } from "../../database/prisma.service";
+
+export type AiActionConfigPatch = {
+  enabled?: boolean;
+  label?: string;
+  description?: string;
+};
+
+export type AiActionConfigDocument = {
+  _id: string;
+  name: string;
+  enabled: boolean;
+  label?: string;
+  description?: string;
+  createdById: string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+};
+
+type MongoFindResult<T> = { cursor?: { firstBatch?: T[] } };
+type MongoDeleteResult = { n?: number; deletedCount?: number };
+
+@Injectable()
+export class AiActionConfigService {
+  private readonly collection = "ai_action_configs";
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async list(): Promise<AiActionConfigDocument[]> {
+    const result = (await this.prisma.$runCommandRaw({
+      find: this.collection,
+      sort: { name: 1 },
+      limit: 200
+    })) as unknown as MongoFindResult<AiActionConfigDocument>;
+    return result.cursor?.firstBatch ?? [];
+  }
+
+  async findByName(name: string): Promise<AiActionConfigDocument | null> {
+    const result = (await this.prisma.$runCommandRaw({
+      find: this.collection,
+      filter: { name },
+      limit: 1
+    })) as unknown as MongoFindResult<AiActionConfigDocument>;
+    return result.cursor?.firstBatch?.[0] ?? null;
+  }
+
+  async getEffective(name: string, defaults: { enabled: boolean; description: string }) {
+    const configured = await this.findByName(name);
+    return {
+      enabled: configured?.enabled ?? defaults.enabled,
+      label: configured?.label ?? name,
+      description: configured?.description?.trim() || defaults.description
+    };
+  }
+
+  async upsert(name: string, patch: AiActionConfigPatch, createdById: string, defaults: { description: string }) {
+    if (!name.trim()) throw new BadRequestException("Action name is required");
+    if (patch.label !== undefined && patch.label.trim().length === 0) patch.label = name;
+    if (patch.label !== undefined && patch.label.trim().length > 120) throw new BadRequestException("Action label must be 120 characters or less");
+    if (patch.description !== undefined && patch.description.trim().length === 0) throw new BadRequestException("Action description cannot be empty");
+    if (patch.description !== undefined && patch.description.trim().length > 2000) throw new BadRequestException("Action description must be 2,000 characters or less");
+
+    const existing = await this.findByName(name);
+    const now = new Date();
+
+    if (!existing) {
+      const document: AiActionConfigDocument = {
+        _id: randomUUID(),
+        name,
+        enabled: patch.enabled ?? true,
+        label: patch.label?.trim() || name,
+        description: patch.description?.trim() || defaults.description,
+        createdById,
+        createdAt: now,
+        updatedAt: now
+      };
+      await this.prisma.$runCommandRaw({ insert: this.collection, documents: [document] });
+      return document;
+    }
+
+    const $set: Record<string, unknown> = { updatedAt: now };
+    if (patch.enabled !== undefined) $set.enabled = patch.enabled;
+    if (patch.label !== undefined) $set.label = patch.label.trim();
+    if (patch.description !== undefined) $set.description = patch.description.trim();
+
+    await this.prisma.$runCommandRaw({
+      update: this.collection,
+      updates: [{ q: { name }, u: { $set: $set as Prisma.InputJsonObject }, upsert: false, multi: false }]
+    });
+
+    const updated = await this.findByName(name);
+    if (!updated) throw new NotFoundException("AI action configuration not found");
+    return updated;
+  }
+
+  async remove(name: string) {
+    const result = (await this.prisma.$runCommandRaw({
+      delete: this.collection,
+      deletes: [{ q: { name }, limit: 1 }]
+    })) as unknown as MongoDeleteResult;
+    if ((result.deletedCount ?? result.n ?? 0) === 0) throw new NotFoundException("AI action configuration not found");
+  }
+}
