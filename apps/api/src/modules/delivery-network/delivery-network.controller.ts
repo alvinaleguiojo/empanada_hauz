@@ -9,6 +9,7 @@ import {
   DELIVERY_JOB_STATUSES,
   QuoteDeliveryJobDto,
   UpdateDeliveryJobStatusDto,
+  UpdateDeliveryPricingDto,
   UpdateRiderLocationDto,
   UpdateRiderStatusDto
 } from "./dto";
@@ -18,6 +19,16 @@ import { DeliveryNetworkService } from "./delivery-network.service";
 @Controller("delivery-network")
 export class DeliveryNetworkController {
   constructor(private readonly deliveryNetworkService: DeliveryNetworkService) {}
+
+  @Get("pricing")
+  getPricing() {
+    return this.deliveryNetworkService.getDeliveryPricing();
+  }
+
+  @Patch("pricing")
+  updatePricing(@Body() dto: UpdateDeliveryPricingDto) {
+    return this.deliveryNetworkService.updateDeliveryPricing(dto);
+  }
 
   @Get("riders")
   listRiders() {
