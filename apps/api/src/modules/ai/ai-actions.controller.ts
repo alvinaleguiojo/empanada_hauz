@@ -16,10 +16,9 @@ type UpdateActionBody = {
 @Controller("ai-actions")
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AiActionsController {
-  constructor(
-    private readonly configService: AiActionConfigService,
-    private readonly registry: AiToolRegistryService
-  ) {}
+  constructor(private readonly configService: AiActionConfigService, private readonly registry: AiToolRegistryService) {
+    void this.configService;
+  }
 
   @Get()
   async list() {
