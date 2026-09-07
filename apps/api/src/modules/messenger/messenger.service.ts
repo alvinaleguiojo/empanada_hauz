@@ -6,8 +6,8 @@ import { CustomersService } from "../customers/customers.service";
 import { AiControlService } from "../ai/ai-control.service";
 import { AiOrderActionService } from "../ai/ai-order-action.service";
 import { AiService } from "../ai/ai.service";
+import { AiApplicationToolsService, AiApplicationToolName } from "../ai/ai-application-tools.service";
 import { NotificationsService } from "../notifications/notifications.service";
-import { McpOrdersService } from "../mcp/mcp-orders.service";
 import { MetaAuthService } from "./meta-auth.service";
 
 interface MetaParticipant { id?: string; name?: string }
@@ -30,6 +30,7 @@ type LatestOrder = {
   items: unknown;
   customer: { phoneNumber: string | null };
 };
+type ActionAnalysis = Awaited<ReturnType<AiOrderActionService["analyze"]>>;
 
 @Injectable()
 export class MessengerService {
@@ -41,8 +42,8 @@ export class MessengerService {
     private readonly aiControl: AiControlService,
     private readonly aiService: AiService,
     private readonly aiOrderActionService: AiOrderActionService,
+    private readonly aiApplicationToolsService: AiApplicationToolsService,
     private readonly notificationsService: NotificationsService,
-    private readonly mcpOrdersService: McpOrdersService,
     private readonly metaAuthService: MetaAuthService
   ) {}
 
@@ -113,17 +114,24 @@ export class MessengerService {
     } else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai)) {
       reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The pending new-order draft was updated but cannot be placed yet. ${this.describeOrderValidation(ai.details)} Current order state: ${this.formatOrderStateForReply(ai.details)}. Ask naturally for the next genuinely missing required information.`, contextMessages, reply);
     } else if ((effectiveOrderAction === "new_order" || effectiveOrderAction === "confirm") && this.isConfirmedOrder(ai)) {
-      try {
-        const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
-        this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
-        this.logger.log(`Created confirmed Messenger order ${created.orderNumber} for ${event.senderId} via MCP order service`);
-        const createdReply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The confirmed order was successfully created. Order number: ${created.orderNumber}.`, contextMessages, reply);
-        reply = `${createdReply}\nTrack your order here: ${this.trackingUrl(created.id)}`;
-      } catch (error) {
-        this.logger.error(`Confirmed Messenger order could not be created for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
-        try { reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: The application could not create the confirmed order. No order was created.", contextMessages, reply); }
-        catch (replyError) { this.logger.error(`Qwen action-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); }
-      }
+      reply = await this.executeAiApplicationTool("create_order", {
+        customerId: conversation.customer.id,
+        customerName: conversation.customer?.name || "Messenger Customer",
+        phoneNumber: ai.details.contactNumber,
+        quantity: Number(ai.details.quantity),
+        deliveryMethod: ai.details.deliveryMethod,
+        paymentMethod: ai.details.paymentMethod,
+        location: ai.details.landmark,
+        address: ai.details.address,
+        preferredSchedule: this.toManilaIso(ai.details.deliveryDate, ai.details.preferredTime),
+        items: (ai.details.flavors ?? []).map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })),
+        notes: `Confirmed via Messenger. Original confirmation: ${event.text}`
+      }, event.text, effectiveOrderAction, contextMessages, reply, async (created) => {
+        const result = created as { id: string; orderNumber: string };
+        this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: result.id, orderNumber: result.orderNumber });
+        this.logger.log(`Created confirmed Messenger order ${result.orderNumber} for ${event.senderId} via centralized AI application tool`);
+        return `${this.successResult(created)} Tracking URL: ${this.trackingUrl(result.id)}`;
+      });
     } else if (effectiveOrderAction === "modify_existing") {
       const requestedOrder = await this.findOrderForModification(conversation.customer.id, actionContext.referencedOrderDate, actionContext.requestedDeliveryDate, latestOrder);
       this.logger.log(`Messenger modify order selection: action=modify_existing referencedOrderDate=${actionContext.referencedOrderDate ?? "none"} selectedOrder=${requestedOrder?.orderNumber ?? "none"} selectedScheduledAt=${requestedOrder?.preferredSchedule?.toISOString() ?? "none"}`);
@@ -134,17 +142,25 @@ export class MessengerService {
           : "APPLICATION RESULT: No active order was found to update. No order was changed.";
         reply = await this.aiActionReply(event.text, effectiveOrderAction, result, contextMessages, reply);
       } else if (this.shouldUpdateCustomerOrder(ai.intent, ai.details, requestedOrder)) {
-        try {
-          const updated = await this.updateCustomerOrderFromAi(ai, requestedOrder.orderNumber, actionContext.requestedDeliveryDate, actionContext.requestedDeliveryTime);
-          this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
-          reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The existing order ${updated.orderNumber} was successfully updated. New scheduled time: ${updated.preferredSchedule?.toISOString() ?? "none"}. No new order was created.`, contextMessages, reply);
-        } catch (error) {
-          this.logger.error(`Customer order update failed for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
-          try { reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: The existing order could not be updated. No order change was completed.", contextMessages, reply); }
-          catch (replyError) { this.logger.error(`Qwen action-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); }
-        }
+        const updateArgs = await this.buildUpdateOrderArgs(ai, requestedOrder, actionContext.requestedDeliveryDate, actionContext.requestedDeliveryTime);
+        reply = await this.executeAiApplicationTool("update_order", { customerId: conversation.customer.id, ...updateArgs, id: requestedOrder.id }, event.text, effectiveOrderAction, contextMessages, reply, (updated) => {
+          const result = updated as { orderNumber: string };
+          this.logger.log(`Updated Messenger order ${result.orderNumber} for ${event.senderId} via centralized AI application tool`);
+          return this.successResult(updated);
+        });
       } else {
         reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The customer referred to an existing order, but the current application state did not contain a supported field change to apply. No order was changed. Current order state: ${this.formatOrderStateForReply(ai.details)}.`, contextMessages, reply);
+      }
+    } else if (effectiveOrderAction === "summary" || effectiveOrderAction === "status" || effectiveOrderAction === "cancel_existing") {
+      const requestedOrder = await this.findOrderForAction(conversation.customer.id, actionContext.referencedOrderDate, latestOrder);
+      if (!requestedOrder) {
+        reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: No active order was found for this customer. No order action was completed.", contextMessages, reply);
+      } else {
+        const tool: AiApplicationToolName = effectiveOrderAction === "summary" ? "get_order_summary" : effectiveOrderAction === "status" ? "check_order_status" : "cancel_order";
+        reply = await this.executeAiApplicationTool(tool, { customerId: conversation.customer.id, id: requestedOrder.id }, event.text, effectiveOrderAction, contextMessages, reply, (result) => {
+          if (effectiveOrderAction === "cancel_existing") this.logger.log(`Cancelled Messenger order ${requestedOrder.orderNumber} for ${event.senderId} via centralized AI application tool`);
+          return this.successResult(result);
+        });
       }
     }
 
@@ -156,7 +172,35 @@ export class MessengerService {
     return { ai, reply, aiEnabled: true };
   }
 
-  private async aiActionReply(message: string, action: Awaited<ReturnType<AiOrderActionService["analyze"]>>["orderAction"], result: string, recentMessages: string[], fallback: string) {
+  private async executeAiApplicationTool(
+    tool: AiApplicationToolName,
+    args: Record<string, unknown>,
+    message: string,
+    action: ActionAnalysis["orderAction"],
+    recentMessages: string[],
+    fallback: string,
+    onSuccess?: (result: unknown) => string
+  ) {
+    try {
+      const result = await this.aiApplicationToolsService.execute(tool, args);
+      const applicationResult = onSuccess ? onSuccess(result) : this.successResult(result);
+      return await this.aiActionReply(message, action, `APPLICATION RESULT: The requested application action succeeded. ${applicationResult}`, recentMessages, fallback);
+    } catch (error) {
+      this.logger.error(`AI application tool failed: tool=${tool}`, error instanceof Error ? error.stack : String(error));
+      try {
+        return await this.aiActionReply(message, action, `APPLICATION RESULT: The requested application action could not be completed. No successful change was recorded. Reason: ${error instanceof Error ? error.message : "application error"}.`, recentMessages, fallback);
+      } catch (replyError) {
+        this.logger.error(`Qwen action-result reply generation failed after tool error: tool=${tool}`, replyError instanceof Error ? replyError.stack : String(replyError));
+        return fallback;
+      }
+    }
+  }
+
+  private successResult(result: unknown) {
+    try { return JSON.stringify(result); } catch { return "The application returned a successful result."; }
+  }
+
+  private async aiActionReply(message: string, action: ActionAnalysis["orderAction"], result: string, recentMessages: string[], fallback: string) {
     try {
       return await this.aiOrderActionService.generateActionResultReply(message, action, result, recentMessages);
     } catch (error) {
@@ -179,20 +223,6 @@ export class MessengerService {
     ].join("; ");
   }
 
-  private buildNewOrderProgressReply(details: OrderDetails) {
-    const flavors = details.flavors.length ? details.flavors.map((item) => `${item.quantity} pcs ${item.name}`).join(", ") : "your selected items";
-    const foodTotal = `₱${details.totalAmount ?? 0}`;
-    const missing = new Set(details.missingFields ?? []);
-    if (missing.has("flavors")) return "Sure! What flavor would you like to order? 😊";
-    if (missing.has("quantity")) return `Sure! How many pcs of ${details.flavors[0]?.name ?? "that flavor"} would you like? 😊`;
-    if (missing.has("minimumOrder")) return "Our minimum order is 10 pcs. How many would you like? 😊";
-    if (missing.has("deliveryMethod")) return `Sure! ${flavors} is ${foodTotal}. Would you like Pickup or Maxim delivery? 😊`;
-    if (missing.has("address") || missing.has("landmark") || missing.has("contactNumber")) { const deliveryMissing = ["address", "landmark", "contactNumber"].filter((field) => missing.has(field)); return `Sure! For Maxim delivery, please send your ${deliveryMissing.map((field) => field === "address" ? "Address" : field === "landmark" ? "Landmark" : "Contact #").join(", ")}. 😊`; }
-    if (missing.has("paymentMethod")) return `Great! Your current order is ${flavors} for ${foodTotal}. Would you like to pay via GCash or COD? 😊`;
-    if (details.missingFields.length === 0) return this.buildApplicationOrderSummary(details, false);
-    return `Sure! Your current order is ${flavors} for ${foodTotal}. What would you like to provide next? 😊`;
-  }
-
   private buildApplicationOrderSummary(details: OrderDetails, reusedDelivery: boolean) {
     const flavorLines = details.flavors.length
       ? details.flavors.map((item) => `• ${item.quantity} pcs ${item.name} — ₱${Number(item.unitPrice ?? 0).toFixed(2)} each`).join("\n")
@@ -210,12 +240,6 @@ export class MessengerService {
     if (details.preferredTime?.trim()) lines.push(`Preferred time: ${details.preferredTime.trim()}`);
     lines.push("", "Please confirm that all the details above are correct. 😊");
     return lines.join("\n").trim();
-  }
-
-  private buildOrderUpdatedReply(orderNumber: string, preferredSchedule: Date | null) {
-    if (!preferredSchedule) return `Done — your order #${orderNumber} has been updated successfully. 😊`;
-    const formatted = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(preferredSchedule);
-    return `Done — I rescheduled order #${orderNumber} to ${formatted}. Your existing order was updated; no new order was created. 😊`;
   }
 
   private formatReferenceDate(value: string) {
@@ -273,6 +297,11 @@ export class MessengerService {
     return null;
   }
 
+  private async findOrderForAction(customerId: string, referencedOrderDate: string | undefined, latestOrder: LatestOrder | null) {
+    if (!referencedOrderDate) return latestOrder;
+    return (await this.findActiveOrderByScheduleDate(customerId, referencedOrderDate)) ?? latestOrder;
+  }
+
   private shouldUpdateCustomerOrder(intent: string, details: OrderDetails, latestOrder: LatestOrder) {
     if (["completed", "cancelled"].includes(latestOrder.status)) return false;
     if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length && details.deliveryDate === undefined && details.preferredTime === undefined) return false;
@@ -293,7 +322,7 @@ export class MessengerService {
     return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged || dateOnlyChange || timeOnlyChange;
   }
 
-  private async updateCustomerOrderFromAi(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, orderNumber: string, requestedDeliveryDate?: string, requestedDeliveryTime?: string) {
+  private async buildUpdateOrderArgs(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, latestOrder: LatestOrder, requestedDeliveryDate?: string, requestedDeliveryTime?: string) {
     const details = ai.details;
     const flavors = details.flavors ?? [];
     const deliveryDate = requestedDeliveryDate || details.deliveryDate;
@@ -302,18 +331,22 @@ export class MessengerService {
     if (deliveryDate && deliveryTime) {
       preferredSchedule = this.toManilaIso(deliveryDate, deliveryTime);
     } else if (deliveryDate) {
-      preferredSchedule = await this.mergeDateWithExistingOrderTime(deliveryDate, orderNumber);
+      const scheduleParts = latestOrder.preferredSchedule ? this.getScheduleParts(latestOrder.preferredSchedule) : undefined;
+      preferredSchedule = this.toManilaIso(deliveryDate, scheduleParts?.time ?? "12:00");
     } else if (deliveryTime) {
       preferredSchedule = this.toManilaIso(this.getTodayDate(), deliveryTime);
     }
-    return this.mcpOrdersService.updateOrder({ orderNumber, ...(flavors.length ? { items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })) } : {}), ...(details.quantity !== undefined ? { quantity: Number(details.quantity) } : {}), ...(details.deliveryMethod ? { deliveryMethod: details.deliveryMethod } : {}), ...(details.paymentMethod ? { paymentMethod: details.paymentMethod } : {}), ...(details.address !== undefined ? { address: details.address } : {}), ...(details.location !== undefined ? { location: details.location } : {}), ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}), ...(preferredSchedule ? { preferredSchedule } : {}) });
-  }
-
-  private async mergeDateWithExistingOrderTime(date: string, orderNumber: string) {
-    const order = await this.prisma.order.findUnique({ where: { orderNumber }, select: { preferredSchedule: true } });
-    if (!order?.preferredSchedule) return this.toManilaIso(date, "12:00");
-    const scheduleParts = this.getScheduleParts(order.preferredSchedule);
-    return this.toManilaIso(date, scheduleParts.time ?? "12:00");
+    return {
+      orderNumber: latestOrder.orderNumber,
+      ...(flavors.length ? { items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })) } : {}),
+      ...(details.quantity !== undefined ? { quantity: Number(details.quantity) } : {}),
+      ...(details.deliveryMethod ? { deliveryMethod: details.deliveryMethod } : {}),
+      ...(details.paymentMethod ? { paymentMethod: details.paymentMethod } : {}),
+      ...(details.address !== undefined ? { address: details.address } : {}),
+      ...(details.location !== undefined ? { location: details.location } : {}),
+      ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}),
+      ...(preferredSchedule ? { preferredSchedule } : {})
+    };
   }
 
   private getTodayDate() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date()); }
@@ -354,11 +387,6 @@ export class MessengerService {
     const deliveryComplete = details.deliveryMethod === "pickup" || (details.deliveryMethod === "maxim" && Boolean(details.address?.trim() && details.landmark?.trim() && details.contactNumber?.trim()));
     const requiredFieldsPresent = flavors.length > 0 && flavorQuantity === quantity && quantity >= 10 && Boolean(details.deliveryMethod && details.paymentMethod) && deliveryComplete;
     return Boolean(details.confirmed) && requiredFieldsPresent && details.missingFields.length === 0;
-  }
-
-  private async createConfirmedOrder(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, customerName: string, originalMessage: string) {
-    const details = ai.details; const flavors = details.flavors ?? [];
-    return this.mcpOrdersService.createOrder({ customerName, phoneNumber: details.contactNumber, quantity: Number(details.quantity), deliveryMethod: details.deliveryMethod, paymentMethod: details.paymentMethod, location: details.landmark, address: details.address, preferredSchedule: this.toManilaIso(details.deliveryDate, details.preferredTime), items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })), notes: `Confirmed via Messenger. Original confirmation: ${originalMessage}` });
   }
 
   async handleStandbyEvent(event: { senderId: string; messageId?: string; text?: string; rawPayload: unknown }) {
