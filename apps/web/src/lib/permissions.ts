@@ -7,7 +7,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     "kitchen.view", "kitchen.manage", "batches.view", "batches.manage", "deliveries.view", "deliveries.manage",
     "delivery-network.view", "delivery-network.manage", "riders.view", "riders.manage", "analytics.view",
     "referrals.view", "referrals.manage", "chat.view", "chat.manage", "notifications.view", "settings.view",
-    "users.manage", "roles.manage"
+    "users.manage", "roles.manage", "ai-instructions.manage"
   ],
   operations: [
     "dashboard.view", "customers.view", "customers.manage", "orders.view", "orders.manage",
