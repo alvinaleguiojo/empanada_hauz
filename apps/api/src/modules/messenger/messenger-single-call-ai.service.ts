@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { AIIntentResult, CustomerIntent } from "../ai/types";
 import type { AIOrderAction, AIOrderActionResult } from "../ai/ai-order-action.service";
+import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 
 interface OllamaResponse { message?: { content?: string } }
 
@@ -24,39 +25,6 @@ const PRICES: Record<string, number> = {
   "choco": 30, "chocolate": 30, "beef": 35, "beef with egg": 40
 };
 
-const SYSTEM_PROMPT = `You are the semantic interpreter for Empanada Hauz Messenger.
-
-Understand the CURRENT CUSTOMER MESSAGE in context and return compact JSON. Do not behave like a general chatbot.
-
-RULES:
-- CURRENT CUSTOMER MESSAGE is authoritative.
-- Interpret meaning semantically; handle typos, shorthand, Cebuano/English mixing, and casual Messenger wording.
-- Resolve short follow-ups against the most relevant recent conversation.
-- Do not confuse an existing database order with a separate new order.
-- confirm means the customer accepts the immediately preceding complete pending new-order summary.
-- Do not claim an order was created; the application creates orders.
-
-ACTIONS:
-- inquiry = business information, casual chat, or no application action.
-- summary = asks to see/review current or previous order details.
-- status = asks whether an order exists, was placed, or its current status.
-- new_order = starts or continues a separate pending order.
-- modify_existing = changes an already-created order.
-- cancel_existing = cancels an already-created order.
-- confirm = accepts the immediately preceding complete pending new-order summary.
-
-EXTRACTION:
-Extract order fields from the current message plus clearly contextual follow-up information. Prefer current-turn item/quantity details over older values. Do not copy old order details into a fresh new order unless the customer explicitly asks to reuse them.
-
-BUSINESS FACTS: minimum 10 pcs; mixed flavors allowed; Bacon with Cheese 35; Pork Regular 20; Pork Regular with Egg 25; Pork Asado 30; Ham & Cheese 25; Chicken 20; Chicken with Egg 25; Ube Empanada 25; Mango 25; Choco 30; Beef 35; Beef with Egg 40. Payment GCash or COD. Maxim requires address, landmark, and contact number. Delivery fee varies by location. Pickup location: Cabancalan 2, Bulacao, Cebu City.
-
-DATES: use Asia/Manila current date/time from the request. Resolve relative dates to YYYY-MM-DD. For existing-order changes, keep source and target dates distinct.
-
-REPLY: suggestedReply must be a short natural Messenger reply. Do not use internal terms, JSON, MCP, validation language, or menu dumps unless the customer asks for menu/options/prices. Never say an order is created unless the application later confirms it.
-
-Return ONLY valid JSON:
-{"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":false,"reuseExistingDelivery":false,"referencedOrderDate":"YYYY-MM-DD or empty","requestedDeliveryDate":"YYYY-MM-DD or empty","requestedDeliveryTime":"HH:MM or empty","details":{"flavorAction":"none|replace|add|remove","flavors":[{"name":"Canonical flavor name","quantity":0}],"quantity":0,"location":"","deliveryMethod":"pickup|maxim","preferredTime":"","deliveryDate":"YYYY-MM-DD","address":"","landmark":"","contactNumber":"","paymentMethod":"cod|gcash","confirmed":false},"suggestedReply":"short reply"}`;
-
 @Injectable()
 export class MessengerSingleCallAiService {
   private readonly logger = new Logger(MessengerSingleCallAiService.name);
@@ -67,7 +35,7 @@ export class MessengerSingleCallAiService {
   private readonly handoff = new Map<string, CachedResult>();
   private aiQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly config: ConfigService) {
+  constructor(private readonly config: ConfigService, private readonly aiInstructions?: AiInstructionsService) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
     const configuredTimeout = Number(this.config.get<string>("OLLAMA_TIMEOUT_MS", "180000"));
@@ -131,7 +99,12 @@ export class MessengerSingleCallAiService {
     const delivery = context.existingDeliveryDetails ?? {};
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(new Date());
     const user = `CURRENT DATE/TIME IN ASIA/MANILA: ${now}\nACTIVE DATABASE ORDER EXISTS: ${Boolean(context.hasActiveOrder)}\nPENDING NEW ORDER EXISTS: ${Boolean(context.hasPendingNewOrder)}\nEXISTING DELIVERY: method=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contact=${delivery.contactNumber ?? "none"}; payment=${delivery.paymentMethod ?? "none"}; schedule=${delivery.preferredSchedule ?? "none"}\nRECENT CONVERSATION:\n${recent.join("\n") || "none"}\nCURRENT CUSTOMER MESSAGE:\n${message}`;
-    const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", keep_alive: "10m", options: { temperature: 0.1, num_predict: 256, num_ctx: 4096 }, messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: user }] });
+    const adminPrompt = await this.aiInstructions?.getActivePromptBlock();
+    const messages: Array<{ role: "system" | "user"; content: string }> = [
+      ...(adminPrompt ? [{ role: "system" as const, content: adminPrompt }] : []),
+      { role: "user", content: user }
+    ];
+    const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", keep_alive: "10m", options: { temperature: 0.1, num_predict: 256, num_ctx: 4096 }, messages });
     const raw = response.message?.content?.trim();
     if (!raw) throw new Error("Ollama returned an empty single-call Messenger response");
     const parsed = JSON.parse(this.cleanJson(raw)) as Partial<CombinedResponse>;
