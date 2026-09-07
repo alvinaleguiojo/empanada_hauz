@@ -11,7 +11,7 @@ export class CreateAiInstructionDto {
 
   @IsString()
   @MinLength(1)
-  @MaxLength(3000)
+  @MaxLength(5000)
   content!: string;
 
   @IsOptional()
@@ -39,7 +39,7 @@ export class UpdateAiInstructionDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  @MaxLength(3000)
+  @MaxLength(5000)
   content?: string;
 
   @IsOptional()
