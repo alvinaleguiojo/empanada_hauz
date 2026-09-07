@@ -125,9 +125,8 @@ export class MessengerService {
         catch (replyError) { this.logger.error(`Qwen order-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); reply = ai.suggestedReply?.trim() ?? ""; }
       }
     } else if (effectiveOrderAction === "modify_existing") {
-      const requestedOrder = actionContext.referencedOrderDate
-        ? await this.findActiveOrderByScheduleDate(conversation.customer.id, actionContext.referencedOrderDate)
-        : latestOrder;
+      const requestedOrder = await this.findOrderForModification(conversation.customer.id, actionContext.referencedOrderDate, latestOrder);
+      this.logger.log(`Messenger modify order selection: action=modify_existing referencedOrderDate=${actionContext.referencedOrderDate ?? "none"} selectedOrder=${requestedOrder?.orderNumber ?? "none"} selectedScheduledAt=${requestedOrder?.preferredSchedule?.toISOString() ?? "none"}`);
 
       if (!requestedOrder) {
         reply = actionContext.referencedOrderDate
@@ -230,6 +229,11 @@ export class MessengerService {
       orderBy: [{ preferredSchedule: "asc" }, { createdAt: "desc" }, { id: "desc" }],
       select: { id: true, orderNumber: true, status: true, quantity: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true, customer: { select: { phoneNumber: true } } }
     });
+  }
+
+  private async findOrderForModification(customerId: string, referencedOrderDate: string | undefined, latestOrder: LatestOrder | null) {
+    if (referencedOrderDate) return this.findActiveOrderByScheduleDate(customerId, referencedOrderDate);
+    return latestOrder;
   }
 
   private shouldUpdateCustomerOrder(intent: string, details: OrderDetails, latestOrder: LatestOrder) {
