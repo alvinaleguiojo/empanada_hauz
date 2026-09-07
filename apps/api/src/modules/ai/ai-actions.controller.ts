@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Param, Patch, Req, UseGuards } from "@ne
 import type { Request } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AdminGuard } from "../ai-instructions/admin.guard";
-import { AiActionConfigService } from "./ai-action-config.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 
 type AuthenticatedRequest = Request & { user?: { sub?: string } };
@@ -16,9 +15,7 @@ type UpdateActionBody = {
 @Controller("ai-actions")
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AiActionsController {
-  constructor(private readonly configService: AiActionConfigService, private readonly registry: AiToolRegistryService) {
-    void this.configService;
-  }
+  constructor(private readonly registry: AiToolRegistryService) {}
 
   @Get()
   async list() {
