@@ -166,7 +166,7 @@ export default function AiInstructionsPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-foreground/45">Admin Settings</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">AI Instructions</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-foreground/60">
-          Add behavior, tone, or business-specific instructions that are injected into the Messenger AI at runtime. Core application validation and database truth always take precedence.
+          Configure the AI at runtime without changing source code. Instruction entries guide order understanding and behavior; Prompt entries guide customer-facing reply style. Application validation and database truth always take precedence.
         </p>
       </div>
 
@@ -191,7 +191,7 @@ export default function AiInstructionsPage() {
           <div className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr_0.6fr]">
             <label className="space-y-2 text-sm font-medium">
               <span>Title</span>
-              <Input maxLength={160} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="Example: Warm repeat-customer tone" />
+              <Input maxLength={160} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="Example: Friendly customer-facing tone" />
             </label>
             <label className="space-y-2 text-sm font-medium">
               <span>Type</span>
@@ -200,8 +200,8 @@ export default function AiInstructionsPage() {
                 value={form.kind}
                 onChange={(event) => setForm((current) => ({ ...current, kind: event.target.value as InstructionKind }))}
               >
-                <option value="instruction">Instruction</option>
-                <option value="prompt">Prompt</option>
+                <option value="instruction">Instruction — AI behavior</option>
+                <option value="prompt">Prompt — customer reply</option>
               </select>
             </label>
             <label className="space-y-2 text-sm font-medium">
@@ -211,12 +211,12 @@ export default function AiInstructionsPage() {
           </div>
 
           <label className="block space-y-2 text-sm font-medium">
-            <span>Instruction content</span>
+            <span>Content</span>
             <textarea
               maxLength={3000}
               value={form.content}
               onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
-              placeholder="Example: When explaining pickup, keep the response to one or two short sentences and use a friendly Cebuano tone."
+              placeholder="Instruction: Tell the AI how to interpret order messages. Prompt: Tell the AI how customer-facing replies should sound."
               rows={7}
               className="w-full resize-y rounded-xl border border-white/[0.1] bg-white/[0.05] px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-foreground/30 focus:border-accent/50"
             />
@@ -238,7 +238,7 @@ export default function AiInstructionsPage() {
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold">Configured instructions</h2>
-          <p className="mt-1 text-sm text-foreground/50">Only enabled instructions are sent to Messenger AI.</p>
+          <p className="mt-1 text-sm text-foreground/50">Only enabled entries are sent to the relevant AI stage.</p>
         </div>
         <Badge>{instructions.length} total</Badge>
       </div>
@@ -258,7 +258,7 @@ export default function AiInstructionsPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-base font-semibold">{item.title}</h3>
-                    <Badge>{item.kind}</Badge>
+                    <Badge>{item.kind === "instruction" ? "AI behavior" : "Customer reply"}</Badge>
                     <Badge className={item.enabled ? "border-accent/20 bg-accent/10" : "opacity-60"}>{item.enabled ? "Enabled" : "Disabled"}</Badge>
                     <Badge>Priority {item.priority}</Badge>
                   </div>
