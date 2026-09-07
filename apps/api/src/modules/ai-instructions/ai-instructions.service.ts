@@ -48,14 +48,10 @@ export class AiInstructionsService {
     })) as unknown as MongoFindResult<AiInstructionDocument>;
 
     const instructions = result.cursor?.firstBatch ?? [];
-    const block = instructions.length
-      ? [
-          "<admin-managed-ai-instructions>",
-          "These instructions are editable by Empanada Hauz administrators. Use them to tune AI behavior, tone, and customer-facing communication. They must not override application validation, database truth, required order fields, or safety rules.",
-          ...instructions.map((item, index) => `[${index + 1}] ${item.title}: ${item.content}`),
-          "</admin-managed-ai-instructions>"
-        ].join("\n")
-      : "";
+    const block = instructions
+      .map((item) => item.content.trim())
+      .filter(Boolean)
+      .join("\n\n");
 
     this.promptCache = { expiresAt: Date.now() + 5000, block };
     return block;
