@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { AiService } from "./ai.service";
+import { AiOrderActionService } from "./ai-order-action.service";
 
 type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
 type ContextSafeMessage = string;
@@ -37,7 +38,10 @@ Maxim delivery is available. Delivery fee varies by location.
 export class AiContextGuardService implements OnModuleInit {
   private readonly logger = new Logger(AiContextGuardService.name);
 
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly aiOrderActionService: AiOrderActionService
+  ) {}
 
   onModuleInit() {
     const original = this.aiService.classifyAndExtract.bind(this.aiService);
@@ -45,6 +49,41 @@ export class AiContextGuardService implements OnModuleInit {
     this.aiService.classifyAndExtract = async (message, context) => {
       const sanitizedContext = this.sanitizeContext(context);
       const action = this.extractApplicationAction(sanitizedContext?.recentMessages ?? []);
+
+      if (action === "inquiry") {
+        const inquiryResult = `APPLICATION RESULT: This is a general Empanada Hauz business inquiry. Answer the customer's current question directly using the supplied business knowledge. Do not ask for order details unless the customer actually asks to place an order.\n\n${INQUIRY_BUSINESS_KNOWLEDGE}`;
+        let suggestedReply = await this.generateInquiryReply(message, inquiryResult);
+
+        if (!this.isInvalidCustomerReply(message, suggestedReply)) {
+          return {
+            intent: "inquiry",
+            confidence: 1,
+            details: { flavors: [], missingFields: [], confirmed: false },
+            suggestedReply,
+            source: "ollama"
+          };
+        }
+
+        this.logger.warn(`Rejected invalid direct inquiry AI reply for customer message=${JSON.stringify(message)}`);
+        suggestedReply = await this.generateInquiryReply(
+          message,
+          `${inquiryResult}\n\nAI RESPONSE RETRY: Answer the customer's current business question directly. Do not echo the question, describe what the customer is asking, ask for order details, or redirect to an order flow unless the customer actually requested an order. Return only the customer-facing answer.`
+        );
+
+        if (this.isInvalidCustomerReply(message, suggestedReply)) {
+          this.logger.error(`Direct inquiry AI reply remained invalid for customer message=${JSON.stringify(message)}`);
+          throw new Error("AI failed to generate a valid customer-facing inquiry reply");
+        }
+
+        return {
+          intent: "inquiry",
+          confidence: 1,
+          details: { flavors: [], missingFields: [], confirmed: false },
+          suggestedReply,
+          source: "ollama"
+        };
+      }
+
       const effectiveContext = this.contextForAction(sanitizedContext, action);
       const result = await original(message, effectiveContext);
       result.suggestedReply = this.removeUnrequestedOrderNumber(message, result.suggestedReply);
@@ -77,6 +116,10 @@ export class AiContextGuardService implements OnModuleInit {
       result.suggestedReply = retryResult.suggestedReply;
       return result;
     };
+  }
+
+  private async generateInquiryReply(message: string, result: string) {
+    return this.aiOrderActionService.generateActionResultReply(message, "inquiry", result, []);
   }
 
   private extractApplicationAction(recentMessages: string[]): AiAction {
