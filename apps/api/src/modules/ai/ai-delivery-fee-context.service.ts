@@ -43,7 +43,8 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
       if (enriched.estimatedFare !== undefined && this.isDeliveryFeeQuestion(message)) {
         const feeLine = `Delivery fee to your location is ₱${enriched.estimatedFare}.`;
         const reply = result.suggestedReply?.trim() ?? "";
-        result.suggestedReply = reply ? `${reply}\n${feeLine}` : feeLine;
+        const normalizedFee = `₱${enriched.estimatedFare}`;
+        result.suggestedReply = reply && reply.includes(normalizedFee) ? reply : reply ? `${reply}\n${feeLine}` : feeLine;
       }
 
       return result;
@@ -228,6 +229,6 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
   }
 
   private isDeliveryFeeQuestion(message: string) {
-    return /\b(delivery\s*fee|delivery\s*charge|shipping\s*fee|df|how much (?:is )?(?:the )?delivery|pila (?:ang )?(?:delivery|df)|tagpila (?:ang )?(?:delivery|df))\b/i.test(message);
+    return /\b(delivery\s*fee|delivery\s*charge|shipping\s*fee|df|how much (?:is )?(?:the )?delivery)\b/i.test(message);
   }
 }
