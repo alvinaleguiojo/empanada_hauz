@@ -30,7 +30,7 @@ export class AiOrderActionService {
     this.model = this.config.get<string>("OLLAMA_INTERPRET_MODEL", this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct"));
   }
 
-  async analyze(message: string, context: { recentMessages?: string[]; hasActiveOrder?: boolean; hasPendingNewOrder?: boolean; existingDeliveryDetails?: { deliveryMethod?: string | null; address?: string | null; location?: string | null; contactNumber?: string | null; paymentMethod?: string | null } }): Promise<AIOrderActionResult> {
+  async analyze(message: string, context: { recentMessages?: string[]; hasActiveOrder?: boolean; hasPendingNewOrder?: boolean; existingDeliveryDetails?: { deliveryMethod?: string | null; address?: string | null; location?: string | null; contactNumber?: string | null; paymentMethod?: string | null; preferredSchedule?: string | null } }): Promise<AIOrderActionResult> {
     const recentMessages = (context.recentMessages ?? []).slice(-16);
     const delivery = context.existingDeliveryDetails ?? {};
     const hasActiveOrder = Boolean(context.hasActiveOrder);
@@ -48,12 +48,20 @@ Return ONLY valid JSON with this shape:
 
 ACTION MEANINGS:
 - new_order: start or continue a separate/new order.
-- modify_existing: change details of an already-created database order, such as quantity/items/date/time/delivery/payment/address/contact, or remove one item.
+- modify_existing: change details of an already-created database order, such as quantity/items/date/time/delivery/payment/address/contact, remove one item, or reschedule/move/postpone/bring forward an existing order.
 - cancel_existing: cancel an entire already-created database order.
 - status: ask whether an order exists, whether it was placed, or its current status.
 - summary: ask to see current or previous order summary/details.
 - inquiry: general business question or anything that is not an order action.
 - confirm: explicitly accept/approve the immediately preceding complete pending new-order summary so the application can validate and create it.
+
+EXISTING-ORDER CHANGE VS NEW ORDER:
+- If an active database order exists and the customer asks to change, move, reschedule, postpone, advance, update, switch, or otherwise alter that existing order, choose modify_existing.
+- A request about changing the date or time of an existing reservation/order is modify_existing, even when the customer says "reservation", "book", "move it", "make it today", or similar wording.
+- A relative-date request such as moving an existing order from a prior date to today, tomorrow, next week, or another date is a modification when it refers to the existing order.
+- Do NOT choose new_order merely because the customer uses words like "reservation", "reserve", "book", "order", or describes a desired new date/time. Determine whether the customer is referring to an existing order or requesting a separate one.
+- A request for another/separate order means new_order.
+- Follow-up details for a pending new order remain new_order.
 
 CANCELLATION:
 - Choose cancel_existing when the current message clearly asks to cancel/stop the whole existing order.
@@ -66,12 +74,6 @@ CONFIRMATION:
 - Accept natural language, shorthand, typos, misspellings, and phonetic spellings.
 - Do not choose confirm for a question, rejection, change request, summary request, new-order request, or ambiguous message.
 
-NEW ORDER VS EXISTING ORDER:
-- A request for another/separate order means new_order.
-- A detail change to an existing database order means modify_existing.
-- A whole-order cancellation means cancel_existing.
-- Follow-up details for a pending new order remain new_order.
-
 DELIVERY REUSE:
 - reuseExistingDelivery=true only when the customer clearly asks to keep/copy previous/current delivery details for a separate new order.
 - Never infer payment reuse.
@@ -81,7 +83,7 @@ STATE RULES:
 - confirm for a pending new order means newOrderFlowActive=true.
 - Do not treat a fresh new-order request as a modification just because an old order exists.
 - Do not decide pricing, required fields, ownership, database validity, cancellation eligibility, or execution safety. Those are application responsibilities.` },
-        { role: "user", content: `ACTIVE DATABASE ORDER EXISTS: ${hasActiveOrder}\nPENDING NEW ORDER EXISTS: ${hasPendingNewOrder}\n\nEXISTING DELIVERY DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}` }
+        { role: "user", content: `ACTIVE DATABASE ORDER EXISTS: ${hasActiveOrder}\nPENDING NEW ORDER EXISTS: ${hasPendingNewOrder}\n\nEXISTING ORDER DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}; scheduledAt=${delivery.preferredSchedule ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}` }
       ]
     });
     const raw = response.message?.content?.trim();
