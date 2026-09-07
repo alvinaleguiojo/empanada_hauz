@@ -183,6 +183,10 @@ export class MessengerService {
     return lines.join("\n").trim();
   }
 
+  private titleCase(value: string) {
+    return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
   async getAiSettings() { return this.aiControl.getState(); }
   async setGlobalAiEnabled(enabled: boolean) { this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`); return this.aiControl.setGlobalEnabled(enabled); }
   async getCustomerAiSettings(customerId: string) { return this.aiControl.getCustomerState(customerId); }
