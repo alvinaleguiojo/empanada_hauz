@@ -11,6 +11,7 @@ import { AiOrderActionService } from "./ai-order-action.service";
 import { AiOrderNormalizationService } from "./ai-order-normalization.service";
 import { AiOrderRescheduleService } from "./ai-order-reschedule.service";
 import { AiService } from "./ai.service";
+import { AiApplicationToolsService } from "./ai-application-tools.service";
 import { SafeAiOrderActionService } from "./safe-ai-order-action.service";
 import { SafeAiService } from "./safe-ai.service";
 
@@ -19,12 +20,13 @@ import { SafeAiService } from "./safe-ai.service";
   providers: [
     { provide: AiService, useClass: SafeAiService },
     { provide: AiOrderActionService, useClass: SafeAiOrderActionService },
+    AiApplicationToolsService,
     AiControlService,
     AiContextGuardService,
     AiDeliveryFeeContextService,
     AiOrderNormalizationService,
     AiOrderRescheduleService
   ],
-  exports: [AiService, AiControlService, AiOrderActionService]
+  exports: [AiService, AiControlService, AiOrderActionService, AiApplicationToolsService]
 })
 export class AiModule {}
