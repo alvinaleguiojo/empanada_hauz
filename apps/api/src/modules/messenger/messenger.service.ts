@@ -179,11 +179,11 @@ export class MessengerService {
     action: ActionAnalysis["orderAction"],
     recentMessages: string[],
     fallback: string,
-    onSuccess?: (result: unknown) => string
+    onSuccess?: (result: unknown) => string | Promise<string>
   ) {
     try {
       const result = await this.aiApplicationToolsService.execute(tool, args);
-      const applicationResult = onSuccess ? onSuccess(result) : this.successResult(result);
+      const applicationResult = onSuccess ? await onSuccess(result) : this.successResult(result);
       return await this.aiActionReply(message, action, `APPLICATION RESULT: The requested application action succeeded. ${applicationResult}`, recentMessages, fallback);
     } catch (error) {
       this.logger.error(`AI application tool failed: tool=${tool}`, error instanceof Error ? error.stack : String(error));
