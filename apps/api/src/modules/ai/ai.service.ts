@@ -27,6 +27,14 @@ Do not ask for information already provided.
 Do not ask for a preferred delivery or pickup time.
 Do not invent prices, delivery fees, times, policies, availability, or order details.
 
+Confirmation interpretation rules:
+- The customer may confirm using natural language, shorthand, abbreviations, typos, misspellings, phonetic spellings, or casual Messenger wording.
+- Use the conversation context to determine whether the CURRENT CUSTOMER MESSAGE is accepting the immediately preceding complete order summary.
+- Examples of semantic confirmation include "yes", "yep", "correct", "go ahead", "okay", "sure", "please do", "confirm", and obvious misspellings such as "confir" or other close variants. Do not require an exact keyword.
+- Set confirmed=true only when the CURRENT CUSTOMER MESSAGE clearly means the customer accepts/confirms the current complete order.
+- A message that merely provides new order information, asks a question, changes an item, or requests a summary is not confirmation.
+- Do not mark a message as confirmed only because an earlier message was ready for confirmation. The CURRENT CUSTOMER MESSAGE itself must express acceptance.
+
 Business facts:
 - Minimum order: 10 pcs; mixed flavors allowed.
 - Bacon with Cheese ₱35; Pork Regular ₱20; Pork Regular with Egg ₱25; Pork Asado ₱30.
@@ -177,7 +185,7 @@ export class AiService {
       messages: [
         {
           role: "system",
-          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nThe quantity inside a flavor may be omitted when the customer names a flavor without giving its quantity. Understand abbreviations, typos, shorthand, phonetic spellings, and follow-up answers. If the customer says "Pork regular" then later "10 pcs", interpret 10 pcs as the Pork Regular quantity. If the customer says "Ham", "Ham cheese", "Ham with cheese", or "Ham and cheese", interpret it as "Ham & Cheese". A customer asking "can I order...", "can I get...", "may I order...", or similar wording is a new-order request, not a confirmation. A customer saying what they want to order without an explicit confirmation is not a confirmation. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
+          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD or understood date text",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nConfirmation is semantic, not keyword based. When the immediately preceding conversation contains a complete order summary awaiting confirmation, interpret the CURRENT CUSTOMER MESSAGE as confirmed=true when it clearly accepts that summary, even when it contains a typo, abbreviation, phonetic spelling, shorthand, or casual wording. For example, "confir" should be understood as a likely confirmation in that context. Do not require an exact spelling. Set confirmed=false when the customer is asking a question, supplying new order details, requesting changes, or otherwise not accepting the current summary. A customer asking "can I order...", "can I get...", "may I order...", or similar wording is a new-order request, not a confirmation. A customer saying what they want to order without an explicit confirmation is not a confirmation. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
         },
         {
           role: "user",
@@ -490,14 +498,12 @@ export class AiService {
 
   private isSummaryRequest(lower: string) { return /\b(summary|summarize|summarize my order|send.*summary|show.*summary)\b/i.test(lower); }
   private isOrderStatusQuestion(lower: string) { return /\b(did you place my order|have you placed my order|was my order placed|is my order placed|order status|has my order been placed)\b/i.test(lower); }
-  private isConfirmationMessage(lower: string) { return /^(yes|yeah|yep|yes that's correct|yes thats correct|that's correct|thats correct|correct|confirmed|confirm|go ahead|proceed|okay proceed|yes all are correct|yes all correct|all are correct|everything is correct|place my order|place the order|order it)$/i.test(lower.trim()) || /\b(place my order|place the order|order it)\b/i.test(lower.trim()); }
   private inferIntent(message: string, details: Details): CustomerIntent {
-    const lower = message.toLowerCase();
-    if (this.isConfirmationMessage(lower)) return "order_confirmation";
-    if (/\b(delivery fee|df)\b/.test(lower)) return "delivery_request";
-    if (/\b(pickup|pick up)\b/.test(lower)) return "pickup_request";
-    if (/\b(hm|how much|price|pila|tagpila|presyo)\b/.test(lower) && !details.flavors.length) return "pricing_question";
-    if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(lower)) return "reservation";
+    if (details.confirmed) return "order_confirmation";
+    if (/\b(delivery fee|df)\b/.test(message.toLowerCase())) return "delivery_request";
+    if (/\b(pickup|pick up)\b/.test(message.toLowerCase())) return "pickup_request";
+    if (/\b(hm|how much|price|pila|tagpila|presyo)\b/.test(message.toLowerCase()) && !details.flavors.length) return "pricing_question";
+    if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(message.toLowerCase())) return "reservation";
     return "inquiry";
   }
 
