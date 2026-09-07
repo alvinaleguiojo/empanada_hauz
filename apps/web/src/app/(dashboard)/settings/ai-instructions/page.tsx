@@ -46,6 +46,10 @@ function getTabFromUrl(): SettingsTab {
   return new URLSearchParams(window.location.search).get("tab") === "actions" ? "actions" : "instructions";
 }
 
+function normalizeInstructionBullets(content: string): string {
+  return content.replace(/^(\s*)[*-](?=\s+)/gm, "$1•");
+}
+
 export default function AiInstructionsPage() {
   const [tab, setTab] = useState<SettingsTab>("instructions");
   const [instructions, setInstructions] = useState<AiInstruction[]>([]);
@@ -76,7 +80,7 @@ export default function AiInstructionsPage() {
     setError(null);
     try {
       const result = await apiFetch<AiInstruction[]>("/ai-instructions");
-      setInstructions(result);
+      setInstructions(result.map((item) => ({ ...item, content: normalizeInstructionBullets(item.content) })));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load AI instructions");
     } finally {
@@ -89,7 +93,7 @@ export default function AiInstructionsPage() {
     setEditingId(item._id);
     setForm({
       title: item.title,
-      content: item.content,
+      content: normalizeInstructionBullets(item.content),
       kind: item.kind,
       priority: String(item.priority),
       enabled: item.enabled
@@ -112,7 +116,7 @@ export default function AiInstructionsPage() {
 
     const payload = {
       title: form.title.trim(),
-      content: form.content.trim(),
+      content: normalizeInstructionBullets(form.content.trim()),
       kind: form.kind,
       priority: Number(form.priority),
       enabled: form.enabled
@@ -131,14 +135,16 @@ export default function AiInstructionsPage() {
           method: "PATCH",
           body: JSON.stringify(payload)
         });
-        setInstructions((current) => current.map((item) => (item._id === updated._id ? updated : item)));
+        const normalizedUpdated = { ...updated, content: normalizeInstructionBullets(updated.content) };
+        setInstructions((current) => current.map((item) => (item._id === normalizedUpdated._id ? normalizedUpdated : item)));
         setNotice("AI instruction updated.");
       } else {
         const created = await apiFetch<AiInstruction>("/ai-instructions", {
           method: "POST",
           body: JSON.stringify(payload)
         });
-        setInstructions((current) => [...current, created]);
+        const normalizedCreated = { ...created, content: normalizeInstructionBullets(created.content) };
+        setInstructions((current) => [...current, normalizedCreated]);
         setNotice("AI instruction added.");
       }
 
@@ -158,7 +164,8 @@ export default function AiInstructionsPage() {
         method: "PATCH",
         body: JSON.stringify({ enabled: !item.enabled })
       });
-      setInstructions((current) => current.map((entry) => (entry._id === updated._id ? updated : entry)));
+      const normalizedUpdated = { ...updated, content: normalizeInstructionBullets(updated.content) };
+      setInstructions((current) => current.map((entry) => (entry._id === normalizedUpdated._id ? normalizedUpdated : entry)));
       setNotice(updated.enabled ? `Enabled “${updated.title}”.` : `Disabled “${updated.title}”.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to change instruction status");
@@ -200,22 +207,10 @@ export default function AiInstructionsPage() {
 
       <div className="mb-6 border-b border-white/[0.08]">
         <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="AI configuration tabs">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "instructions"}
-            onClick={() => selectTab("instructions")}
-            className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${tab === "instructions" ? "border-accent text-foreground" : "border-transparent text-foreground/50 hover:text-foreground"}`}
-          >
+          <button type="button" role="tab" aria-selected={tab === "instructions"} onClick={() => selectTab("instructions")} className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${tab === "instructions" ? "border-accent text-foreground" : "border-transparent text-foreground/50 hover:text-foreground"}`}>
             AI Instructions
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "actions"}
-            onClick={() => selectTab("actions")}
-            className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${tab === "actions" ? "border-accent text-foreground" : "border-transparent text-foreground/50 hover:text-foreground"}`}
-          >
+          <button type="button" role="tab" aria-selected={tab === "actions"} onClick={() => selectTab("actions")} className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${tab === "actions" ? "border-accent text-foreground" : "border-transparent text-foreground/50 hover:text-foreground"}`}>
             AI Actions
           </button>
         </div>
@@ -250,11 +245,7 @@ export default function AiInstructionsPage() {
                 </label>
                 <label className="space-y-2 text-sm font-medium">
                   <span>Type</span>
-                  <select
-                    className="h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 text-sm text-foreground outline-none focus:border-accent/50"
-                    value={form.kind}
-                    onChange={(event) => setForm((current) => ({ ...current, kind: event.target.value as InstructionKind }))}
-                  >
+                  <select className="h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 text-sm text-foreground outline-none focus:border-accent/50" value={form.kind} onChange={(event) => setForm((current) => ({ ...current, kind: event.target.value as InstructionKind }))}>
                     <option value="instruction">Instruction — AI behavior</option>
                     <option value="prompt">Prompt — customer reply</option>
                   </select>
@@ -273,12 +264,12 @@ export default function AiInstructionsPage() {
                 <textarea
                   maxLength={10000}
                   value={form.content}
-                  onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
+                  onChange={(event) => setForm((current) => ({ ...current, content: normalizeInstructionBullets(event.target.value) }))}
                   placeholder="Instruction: Tell the AI how to interpret order messages. Prompt: Tell the AI how customer-facing replies should sound."
                   rows={14}
                   className="w-full resize-y rounded-xl border border-white/[0.1] bg-white/[0.05] px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-foreground/30 focus:border-accent/50"
                 />
-                <span className="text-xs font-normal text-foreground/40">Maximum 10,000 characters.</span>
+                <span className="text-xs font-normal text-foreground/40">Use • for list bullets. Maximum 10,000 characters.</span>
               </label>
 
               <div className="flex flex-wrap items-center justify-between gap-4">
