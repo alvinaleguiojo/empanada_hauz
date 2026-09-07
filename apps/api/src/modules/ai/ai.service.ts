@@ -116,7 +116,7 @@ export class AiService {
   ) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
-    this.interpretationModel = this.config.get<string>("OLLAMA_INTERPRET_MODEL", "qwen2.5:0.5b");
+    this.interpretationModel = this.config.get<string>("OLLAMA_INTERPRET_MODEL", "qwen3-4b-4096");
   }
 
   async classifyAndExtract(message: string, context?: { customerName?: string; recentMessages?: string[]; activeOrderState?: Details }): Promise<AIIntentResult> {
@@ -140,9 +140,9 @@ export class AiService {
     current.startsNewConversation = applicationAction === "inquiry" && !context?.activeOrderState;
 
     const details = this.mergeOrderState(context?.activeOrderState, current);
-    const systemPrompt = await this.aiInstructionsService.getActivePromptBlock();
+    const replyPrompt = await this.aiInstructionsService.getActiveReplyPromptBlock();
     const replyContext = this.buildReplyContext(message, recentMessages, details, applicationAction);
-    const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
+    const suggestedReply = await this.generateCustomerReply(replyPrompt, message, replyContext);
     const confidence = current.flavors.length || details.flavors.length || current.confirmed || applicationAction !== "inquiry" || Boolean(details.deliveryMethod) || Boolean(details.paymentMethod) ? 1 : 0;
     return { intent: current.intent, confidence, details, suggestedReply, source: "ollama" };
   }
@@ -171,9 +171,9 @@ export class AiService {
     const status = outcome === "created"
       ? `APPLICATION RESULT: The application successfully created the customer's confirmed order.${orderNumber ? ` Order number: ${orderNumber}.` : ""}`
       : "APPLICATION RESULT: The application could not create the customer's confirmed order.";
-    const systemPrompt = await this.aiInstructionsService.getActivePromptBlock();
+    const replyPrompt = await this.aiInstructionsService.getActiveReplyPromptBlock();
     const messages: Array<{ role: "system" | "user"; content: string }> = [
-      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      ...(replyPrompt ? [{ role: "system" as const, content: replyPrompt }] : []),
       { role: "user", content: status }
     ];
     const response = await this.ollamaChat({ model: this.model, stream: false, think: false, options: { temperature: 0.2, num_predict: 96, num_ctx: 1536 }, messages }, "Ollama order result reply failed");
@@ -183,7 +183,7 @@ export class AiService {
   }
 
   private async extractCurrentOrderFields(message: string, now: string, recentMessages: string[], activeOrderState?: Details): Promise<CurrentInterpretation> {
-    const systemPrompt = await this.aiInstructionsService.getActivePromptBlock();
+    const instructionBlock = await this.aiInstructionsService.getActiveInstructionBlock();
     const userContent = [
       `CURRENT DATE/TIME IN ASIA/MANILA: ${now}`,
       `RECENT CONVERSATION: ${recentMessages.length ? recentMessages.join("\n") : "none"}`,
@@ -191,7 +191,7 @@ export class AiService {
       `CURRENT CUSTOMER MESSAGE: ${message}`
     ].join("\n\n");
     const messages: Array<{ role: "system" | "user"; content: string }> = [
-      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      ...(instructionBlock ? [{ role: "system" as const, content: instructionBlock }] : []),
       { role: "user", content: userContent }
     ];
     const response = await this.ollamaChat({
@@ -458,14 +458,14 @@ export class AiService {
       "pork regular egg": "Pork Regular with Egg",
       "chicken egg": "Chicken with Egg",
       "beef egg": "Beef with Egg",
-      "ham": "Ham & Cheese",
       "ham and cheese": "Ham & Cheese",
       "ham cheese": "Ham & Cheese",
       "ham with cheese": "Ham & Cheese",
+      "ham": "Ham & Cheese",
       "ube": "Ube Empanada",
       "chocolate": "Choco"
     };
-    return aliases[normalized] ?? raw.trim();
+    return aliases[normalized] ?? "";
   }
 
   private optionalText(value?: unknown) {
