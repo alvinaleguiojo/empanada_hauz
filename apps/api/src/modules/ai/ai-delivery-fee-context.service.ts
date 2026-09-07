@@ -62,6 +62,8 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
 
     let activeOrderState = context?.activeOrderState;
     const requestedLocation = this.extractRequestedDeliveryLocation(message, isDeliveryFeeFollowUp);
+    const previousLocation = !requestedLocation && !isLocationSelection ? this.extractRecentDeliveryLocation(recentMessages) : undefined;
+    const effectiveLocation = requestedLocation ?? previousLocation;
 
     if (isLocationSelection) {
       const selected = this.resolveLocationSelection(message, recentMessages);
@@ -81,20 +83,23 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
         recentMessages.push("APPLICATION DELIVERY LOCATION RESULT: The selected location number was invalid. Ask the customer to choose one of the listed location numbers.");
         return { context: { ...context, recentMessages }, estimatedFare: undefined };
       }
-    } else if (requestedLocation) {
+    } else if (effectiveLocation) {
       activeOrderState = {
         ...activeOrderState,
         flavors: [...(activeOrderState?.flavors ?? [])],
         missingFields: [...(activeOrderState?.missingFields ?? [])],
         confirmed: activeOrderState?.confirmed ?? false,
-        address: requestedLocation,
-        location: requestedLocation
+        address: effectiveLocation,
+        location: effectiveLocation
       };
+      if (previousLocation) {
+        recentMessages.push(`APPLICATION REMEMBERED DELIVERY LOCATION: ${previousLocation}. Use this previously provided customer destination for the current delivery-fee question unless the customer supplies a new location.`);
+      }
     }
 
     const state = activeOrderState;
 
-    if (!requestedLocation && !isLocationSelection && (this.isCoordinateOnly(state?.address) || this.isCoordinateOnly(state?.location))) {
+    if (!effectiveLocation && !isLocationSelection && (this.isCoordinateOnly(state?.address) || this.isCoordinateOnly(state?.location))) {
       recentMessages.push(
         "APPLICATION DELIVERY FEE TOOL RESULT: The saved delivery location is invalid and is not a verified customer address. Ask the customer for their delivery location before calculating a fee. Never invent a fee."
       );
@@ -166,6 +171,7 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
 
   private extractRequestedDeliveryLocation(message: string, isFollowUp = false) {
     if (isFollowUp) {
+      if (this.isDeliveryFeeQuestion(message)) return undefined;
       const followUpLocation = message
         .replace(/[.!,;?]+$/g, "")
         .replace(/\s+/g, " ")
@@ -184,6 +190,22 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
 
     if (!location || /^(?:my area|your area|there|here)$/i.test(location)) return undefined;
     return location;
+  }
+
+  private extractRecentDeliveryLocation(recentMessages: string[]) {
+    for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+      const entry = recentMessages[index].replace(/\s+/g, " ").trim();
+      if (!entry || /^APPLICATION /i.test(entry)) continue;
+
+      const match = entry.match(/\b(?:arrange|request|want|need)?\s*delivery\s+(?:in|at|to|for)\s+([^?.!]+?)(?:[?.!]|$)/i)
+        ?? entry.match(/\bdeliver(?:y)?\s+(?:in|at|to|for)\s+([^?.!]+?)(?:[?.!]|$)/i);
+      if (!match?.[1]) continue;
+
+      const location = match[1].replace(/\s+/g, " ").trim();
+      if (!location || /^(?:my area|your area|there|here)$/i.test(location)) continue;
+      return location;
+    }
+    return undefined;
   }
 
   private isDeliveryFeeLocationFollowUp(message: string, recentMessages: string[]) {
