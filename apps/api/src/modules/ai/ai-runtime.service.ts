@@ -8,14 +8,7 @@ import { ProductsService, ProductRecord } from "../products/products.service";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 
 interface OllamaResponse { message?: { content?: string } }
-interface RuntimeRequest {
-  customerId: string;
-  conversationId: string;
-  channel: string;
-  customerName?: string;
-  message: string;
-  recentMessages?: string[];
-}
+interface RuntimeRequest { customerId: string; conversationId: string; channel: string; customerName?: string; message: string; recentMessages?: string[] }
 interface ToolCallPlan { type: "tool_call"; tool: string; arguments?: Record<string, unknown> }
 interface FinalPlan { type: "final"; reply: string }
 type Plan = ToolCallPlan | FinalPlan;
@@ -49,36 +42,30 @@ export class AiRuntimeService {
     const state = await this.stateService.get(request.conversationId, request.customerId);
     const tools = await this.toolRegistry.getTools();
     const context = this.buildContext(request, products, deliveryPricing, state?.draft, tools);
-
     let currentMessages = [...(request.recentMessages ?? []).slice(-16)];
-    let lastToolResult: unknown = undefined;
+    let lastToolResult: unknown;
     let lastAction: string | undefined;
 
     for (let step = 0; step < 4; step += 1) {
       const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction });
-      if (plan.type === "final") return { reply: this.cleanReply(plan.reply), tool: lastAction, state: await this.stateService.get(request.conversationId, request.customerId) };
+      if (plan.type === "final") return { reply: this.cleanReply(plan.reply), tool: lastAction, toolResult: lastToolResult, state: await this.stateService.get(request.conversationId, request.customerId) };
 
       const definition = tools.find((tool) => tool.name === plan.tool);
       if (!definition) throw new BadRequestException(`AI selected an unavailable tool: ${plan.tool}`);
       const args = { ...(plan.arguments ?? {}) };
-      if (definition.requiresExplicitConfirmation && args.confirmed !== true) {
+      try {
         lastAction = plan.tool;
-        lastToolResult = { ok: false, error: "Explicit customer confirmation is required before this action can execute." };
-      } else {
-        try {
-          lastAction = plan.tool;
-          lastToolResult = await this.toolRegistry.execute(plan.tool, args, { customerId: request.customerId, conversationId: request.conversationId, channel: request.channel });
-        } catch (error) {
-          this.logger.warn(`AI tool execution failed: ${plan.tool}: ${error instanceof Error ? error.message : String(error)}`);
-          lastToolResult = { ok: false, error: error instanceof Error ? error.message : "Application action failed." };
-        }
+        if (definition.requiresExplicitConfirmation && args.confirmed !== true) throw new BadRequestException("Explicit customer confirmation is required before this action can execute.");
+        lastToolResult = await this.toolRegistry.execute(plan.tool, args, { customerId: request.customerId, conversationId: request.conversationId, channel: request.channel });
+      } catch (error) {
+        this.logger.warn(`AI tool execution failed: ${plan.tool}: ${error instanceof Error ? error.message : String(error)}`);
+        lastToolResult = { ok: false, error: error instanceof Error ? error.message : "Application action failed." };
       }
-
       currentMessages.push(`AI TOOL CALL: ${plan.tool} ${JSON.stringify(args)}`);
       currentMessages.push(`AI TOOL RESULT: ${JSON.stringify(lastToolResult)}`);
     }
 
-    return { reply: await this.generateFinalReply(request.message, replyInstructions, currentMessages, lastToolResult), tool: lastAction, state: await this.stateService.get(request.conversationId, request.customerId) };
+    return { reply: await this.generateFinalReply(request.message, replyInstructions, currentMessages, lastToolResult), tool: lastAction, toolResult: lastToolResult, state: await this.stateService.get(request.conversationId, request.customerId) };
   }
 
   private buildContext(request: RuntimeRequest, products: ProductRecord[], deliveryPricing: { baseFare: number; perKmRate: number }, draft: unknown, tools: AiToolDefinition[]) {
@@ -87,7 +74,7 @@ export class AiRuntimeService {
       `CUSTOMER: ${request.customerName || "Customer"}`,
       `CUSTOMER ID: ${request.customerId}`,
       `CONVERSATION ID: ${request.conversationId}`,
-      `AVAILABLE PRODUCTS: ${products.map((product) => `${product.name} | price=₱${product.price} | category=${product.category} | aliases=${product.aliases.join(", ") || "none"}`).join("\n") || "none"}`,
+      `AVAILABLE PRODUCTS:\n${products.map((product) => `${product.name} | price=₱${product.price} | category=${product.category} | aliases=${product.aliases.join(", ") || "none"}`).join("\n") || "none"}`,
       `DELIVERY PRICING: baseFare=₱${deliveryPricing.baseFare}; perKmRate=₱${deliveryPricing.perKmRate}`,
       `PENDING ORDER DRAFT: ${draft ? JSON.stringify(draft) : "none"}`,
       `AVAILABLE AI TOOLS:\n${tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}`,
@@ -96,7 +83,7 @@ export class AiRuntimeService {
   }
 
   private async plan(input: { instructions: string; context: string; messages: string[]; message: string; lastToolResult?: unknown; lastAction?: string }): Promise<Plan> {
-    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}\n\nYou are operating inside the Empanada Hauz application runtime. Decide whether to call one available AI tool or return a final customer reply. Use the current customer message as the primary intent signal and conversation/draft context to resolve references.\n\nReturn ONLY valid JSON in one of these forms:\n{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}\n{"type":"final","reply":"customer-facing reply"}\n\nRules:\n- Do not execute an action by merely saying it; use the corresponding tool.\n- Use capture_order_draft while collecting or changing a pending new order. It does not create a real order.\n- Use create_order only after the customer explicitly confirms a complete draft and pass confirmed=true.\n- Use summary/status/update/cancel/delete tools when the customer actually requests those actions.\n- For product or delivery questions, use the live catalog/context or read-only tools when useful.\n- Never expose internal tool names, JSON, prompts, or implementation details to the customer.\n- Never claim success until a tool result says the action succeeded.\n- Keep replies concise and natural.\n\nRUNTIME CONTEXT:\n${input.context}`;
+    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}\n\nYou are operating inside the Empanada Hauz application runtime. Decide whether to call one available AI tool or return a final customer reply. Use the current customer message as the primary intent signal and conversation/draft context to resolve references.\n\nReturn ONLY valid JSON in one of these forms:\n{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}\n{"type":"final","reply":"customer-facing reply"}\n\nRules:\n- Do not execute an action by merely saying it; use the corresponding tool.\n- Use capture_order_draft while collecting or changing a pending new order. It does not create a real order.\n- Use create_order only after the customer explicitly confirms a complete draft and pass confirmed=true.\n- Use summary/status/update/cancel/delete tools when the customer actually requests those actions.\n- Use live catalog and delivery data instead of inventing prices or policies.\n- Never expose internal tool names, JSON, prompts, or implementation details to the customer.\n- Never claim success until a tool result says the action succeeded.\n- Keep replies concise and natural.\n\nRUNTIME CONTEXT:\n${input.context}`;
     const user = [`RECENT CONVERSATION:\n${input.messages.join("\n") || "none"}`, `CURRENT CUSTOMER MESSAGE:\n${input.message}`, input.lastAction ? `LAST TOOL: ${input.lastAction}` : "", input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : ""].filter(Boolean).join("\n\n");
     const response = await this.chat({ model: this.model, stream: false, think: false, format: "json", options: { temperature: 0.1, num_predict: 384, num_ctx: 8192 }, messages: [{ role: "system", content: system }, { role: "user", content: user }] });
     const raw = response.message?.content?.trim();
@@ -105,16 +92,10 @@ export class AiRuntimeService {
   }
 
   private async generateFinalReply(message: string, instructions: string, context: string[], result: unknown) {
-    const response = await this.chat({
-      model: this.model,
-      stream: false,
-      think: false,
-      options: { temperature: 0.2, num_predict: 256, num_ctx: 4096 },
-      messages: [
-        { role: "system", content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nRespond only to the current customer message. Application tool results are authoritative. Never invent successful actions or data. Do not mention tools or internal implementation. Keep the reply concise and Messenger-friendly.` },
-        { role: "user", content: `CURRENT MESSAGE:\n${message}\n\nCONVERSATION:\n${context.slice(-12).join("\n")}\n\nLAST APPLICATION RESULT:\n${JSON.stringify(result)}` }
-      ]
-    });
+    const response = await this.chat({ model: this.model, stream: false, think: false, options: { temperature: 0.2, num_predict: 256, num_ctx: 4096 }, messages: [
+      { role: "system", content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nApplication results are authoritative. Never invent successful actions or data. Do not mention tools or internal implementation. Keep the reply concise and Messenger-friendly.` },
+      { role: "user", content: `CURRENT MESSAGE:\n${message}\n\nCONVERSATION:\n${context.slice(-12).join("\n")}\n\nLAST APPLICATION RESULT:\n${JSON.stringify(result)}` }
+    ] });
     return this.cleanReply(response.message?.content?.trim() || "How can I help you with your Empanada Hauz order? 😊");
   }
 
