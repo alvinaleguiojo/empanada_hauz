@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 import { McpOrdersService } from "../mcp/mcp-orders.service";
-import { OrdersService } from "../orders/orders.service";
 
 export type AiApplicationToolName =
   | "get_order_summary"
@@ -15,8 +14,7 @@ export type AiApplicationToolName =
 export class AiApplicationToolsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mcpOrdersService: McpOrdersService,
-    private readonly ordersService: OrdersService
+    private readonly mcpOrdersService: McpOrdersService
   ) {}
 
   async execute(tool: AiApplicationToolName, args: Record<string, unknown>) {
@@ -26,7 +24,7 @@ export class AiApplicationToolsService {
       case "check_order_status":
         return this.getCustomerOrderStatus(this.stringArg(args.customerId), this.stringArg(args.orderNumber));
       case "create_order":
-        return this.mcpOrdersService.createOrder(args as Parameters<McpOrdersService["createOrder"]>[0]);
+        return this.createCustomerOrder(args);
       case "update_order":
         return this.updateCustomerOrder(this.stringArg(args.customerId), args);
       case "cancel_order":
@@ -55,6 +53,15 @@ export class AiApplicationToolsService {
     };
   }
 
+  private async createCustomerOrder(args: Record<string, unknown>) {
+    const customerName = this.stringArg(args.customerName);
+    const quantity = typeof args.quantity === "number" ? args.quantity : undefined;
+    if (!customerName || quantity === undefined) throw new BadRequestException("customerName and quantity are required.");
+    const payload = { ...args };
+    delete payload.customerId;
+    return this.mcpOrdersService.createOrder(payload as Parameters<McpOrdersService["createOrder"]>[0]);
+  }
+
   private async updateCustomerOrder(customerId: string, args: Record<string, unknown>) {
     const order = await this.findCustomerOrder(customerId, this.stringArg(args.orderNumber), this.stringArg(args.id));
     const payload = { ...args, id: order.id } as Parameters<McpOrdersService["updateOrder"]>[0];
@@ -69,9 +76,7 @@ export class AiApplicationToolsService {
 
   private async deleteCustomerOrder(customerId: string, orderNumber?: string) {
     const order = await this.findCustomerOrder(customerId, orderNumber);
-    if (["completed", "cancelled"].includes(order.status)) {
-      throw new BadRequestException("Closed orders cannot be deleted from Messenger.");
-    }
+    if (["completed", "cancelled"].includes(order.status)) throw new BadRequestException("Closed orders cannot be deleted from Messenger.");
     return this.mcpOrdersService.deleteOrder({ id: order.id });
   }
 
