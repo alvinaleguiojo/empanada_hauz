@@ -220,14 +220,40 @@ export class MessengerService {
     const locationChanged = details.location !== undefined && details.location !== (latestOrder.location ?? undefined);
     const addressChanged = details.address !== undefined && details.address !== (latestOrder.address ?? undefined);
     const contactChanged = details.contactNumber !== undefined && details.contactNumber !== (latestOrder.customer.phoneNumber ?? undefined);
-    const proposedSchedule = details.deliveryDate && details.preferredTime ? this.toManilaIso(details.deliveryDate, details.preferredTime) : undefined;
+    const proposedSchedule = this.resolveRequestedSchedule(details, latestOrder.preferredSchedule);
     const scheduleChanged = proposedSchedule !== undefined && proposedSchedule !== (latestOrder.preferredSchedule?.toISOString() ?? undefined);
     return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged;
   }
 
   private async updateCustomerOrderFromAi(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, orderNumber: string) {
     const details = ai.details; const flavors = details.flavors ?? [];
-    return this.mcpOrdersService.updateOrder({ orderNumber, ...(flavors.length ? { items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })) } : {}), ...(details.quantity !== undefined ? { quantity: Number(details.quantity) } : {}), ...(details.deliveryMethod ? { deliveryMethod: details.deliveryMethod } : {}), ...(details.paymentMethod ? { paymentMethod: details.paymentMethod } : {}), ...(details.address !== undefined ? { address: details.address } : {}), ...(details.location !== undefined ? { location: details.location } : {}), ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}), ...(details.deliveryDate || details.preferredTime ? { preferredSchedule: this.toManilaIso(details.deliveryDate, details.preferredTime) } : {}) });
+    const existingOrder = await this.prisma.order.findUnique({ where: { orderNumber }, select: { preferredSchedule: true } });
+    const requestedSchedule = this.resolveRequestedSchedule(details, existingOrder?.preferredSchedule ?? null);
+    return this.mcpOrdersService.updateOrder({ orderNumber, ...(flavors.length ? { items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })) } : {}), ...(details.quantity !== undefined ? { quantity: Number(details.quantity) } : {}), ...(details.deliveryMethod ? { deliveryMethod: details.deliveryMethod } : {}), ...(details.paymentMethod ? { paymentMethod: details.paymentMethod } : {}), ...(details.address !== undefined ? { address: details.address } : {}), ...(details.location !== undefined ? { location: details.location } : {}), ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}), ...(requestedSchedule ? { preferredSchedule: requestedSchedule } : {}) });
+  }
+
+  private resolveRequestedSchedule(details: OrderDetails, existingSchedule: Date | null) {
+    if (!details.deliveryDate && !details.preferredTime) return undefined;
+    const existing = existingSchedule ? this.manilaScheduleParts(existingSchedule) : null;
+    const date = details.deliveryDate ?? existing?.date;
+    const time = details.preferredTime ?? existing?.time;
+    return this.toManilaIso(date, time);
+  }
+
+  private manilaScheduleParts(value: Date) {
+    const parts = new Intl.DateTimeFormat("en-PH", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).formatToParts(value);
+    const get = (type: string) => parts.find((part) => part.type === type)?.value;
+    const date = [get("year"), get("month"), get("day")].every(Boolean) ? `${get("year")}-${get("month")}-${get("day")}` : undefined;
+    const time = [get("hour"), get("minute")].every(Boolean) ? `${get("hour").padStart(2, "0")}:${get("minute").padStart(2, "0")}` : undefined;
+    return { date, time };
   }
 
   private describeOrderValidation(details: OrderDetails) {
