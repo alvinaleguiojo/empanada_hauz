@@ -28,11 +28,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
   { label: "Mango Flavor", value: "Mango Flavor", price: 25 }
 ];
 
-/**
- * Runtime menu cache used by the customer ordering form and staff order forms.
- * Defaults are only the first-render fallback; the Product API replaces this
- * list at runtime so Admin Product changes propagate without code edits.
- */
+/** Runtime menu cache. Defaults are first-render fallback only. */
 export const MENU_ITEMS: MenuItem[] = [...DEFAULT_MENU_ITEMS];
 
 export function replaceMenuItems(products: ProductCatalogItem[]) {
@@ -52,6 +48,5 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
       };
     });
 
-  if (!next.length) return;
   MENU_ITEMS.splice(0, MENU_ITEMS.length, ...next);
 }
