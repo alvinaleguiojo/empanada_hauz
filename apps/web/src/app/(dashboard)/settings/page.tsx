@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Bot, KeyRound, Package, ShieldCheck, SlidersHorizontal, Users } from "lucide-react";
+import { Bot, KeyRound, Package, ShieldCheck, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
 
@@ -12,8 +12,7 @@ const sections: SettingsSection[] = [
   { href: "/settings/users", title: "Users", description: "Create staff accounts, change roles, reset passwords, and remove access.", icon: Users, permission: "users.manage" },
   { href: "/settings/roles", title: "Roles & Permissions", description: "Review the permissions granted to Admin, Operations, Kitchen, Dispatcher, and Rider roles.", icon: ShieldCheck, permission: "roles.manage" },
   { href: "/settings/products", title: "Products", description: "Add, edit, delete, price, and enable or disable products across the app.", icon: Package, permission: "products.manage" },
-  { href: "/settings/ai-instructions", title: "AI Instructions", description: "Configure runtime instructions and customer-facing AI behavior.", icon: Bot, permission: "ai-instructions.manage" },
-  { href: "/settings/ai-actions", title: "AI Actions", description: "Enable or disable AI capabilities and tune the semantic descriptions used to select them.", icon: SlidersHorizontal, permission: "ai-actions.manage" }
+  { href: "/settings/ai-instructions", title: "AI Instructions", description: "Configure runtime instructions, customer-facing AI behavior, and AI actions.", icon: Bot, permission: "ai-instructions.manage" }
 ];
 
 export default function SettingsPage() {
