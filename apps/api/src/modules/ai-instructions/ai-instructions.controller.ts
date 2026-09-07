@@ -31,7 +31,8 @@ export class AiInstructionsController {
   }
 
   @Delete(":id")
-  remove(@Param("id") id: string) {
-    return this.aiInstructionsService.remove(id);
+  async remove(@Param("id") id: string) {
+    await this.aiInstructionsService.remove(id);
+    return { success: true };
   }
 }
