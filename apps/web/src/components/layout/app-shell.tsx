@@ -7,7 +7,7 @@ import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, LogOut, Maximize2, MessageCircle, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, ReceiptText, Send, Share2, Truck, Video, VideoOff } from "lucide-react";
+import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, LogOut, Maximize2, MessageCircle, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, ReceiptText, Send, Settings, Share2, Truck, Video, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { socket } from "@/lib/socket";
@@ -20,7 +20,8 @@ const items = [
   { href: "/orders", label: "Orders", icon: ClipboardList },
   { href: "/expenses", label: "Expenses", icon: ReceiptText },
   { href: "/referrals", label: "Referrals", icon: Share2 },
-  { href: "/delivery-network", label: "Delivery", icon: Truck}
+  { href: "/delivery-network", label: "Delivery", icon: Truck },
+  { href: "/settings", label: "Settings", icon: Settings }
 ];
 
 const VOICE_CALL_CONFIGURATION: RTCConfiguration = {
@@ -143,12 +144,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         );
       }
     } else if (voiceCallStatus === "idle") {
-      // On the very first render voiceCallStatus is "idle" by default,
-      // before the restore-on-reload effect (a few renders later) has had
-      // a chance to read sessionStorage. Without this guard, that initial
-      // "idle" render wipes the persisted call before it can ever be
-      // resumed. Only actually clear storage once we've observed a real
-      // busy status at least once this session.
       if (voiceCallPersistHydratedRef.current) {
         window.sessionStorage.removeItem("empanada-active-voice-call");
       }
@@ -450,9 +445,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Our call partner's tab just (re)announced itself, most likely because
-      // they refreshed mid-call. Tear down the now-stale connection and
-      // re-offer using the same callId so their reload can pick it back up.
       const stalePeerConnection = voiceCallPeerConnectionRef.current;
       voiceCallPeerConnectionRef.current = null;
       if (stalePeerConnection) {
@@ -864,8 +856,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         void voiceCallLocalVideoRef.current.play().catch(() => undefined);
       }
 
-      // The browser's own "Stop sharing" control ends the track directly,
-      // so react to that the same way as our own toggle button.
       screenTrack.onended = () => {
         void toggleScreenShare();
       };
@@ -1045,7 +1035,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:block lg:space-y-2 lg:overflow-visible lg:px-0 lg:pb-0">
             {items.map((item) => {
               const Icon = item.icon;
-              const active = pathname === item.href;
+              const active = pathname === item.href || (item.href === "/settings" && pathname.startsWith("/settings/"));
               return (
                 <Link
                   key={item.href}
