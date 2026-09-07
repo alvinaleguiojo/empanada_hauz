@@ -19,6 +19,11 @@ export type RiderStatus = (typeof RIDER_STATUSES)[number];
 export type VehicleType = (typeof VEHICLE_TYPES)[number];
 export type DeliveryJobStatus = (typeof DELIVERY_JOB_STATUSES)[number];
 
+export class UpdateDeliveryPricingDto {
+  @Type(() => Number) @IsNumber() @Min(0) baseFare!: number;
+  @Type(() => Number) @IsNumber() @Min(0) perKmRate!: number;
+}
+
 export class CreateRiderDto {
   @IsString() name!: string;
   @IsString() email!: string;
