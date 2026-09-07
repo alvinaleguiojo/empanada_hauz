@@ -35,6 +35,11 @@ export class MessengerOrderSummaryService {
   ) {}
 
   async tryHandle(senderId: string, message: string): Promise<boolean> {
+    const actionContext = await this.getActionContext(senderId, message);
+    if (actionContext?.orderAction === "cancel_existing") {
+      return this.handleCancellation(senderId, actionContext.hasActiveOrder, actionContext.customerId);
+    }
+
     if (!this.isSummaryRequest(message)) return false;
 
     const profileName = await this.messengerService.getMessengerProfileName(senderId);
@@ -49,10 +54,7 @@ export class MessengerOrderSummaryService {
 
     if (orderNumber) {
       const directOrder = await this.prisma.order.findFirst({
-        where: {
-          orderNumber,
-          customerId: customer.id
-        },
+        where: { orderNumber, customerId: customer.id },
         select: this.orderSelect()
       }) as OrderSummary | null;
 
@@ -82,6 +84,75 @@ export class MessengerOrderSummaryService {
     return true;
   }
 
+  private async getActionContext(senderId: string, message: string) {
+    try {
+      const profileName = await this.messengerService.getMessengerProfileName(senderId);
+      const customer = await this.customersService.findOrCreateByMessenger(senderId, profileName?.trim() || "Messenger Customer");
+      const conversation = await this.prisma.conversation.findFirst({
+        where: { customerId: customer.id, channel: "messenger" },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true }
+      });
+      const recentMessages = conversation
+        ? await this.prisma.message.findMany({
+            where: { conversationId: conversation.id },
+            orderBy: { createdAt: "desc" },
+            take: 16,
+            select: { direction: true, content: true }
+          })
+        : [];
+      const latestOrder = await this.prisma.order.findFirst({
+        where: { customerId: customer.id, status: { notIn: ["completed", "cancelled"] } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { orderNumber: true, status: true, deliveryMethod: true, address: true, location: true, paymentMethod: true, customer: { select: { phoneNumber: true } } }
+      });
+      const action = await this.aiOrderActionService.analyze(message, {
+        recentMessages: recentMessages.slice().reverse().map((item) => `${item.direction === "inbound" ? "Customer" : "Assistant"}: ${item.content}`),
+        hasActiveOrder: Boolean(latestOrder),
+        hasPendingNewOrder: false,
+        existingDeliveryDetails: latestOrder ? { deliveryMethod: latestOrder.deliveryMethod, address: latestOrder.address, location: latestOrder.location, contactNumber: latestOrder.customer.phoneNumber, paymentMethod: latestOrder.paymentMethod } : undefined
+      });
+      return { ...action, hasActiveOrder: Boolean(latestOrder), customerId: customer.id, orderNumber: latestOrder?.orderNumber ?? null };
+    } catch (error) {
+      this.logger.warn(`Messenger action lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  private async handleCancellation(senderId: string, hasActiveOrder: boolean, customerId: string) {
+    const latestOrder = await this.prisma.order.findFirst({
+      where: { customerId, status: { notIn: ["completed", "cancelled"] } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true, orderNumber: true, status: true }
+    });
+
+    if (!hasActiveOrder || !latestOrder) {
+      await this.messengerService.sendText(senderId, "I couldn't find an active order that can be cancelled. 😊");
+      return true;
+    }
+
+    if (latestOrder.status !== "queued") {
+      await this.messengerService.sendText(
+        senderId,
+        `I can only cancel an order while it is still queued. Order #${latestOrder.orderNumber} is currently ${this.titleCase(latestOrder.status)} and can no longer be cancelled. 😊`
+      );
+      return true;
+    }
+
+    try {
+      const cancelled = await this.prisma.order.update({
+        where: { id: latestOrder.id },
+        data: { status: "cancelled" }
+      });
+      this.logger.log(`Cancelled queued Messenger order ${cancelled.orderNumber} for ${senderId}`);
+      await this.messengerService.sendText(senderId, `Your order #${cancelled.orderNumber} has been cancelled successfully. 😊`);
+    } catch (error) {
+      this.logger.error(`Customer order cancellation failed for ${senderId}`, error instanceof Error ? error.stack : String(error));
+      await this.messengerService.sendText(senderId, "I couldn't cancel the order right now. Please try again.");
+    }
+    return true;
+  }
+
   private async findOrdersByCustomer(customerId: string, profileName: string | null) {
     const directOrders = await this.prisma.order.findMany({
       where: { customerId },
@@ -96,12 +167,7 @@ export class MessengerOrderSummaryService {
     if (!normalizedName || normalizedName === "Messenger Customer") return [];
 
     const namedCustomers = await this.prisma.customer.findMany({
-      where: {
-        name: {
-          equals: normalizedName,
-          mode: Prisma.QueryMode.insensitive
-        }
-      },
+      where: { name: { equals: normalizedName, mode: Prisma.QueryMode.insensitive } },
       select: { id: true }
     });
 
@@ -116,9 +182,7 @@ export class MessengerOrderSummaryService {
     });
 
     if (namedOrders.length) {
-      this.logger.log(
-        `Messenger summary name fallback: name=${normalizedName} customerIds=${customerIds.length} orders=${namedOrders.length}`
-      );
+      this.logger.log(`Messenger summary name fallback: name=${normalizedName} customerIds=${customerIds.length} orders=${namedOrders.length}`);
     }
 
     return namedOrders as OrderSummary[];
@@ -175,27 +239,23 @@ export class MessengerOrderSummaryService {
       "",
       ...orders.flatMap((order, index) => {
         const lines = [
-          `Order ${index + 1} • #${order.orderNumber}`,
+          `🧾 Order ${index + 1}`,
+          `Order #: ${order.orderNumber}`,
           `Status: ${this.titleCase(order.status)}`,
+          "",
           this.formatItems(order),
-          `Total: ₱${Number(order.totalAmount || 0).toFixed(2)}`,
-          `Delivery: ${this.formatDelivery(order.deliveryMethod)}`,
-          `Payment: ${this.formatPayment(order.paymentMethod)}`
+          `💰 Total food amount: ₱${Number(order.totalAmount || 0).toFixed(2)}`,
+          "",
+          "🚚 Delivery",
+          `Method: ${this.formatDelivery(order.deliveryMethod)}`,
+          `💳 Payment: ${this.formatPayment(order.paymentMethod)}`
         ];
 
-        if (order.preferredSchedule) {
-          lines.push(`Schedule: ${this.formatSchedule(order.preferredSchedule)}`);
-        }
+        if (order.preferredSchedule) lines.push(`📅 Schedule: ${this.formatSchedule(order.preferredSchedule)}`);
+        if (order.deliveryMethod === "maxim" && order.address?.trim()) lines.push(`Address: ${order.address.trim()}`);
+        if (order.deliveryMethod === "maxim" && order.location?.trim()) lines.push(`Landmark: ${order.location.trim()}`);
 
-        if (order.deliveryMethod === "maxim" && order.address?.trim()) {
-          lines.push(`Address: ${order.address.trim()}`);
-        }
-
-        if (order.deliveryMethod === "maxim" && order.location?.trim()) {
-          lines.push(`Landmark: ${order.location.trim()}`);
-        }
-
-        return [...lines, ""];
+        return [...lines, "", "━━━━━━━━━━━━━━━━━━", ""];
       }),
       orders.length === 5 ? "Showing your 5 most recent orders." : ""
     ].filter(Boolean).join("\n").trim();
@@ -203,20 +263,15 @@ export class MessengerOrderSummaryService {
 
   private formatItems(order: OrderSummary) {
     const items = this.normalizeItems(order.items);
-    if (!items.length) return `Items: ${order.quantity} pcs — ₱${Number(order.unitPrice || 0).toFixed(2)} each`;
+    if (!items.length) return `🛒 Items: ${order.quantity} pcs — ₱${Number(order.unitPrice || 0).toFixed(2)} each`;
     return [
-      "Items:",
+      "🛒 Items",
       ...items.map((item) => `• ${item.quantity} pcs ${item.name} — ₱${item.price.toFixed(2)} each = ₱${item.subtotal.toFixed(2)}`)
     ].join("\n");
   }
 
-  private formatDelivery(value: string) {
-    return value === "maxim" ? "Maxim" : value === "pickup" ? "Pickup" : this.titleCase(value);
-  }
-
-  private formatPayment(value: string) {
-    return value === "gcash" ? "GCash" : value === "cod" ? "COD" : this.titleCase(value);
-  }
+  private formatDelivery(value: string) { return value === "maxim" ? "Maxim" : value === "pickup" ? "Pickup" : this.titleCase(value); }
+  private formatPayment(value: string) { return value === "gcash" ? "GCash" : value === "cod" ? "COD" : this.titleCase(value); }
 
   private normalizeItems(value: unknown) {
     if (!Array.isArray(value)) return [];
@@ -235,14 +290,8 @@ export class MessengerOrderSummaryService {
   }
 
   private formatSchedule(value: Date) {
-    return new Intl.DateTimeFormat("en-PH", {
-      timeZone: "Asia/Manila",
-      dateStyle: "medium",
-      timeStyle: "short"
-    }).format(value);
+    return new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(value);
   }
 
-  private titleCase(value: string) {
-    return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-  }
+  private titleCase(value: string) { return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()); }
 }
