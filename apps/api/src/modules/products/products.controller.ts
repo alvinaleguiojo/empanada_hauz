@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { IsBoolean, IsNumber, IsOptional, IsString } from "class-validator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { ProductsService } from "./products.service";
-import { IsBoolean, IsNumber, IsOptional, IsString } from "class-validator";
 
 class CreateProductDto {
   @IsString() name!: string;
@@ -36,8 +36,8 @@ export class ProductsController {
 
   @UseGuards(JwtAuthGuard)
   @Get("admin/products")
-  listAdmin(@Query("all") all?: string) {
-    return this.productsService.list({ availableOnly: all !== "true" ? false : false });
+  listAdmin() {
+    return this.productsService.list({ availableOnly: false });
   }
 
   @UseGuards(JwtAuthGuard)
