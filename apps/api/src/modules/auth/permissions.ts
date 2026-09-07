@@ -2,91 +2,28 @@ import { UserRole } from "@prisma/client";
 
 export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   admin: [
-    "dashboard.view",
-    "customers.view",
-    "customers.manage",
-    "orders.view",
-    "orders.manage",
-    "inbox.view",
-    "inbox.manage",
-    "expenses.view",
-    "expenses.manage",
-    "inventory.view",
-    "inventory.manage",
-    "kitchen.view",
-    "kitchen.manage",
-    "batches.view",
-    "batches.manage",
-    "deliveries.view",
-    "deliveries.manage",
-    "delivery-network.view",
-    "delivery-network.manage",
-    "riders.view",
-    "riders.manage",
-    "analytics.view",
-    "referrals.view",
-    "referrals.manage",
-    "chat.view",
-    "chat.manage",
-    "notifications.view",
-    "settings.view",
-    "users.manage",
-    "roles.manage"
+    "dashboard.view", "customers.view", "customers.manage", "orders.view", "orders.manage",
+    "inbox.view", "inbox.manage", "expenses.view", "expenses.manage", "inventory.view", "inventory.manage",
+    "kitchen.view", "kitchen.manage", "batches.view", "batches.manage", "deliveries.view", "deliveries.manage",
+    "delivery-network.view", "delivery-network.manage", "riders.view", "riders.manage", "analytics.view",
+    "referrals.view", "referrals.manage", "chat.view", "chat.manage", "notifications.view", "settings.view",
+    "users.manage", "roles.manage", "ai-instructions.manage"
   ],
   operations: [
-    "dashboard.view",
-    "customers.view",
-    "customers.manage",
-    "orders.view",
-    "orders.manage",
-    "inbox.view",
-    "inbox.manage",
-    "expenses.view",
-    "expenses.manage",
-    "inventory.view",
-    "deliveries.view",
-    "deliveries.manage",
-    "analytics.view",
-    "referrals.view",
-    "referrals.manage",
-    "chat.view",
-    "chat.manage",
-    "notifications.view",
-    "settings.view"
+    "dashboard.view", "customers.view", "customers.manage", "orders.view", "orders.manage",
+    "inbox.view", "inbox.manage", "expenses.view", "expenses.manage", "inventory.view",
+    "deliveries.view", "deliveries.manage", "analytics.view", "referrals.view", "referrals.manage",
+    "chat.view", "chat.manage", "notifications.view", "settings.view"
   ],
   kitchen: [
-    "dashboard.view",
-    "orders.view",
-    "kitchen.view",
-    "kitchen.manage",
-    "inventory.view",
-    "batches.view",
-    "batches.manage",
-    "chat.view",
-    "chat.manage",
-    "notifications.view"
+    "dashboard.view", "orders.view", "kitchen.view", "kitchen.manage", "inventory.view",
+    "batches.view", "batches.manage", "chat.view", "chat.manage", "notifications.view"
   ],
   dispatcher: [
-    "dashboard.view",
-    "orders.view",
-    "deliveries.view",
-    "deliveries.manage",
-    "delivery-network.view",
-    "delivery-network.manage",
-    "riders.view",
-    "riders.manage",
-    "chat.view",
-    "chat.manage",
-    "notifications.view"
+    "dashboard.view", "orders.view", "deliveries.view", "deliveries.manage", "delivery-network.view",
+    "delivery-network.manage", "riders.view", "riders.manage", "chat.view", "chat.manage", "notifications.view"
   ],
-  rider: [
-    "dashboard.view",
-    "deliveries.view",
-    "deliveries.manage",
-    "chat.view",
-    "chat.manage",
-    "notifications.view"
-  ]
+  rider: ["dashboard.view", "deliveries.view", "deliveries.manage", "chat.view", "chat.manage", "notifications.view"]
 };
 
 export const PERMISSION_LABELS: Record<string, string> = {
@@ -119,7 +56,8 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "notifications.view": "View notifications",
   "settings.view": "View settings",
   "users.manage": "Manage users",
-  "roles.manage": "Manage roles and permissions"
+  "roles.manage": "Manage roles and permissions",
+  "ai-instructions.manage": "Manage AI instructions"
 };
 
 export function hasPermission(role: UserRole, permission: string): boolean {
@@ -142,9 +80,10 @@ export function permissionForRequest(method: string, path: string): string | nul
   if (normalizedPath.startsWith("/deliveries")) return view ? "deliveries.view" : manage ? "deliveries.manage" : null;
   if (normalizedPath.startsWith("/delivery-network")) return view ? "delivery-network.view" : manage ? "delivery-network.manage" : null;
   if (normalizedPath.startsWith("/rider")) return view ? "riders.view" : manage ? "riders.manage" : null;
-  if (normalizedPath.startsWith("/analytics")) return view ? "analytics.view" : manage ? "analytics.view" : null;
+  if (normalizedPath.startsWith("/analytics")) return "analytics.view";
   if (normalizedPath.startsWith("/referrals")) return view ? "referrals.view" : manage ? "referrals.manage" : null;
   if (normalizedPath.startsWith("/notifications")) return "notifications.view";
+  if (normalizedPath.startsWith("/ai-instructions")) return "ai-instructions.manage";
 
   return null;
 }
