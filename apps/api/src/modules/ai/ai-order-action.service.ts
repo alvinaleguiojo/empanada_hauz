@@ -40,7 +40,7 @@ export class AiOrderActionService {
     const hasPendingNewOrder = Boolean(context.hasPendingNewOrder);
     const response = await this.chat({
       model: this.model, stream: false, think: false, format: "json",
-      options: { temperature: 0.1, num_predict: 256, num_ctx: 3072 },
+      options: { temperature: 0, num_predict: 256, num_ctx: 3072 },
       messages: [
         { role: "system", content: `You are the semantic action router for Empanada Hauz Messenger. Determine WHAT THE CUSTOMER WANTS TO DO NOW from the CURRENT CUSTOMER MESSAGE plus recent conversation and current order state. Never depend on exact keywords.
 
@@ -50,11 +50,13 @@ Return ONLY valid JSON with this shape:
 {"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":true,"reuseExistingDelivery":false,"referencedOrderDate":"YYYY-MM-DD or empty","requestedDeliveryDate":"YYYY-MM-DD or empty","requestedDeliveryTime":"HH:MM or empty"}
 
 DATE/TIME REFERENCE EXTRACTION:
-- When modifying an existing order, identify the date of the existing order being referred to as referencedOrderDate when the customer states it.
+- When modifying an existing order, identify the date of the existing order being referred to as referencedOrderDate when the customer states it or clearly frames it as the current/original schedule.
 - If the customer states a new/target date, return it as requestedDeliveryDate.
 - If the customer states a new/target time, return it as requestedDeliveryTime.
 - For a relative date such as today, tomorrow, next Monday, or next week, resolve it using the current date/time supplied in context.
 - If the customer says something like "move my order on Nov 1 to today", the first date is referencedOrderDate and "today" is requestedDeliveryDate.
+- If the customer says something like "move my order schedule today to tomorrow", treat today as referencedOrderDate and tomorrow as requestedDeliveryDate, because the customer is describing the existing schedule and the desired new schedule.
+- If the customer says something like "I want to move my order today to tomorrow can you check it please", treat today as referencedOrderDate and tomorrow as requestedDeliveryDate.
 - Never put the old/source date into requestedDeliveryDate.
 - These date/time fields are for application routing only; do not invent values when the customer did not provide or clearly imply them.
 
@@ -62,7 +64,7 @@ ACTION MEANINGS:
 - new_order: start or continue a separate/new order.
 - modify_existing: change details of an already-created database order, such as quantity/items/date/time/delivery/payment/address/contact, remove one item, or reschedule/move/postpone/bring forward an existing order.
 - cancel_existing: cancel an entire already-created database order.
-- status: ask whether an order exists, whether it was placed, or its current status.
+- status: ask whether an order exists, whether it was placed, or its current status. A request to change, move, reschedule, postpone, or shift an existing order is NOT status, even if the customer also asks the assistant to check the order.
 - summary: ask to see current or previous order summary/details.
 - inquiry: general business question or anything that is not an order action.
 - confirm: explicitly accept/approve the immediately preceding complete pending new-order summary so the application can validate and create it.
@@ -71,7 +73,8 @@ EXISTING-ORDER CHANGE VS NEW ORDER:
 - If an active database order exists and the customer asks to change, move, reschedule, postpone, advance, update, switch, or otherwise alter that existing order, choose modify_existing.
 - A request about changing the date or time of an existing reservation/order is modify_existing, even when the customer says "reservation", "book", "move it", "make it today", or similar wording.
 - A relative-date request such as moving an existing order from a prior date to today, tomorrow, next week, or another date is a modification when it refers to the existing order.
-- If the customer mentions both an existing/source date and a new/target date, treat the first date as the date of the existing order being referenced and the second date as the requested new delivery date.
+- If the customer mentions both an existing/source date and a new/target date, treat the source date as the date of the existing order being referenced and the target date as the requested new delivery date.
+- Requests such as "move my order schedule today to tomorrow" and "move my order today to tomorrow" are modifications, not status checks and not new orders.
 - Do NOT choose new_order merely because the customer uses words like "reservation", "reserve", "book", "order", or describes a desired new date/time. Determine whether the customer is referring to an existing order or requesting a separate one.
 - A request for another/separate order means new_order.
 - Follow-up details for a pending new order remain new_order.
