@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { DeliveryMethod, OrderStatus, PaymentMethod } from "../orders/dto";
 import { PrismaService } from "../../database/prisma.service";
 import { McpOrdersService } from "../mcp/mcp-orders.service";
 import { ProductsService } from "../products/products.service";
@@ -43,8 +44,11 @@ export class AiApplicationToolsService {
   private async createCustomerOrder(args: Record<string, unknown>) {
     if (args.confirmed !== true) throw new BadRequestException("Explicit customer confirmation is required before creating an order.");
     const customerName = this.stringArg(args.customerName);
+    const phoneNumber = this.stringArg(args.phoneNumber) || undefined;
     const quantity = Number(args.quantity);
     const items = this.normalizeItems(args.items);
+    const deliveryMethod = this.parseDeliveryMethod(args.deliveryMethod);
+    const paymentMethod = this.parsePaymentMethod(args.paymentMethod);
     if (!customerName || !Number.isFinite(quantity) || quantity < 10 || !items.length) throw new BadRequestException("A confirmed order requires customerName, at least 10 pieces, and at least one product item.");
     const productItems = [];
     let totalQuantity = 0;
@@ -55,20 +59,32 @@ export class AiApplicationToolsService {
       totalQuantity += item.quantity;
     }
     if (totalQuantity !== Math.trunc(quantity)) throw new BadRequestException("Item quantities must match the requested order quantity.");
-    if (!["pickup", "maxim"].includes(this.stringArg(args.deliveryMethod))) throw new BadRequestException("A valid delivery method is required.");
-    if (!["cod", "gcash"].includes(this.stringArg(args.paymentMethod))) throw new BadRequestException("A valid payment method is required.");
-    if (this.stringArg(args.deliveryMethod) === "maxim" && (!this.stringArg(args.address) || !this.stringArg(args.location) || !this.stringArg(args.phoneNumber))) throw new BadRequestException("Maxim delivery requires address, landmark/location, and contact number.");
+    if (!deliveryMethod) throw new BadRequestException("A valid delivery method is required.");
+    if (!paymentMethod) throw new BadRequestException("A valid payment method is required.");
+    const location = this.stringArg(args.location) || undefined;
+    const address = this.stringArg(args.address) || undefined;
+    if (deliveryMethod === "maxim" && (!address || !location || !phoneNumber)) throw new BadRequestException("Maxim delivery requires address, landmark/location, and contact number.");
 
-    const payload = { ...args, customerId: undefined, items: productItems, quantity: Math.trunc(quantity) };
-    delete (payload as Record<string, unknown>).customerId;
-    delete (payload as Record<string, unknown>).confirmed;
-    return this.mcpOrdersService.createOrder(payload as Parameters<McpOrdersService["createOrder"]>[0]);
+    const payload: Parameters<McpOrdersService["createOrder"]>[0] = {
+      customerName,
+      phoneNumber,
+      quantity: Math.trunc(quantity),
+      deliveryMethod,
+      paymentMethod,
+      location,
+      address,
+      preferredSchedule: this.stringArg(args.preferredSchedule) || undefined,
+      items: productItems,
+      notes: this.stringArg(args.notes) || undefined
+    };
+    return this.mcpOrdersService.createOrder(payload);
   }
 
   private async updateCustomerOrder(customerId: string, args: Record<string, unknown>) {
     const order = await this.findCustomerOrder(customerId, this.stringArg(args.orderNumber), this.stringArg(args.id));
     const payload = { ...args, id: order.id } as Parameters<McpOrdersService["updateOrder"]>[0];
     delete (payload as Record<string, unknown>).customerId;
+    delete (payload as Record<string, unknown>).confirmed;
     return this.mcpOrdersService.updateOrder(payload);
   }
 
@@ -95,6 +111,14 @@ export class AiApplicationToolsService {
   private normalizeItems(value: unknown) {
     if (!Array.isArray(value)) return [] as Array<{ name: string; quantity: number }>;
     return value.map((item) => ({ name: typeof item?.name === "string" ? item.name.trim() : "", quantity: Math.trunc(Number(item?.quantity)) })).filter((item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0);
+  }
+
+  private parseDeliveryMethod(value: unknown): DeliveryMethod | undefined {
+    return value === "pickup" || value === "maxim" ? value : undefined;
+  }
+
+  private parsePaymentMethod(value: unknown): PaymentMethod | undefined {
+    return value === "cod" || value === "gcash" ? value : undefined;
   }
 
   private stringArg(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : ""; }
