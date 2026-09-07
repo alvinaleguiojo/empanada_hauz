@@ -12,6 +12,7 @@ import { MetaAuthService } from "./meta-auth.service";
 import { MessengerOrderSummaryService } from "./messenger-order-summary.service";
 import { MessengerSyncService } from "./messenger-sync.service";
 import { MessengerSingleCallAiService } from "./messenger-single-call-ai.service";
+import { MessengerSingleCallAiPolicyService } from "./messenger-single-call-ai-policy.service";
 
 @Module({
   imports: [AiModule, CustomersModule, OrdersModule, McpModule, NotificationsModule],
@@ -22,8 +23,9 @@ import { MessengerSingleCallAiService } from "./messenger-single-call-ai.service
     MetaAuthService,
     MessengerSyncService,
     MessengerSingleCallAiService,
-    { provide: AiService, useExisting: MessengerSingleCallAiService },
-    { provide: AiOrderActionService, useExisting: MessengerSingleCallAiService }
+    MessengerSingleCallAiPolicyService,
+    { provide: AiService, useExisting: MessengerSingleCallAiPolicyService },
+    { provide: AiOrderActionService, useExisting: MessengerSingleCallAiPolicyService }
   ],
   exports: [MessengerService, MetaAuthService]
 })
