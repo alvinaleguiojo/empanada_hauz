@@ -25,6 +25,18 @@ type CurrentInterpretation = {
   confirmed: boolean;
 };
 
+type CombinedResponse = {
+  orderAction?: unknown;
+  confidence?: unknown;
+  newOrderFlowActive?: unknown;
+  reuseExistingDelivery?: unknown;
+  referencedOrderDate?: unknown;
+  requestedDeliveryDate?: unknown;
+  requestedDeliveryTime?: unknown;
+  suggestedReply?: unknown;
+  details?: Partial<Details> & { flavors?: Array<{ name?: unknown; quantity?: unknown }> };
+};
+
 const PRICES: Record<string, number> = {
   "bacon with cheese": 35,
   "pork regular": 20,
@@ -132,13 +144,7 @@ export class AiService {
     const replyContext = this.buildReplyContext(message, recentMessages, details, applicationAction);
     const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
     const confidence = current.flavors.length || details.flavors.length || current.confirmed || applicationAction !== "inquiry" || Boolean(details.deliveryMethod) || Boolean(details.paymentMethod) ? 1 : 0;
-    return {
-      intent: current.intent,
-      confidence,
-      details,
-      suggestedReply,
-      source: "ollama"
-    };
+    return { intent: current.intent, confidence, details, suggestedReply, source: "ollama" };
   }
 
   private extractApplicationAction(recentMessages: string[]): AIOrderAction {
@@ -170,30 +176,18 @@ export class AiService {
       ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
       { role: "user", content: status }
     ];
-    const response = await this.ollamaChat({
-      model: this.model,
-      stream: false,
-      think: false,
-      options: { temperature: 0.2, num_predict: 96, num_ctx: 1536 },
-      messages
-    }, "Ollama order result reply failed");
+    const response = await this.ollamaChat({ model: this.model, stream: false, think: false, options: { temperature: 0.2, num_predict: 96, num_ctx: 1536 }, messages }, "Ollama order result reply failed");
     const reply = response.message?.content?.trim();
     if (!reply) throw new Error("Ollama returned an empty order result reply");
     return this.cleanReply(reply);
   }
 
   private async extractCurrentOrderFields(message: string, now: string, recentMessages: string[], activeOrderState?: Details): Promise<CurrentInterpretation> {
-    const conversationContext = recentMessages.length
-      ? recentMessages.join("\n")
-      : "none";
-    const activeStateContext = activeOrderState
-      ? this.formatOrderContext(activeOrderState)
-      : "none";
     const systemPrompt = await this.aiInstructionsService.getActivePromptBlock();
     const userContent = [
       `CURRENT DATE/TIME IN ASIA/MANILA: ${now}`,
-      `RECENT CONVERSATION: ${conversationContext}`,
-      `CURRENT APPLICATION ORDER STATE: ${activeStateContext}`,
+      `RECENT CONVERSATION: ${recentMessages.length ? recentMessages.join("\n") : "none"}`,
+      `CURRENT APPLICATION ORDER STATE: ${activeOrderState ? this.formatOrderContext(activeOrderState) : "none"}`,
       `CURRENT CUSTOMER MESSAGE: ${message}`
     ].join("\n\n");
     const messages: Array<{ role: "system" | "user"; content: string }> = [
@@ -208,7 +202,6 @@ export class AiService {
       options: { temperature: 0.1, num_predict: 384, num_ctx: 4096 },
       messages
     }, "Ollama order-field extraction failed");
-
     const raw = response.message?.content?.trim();
     if (!raw) throw new Error("Ollama returned an empty order-field extraction");
     return this.parseCurrentInterpretation(raw);
@@ -218,7 +211,6 @@ export class AiService {
     const candidates = [this.cleanReply(raw)];
     const extracted = this.extractJsonObject(raw);
     if (extracted && extracted !== candidates[0]) candidates.push(extracted);
-
     for (const candidate of candidates) {
       try {
         return this.normalizeCurrentInterpretation(JSON.parse(candidate) as Partial<CurrentInterpretation>);
@@ -232,7 +224,6 @@ export class AiService {
         }
       }
     }
-
     this.logger.error("Qwen returned invalid structured order-field extraction");
     throw new Error("Qwen returned invalid order-field extraction JSON");
   }
@@ -243,9 +234,7 @@ export class AiService {
       startsNewConversation: false,
       flavorAction: parsed.flavorAction === "replace" || parsed.flavorAction === "add" || parsed.flavorAction === "remove" ? parsed.flavorAction : "none",
       flavors: Array.isArray(parsed.flavors)
-        ? parsed.flavors
-            .map((item) => ({ name: this.normalizeFlavorName(item?.name), quantity: this.optionalPositiveNumber(item?.quantity) }))
-            .filter((item) => item.name)
+        ? parsed.flavors.map((item) => ({ name: this.normalizeFlavorName(item?.name), quantity: this.optionalPositiveNumber(item?.quantity) })).filter((item) => item.name)
         : [],
       quantity: this.optionalPositiveNumber(parsed.quantity),
       location: this.optionalText(parsed.location),
@@ -271,7 +260,6 @@ export class AiService {
   private repairTruncatedJson(value: string) {
     const text = value.trim();
     if (!text.startsWith("{")) return undefined;
-
     let best: string | undefined;
     for (let end = text.length; end >= Math.max(2, text.length - 500); end -= 1) {
       const prefix = text.slice(0, end).trimEnd();
@@ -292,18 +280,13 @@ export class AiService {
     const stack: string[] = [];
     let inString = false;
     let escaped = false;
-
     for (const char of value) {
       if (inString) {
-        if (escaped) {
-          escaped = false;
-          continue;
-        }
-        if (char === "\\") escaped = true;
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
         else if (char === '"') inString = false;
         continue;
       }
-
       if (char === '"') inString = true;
       else if (char === "{" || char === "[") stack.push(char);
       else if (char === "}" || char === "]") {
@@ -312,7 +295,6 @@ export class AiService {
         stack.pop();
       }
     }
-
     let result = value.trimEnd();
     if (inString) result += '"';
     while (stack.length) {
@@ -325,41 +307,28 @@ export class AiService {
   private mergeOrderState(previous: Details | undefined, current: CurrentInterpretation): Details {
     const freshBase: Details = { flavors: [], missingFields: [], confirmed: false };
     if (current.startsNewConversation) return this.finalizeOrderState(this.applyInterpretation(freshBase, current));
-
-    const base = previous ?? freshBase;
-    const merged = this.applyInterpretation({ ...base, flavors: [...(base.flavors ?? [])] }, current);
-    return this.finalizeOrderState(merged);
+    return this.finalizeOrderState(this.applyInterpretation({ ...previous ?? freshBase, flavors: [...(previous?.flavors ?? [])] }, current));
   }
 
   private applyInterpretation(base: Details, current: CurrentInterpretation): Details {
     const merged: Details = { ...base, confirmed: false, missingFields: [] };
-
-    if (current.flavorAction === "replace" && current.flavors.length) {
-      merged.flavors = current.flavors.map((item) => this.toFlavor({ name: item.name, quantity: item.quantity ?? 0 }));
-    } else if (current.flavorAction === "add" && current.flavors.length) {
-      merged.flavors = this.mergeFlavorAdds(base.flavors ?? [], current.flavors);
-    } else if (current.flavorAction === "remove" && current.flavors.length) {
-      merged.flavors = this.removeFlavors(base.flavors ?? [], current.flavors);
-    } else if (current.flavors.length) {
-      merged.flavors = current.flavors.map((item) => this.toFlavor({ name: item.name, quantity: item.quantity ?? 0 }));
-    }
+    if (current.flavorAction === "replace" && current.flavors.length) merged.flavors = current.flavors.map((item) => this.toFlavor({ name: item.name, quantity: item.quantity ?? 0 }));
+    else if (current.flavorAction === "add" && current.flavors.length) merged.flavors = this.mergeFlavorAdds(base.flavors ?? [], current.flavors);
+    else if (current.flavorAction === "remove" && current.flavors.length) merged.flavors = this.removeFlavors(base.flavors ?? [], current.flavors);
+    else if (current.flavors.length) merged.flavors = current.flavors.map((item) => this.toFlavor({ name: item.name, quantity: item.quantity ?? 0 }));
 
     for (const field of ["quantity", "location", "deliveryMethod", "preferredTime", "deliveryDate", "address", "landmark", "contactNumber", "paymentMethod"] as const) {
       const value = current[field];
       if (value !== undefined && value !== "") (merged as Record<string, unknown>)[field] = value;
     }
-
     if (current.quantity !== undefined && merged.flavors.length === 1 && current.flavorAction !== "add" && current.flavorAction !== "remove") {
       const only = merged.flavors[0];
       merged.flavors = [{ ...only, quantity: current.quantity, subtotal: current.quantity * Number(only.unitPrice ?? 0) }];
       merged.quantity = current.quantity;
     } else if (merged.flavors.length && current.flavorAction !== "add" && current.flavorAction !== "remove") {
-      const hasPositiveFlavorQuantity = merged.flavors.some((item) => Number(item.quantity ?? 0) > 0);
-      if (hasPositiveFlavorQuantity || current.flavors.some((item) => item.quantity !== undefined)) {
-        merged.quantity = merged.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-      }
+      const hasPositive = merged.flavors.some((item) => Number(item.quantity ?? 0) > 0);
+      if (hasPositive || current.flavors.some((item) => item.quantity !== undefined)) merged.quantity = merged.flavors.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     }
-
     if (current.confirmed) merged.confirmed = true;
     return merged;
   }
@@ -404,13 +373,12 @@ export class AiService {
   }
 
   private buildReplyContext(message: string, recentMessages: string[], details: Details, action: AIOrderAction): string {
-    const lines = [
+    return [
       `APPLICATION ACTION: ${action}`,
       `CURRENT CUSTOMER MESSAGE: ${message}`,
       `ORDER STATE: ${this.formatOrderContext(details)}`,
       `RECENT CONVERSATION: ${recentMessages.slice(-16).join("\n") || "none"}`
-    ];
-    return lines.join("\n\n");
+    ].join("\n\n");
   }
 
   private formatOrderContext(details: Details): string {
@@ -532,13 +500,7 @@ export class AiService {
       ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
       { role: "user", content: `${context}\n\nCURRENT CUSTOMER MESSAGE: ${message}` }
     ];
-    const response = await this.ollamaChat({
-      model: this.model,
-      stream: false,
-      think: false,
-      options: { temperature: 0.15, num_predict: 320, num_ctx: 4096 },
-      messages
-    }, "Ollama customer reply failed");
+    const response = await this.ollamaChat({ model: this.model, stream: false, think: false, options: { temperature: 0.15, num_predict: 320, num_ctx: 4096 }, messages }, "Ollama customer reply failed");
     const reply = response.message?.content?.trim();
     if (!reply) throw new Error("Ollama returned an empty customer reply");
     return this.cleanReply(reply);
