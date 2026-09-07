@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 
 export const AI_INSTRUCTION_KINDS = ["instruction", "prompt"] as const;
 export type AiInstructionKind = (typeof AI_INSTRUCTION_KINDS)[number];
@@ -6,12 +6,12 @@ export type AiInstructionKind = (typeof AI_INSTRUCTION_KINDS)[number];
 export class CreateAiInstructionDto {
   @IsString()
   @MinLength(1)
-  @Max(160)
+  @MaxLength(160)
   title!: string;
 
   @IsString()
   @MinLength(1)
-  @Max(3000)
+  @MaxLength(3000)
   content!: string;
 
   @IsOptional()
@@ -33,13 +33,13 @@ export class UpdateAiInstructionDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  @Max(160)
+  @MaxLength(160)
   title?: string;
 
   @IsOptional()
   @IsString()
   @MinLength(1)
-  @Max(3000)
+  @MaxLength(3000)
   content?: string;
 
   @IsOptional()
