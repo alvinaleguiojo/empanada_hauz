@@ -43,10 +43,7 @@ const SINGLE_CALL_RESPONSE_FORMAT = {
           type: "array",
           items: {
             type: "object",
-            properties: {
-              name: { type: "string" },
-              quantity: { type: "number" }
-            },
+            properties: { name: { type: "string" }, quantity: { type: "number" } },
             required: ["name"],
             additionalProperties: false
           }
@@ -144,7 +141,7 @@ export class MessengerSingleCallAiService {
     const delivery = context.existingDeliveryDetails ?? {};
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(new Date());
     const user = `CURRENT DATE/TIME IN ASIA/MANILA: ${now}\nACTIVE DATABASE ORDER EXISTS: ${Boolean(context.hasActiveOrder)}\nPENDING NEW ORDER EXISTS: ${Boolean(context.hasPendingNewOrder)}\nEXISTING DELIVERY: method=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contact=${delivery.contactNumber ?? "none"}; payment=${delivery.paymentMethod ?? "none"}; schedule=${delivery.preferredSchedule ?? "none"}\nRECENT CONVERSATION:\n${recent.join("\n") || "none"}\nCURRENT CUSTOMER MESSAGE:\n${message}`;
-    const adminPrompt = await this.aiInstructions?.getActivePromptBlock();
+    const adminPrompt = await this.aiInstructions?.getActiveInstructionBlock();
     const messages: Array<{ role: "system" | "user"; content: string }> = [
       ...(adminPrompt ? [{ role: "system" as const, content: adminPrompt }] : []),
       { role: "user", content: user }
@@ -185,15 +182,7 @@ export class MessengerSingleCallAiService {
     } catch (error) {
       this.logger.warn(`Single-call Ollama returned non-JSON content; using safe fallback: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    return {
-      orderAction: "inquiry",
-      confidence: 0.25,
-      newOrderFlowActive: Boolean(context.hasPendingNewOrder),
-      reuseExistingDelivery: false,
-      details: {},
-      suggestedReply: raw.trim()
-    };
+    return { orderAction: "inquiry", confidence: 0.25, newOrderFlowActive: Boolean(context.hasPendingNewOrder), reuseExistingDelivery: false, details: {}, suggestedReply: raw.trim() };
   }
 
   private normalizeDetails(raw: CombinedResponse["details"] | undefined): AIIntentResult["details"] {
