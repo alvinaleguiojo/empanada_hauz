@@ -1,12 +1,13 @@
 import { RefreshControl, ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { RiderSession } from "../hooks/useRiderSession";
+import { isCompletedDelivery } from "../types";
 import { colors, radius, shadow, spacing } from "../theme";
 
 export function DeliveriesScreen({ session, onOpenNavigation }: { session: RiderSession; onOpenNavigation: (jobId: string) => void }) {
   const { jobs, refresh, busy } = session;
-  const active = jobs.filter((job) => job.status !== "delivered" && job.status !== "cancelled");
-  const completed = jobs.filter((job) => job.status === "delivered" || job.status === "cancelled");
+  const active = jobs.filter((job) => !isCompletedDelivery(job));
+  const completed = jobs.filter(isCompletedDelivery);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -25,7 +26,7 @@ export function DeliveriesScreen({ session, onOpenNavigation }: { session: Rider
 
         <Text style={styles.section}>History</Text>
         {completed.length ? completed.map((job) => (
-          <View key={job.id} style={styles.historyCard}><View style={{ flex: 1 }}><Text style={styles.customer}>{job.order?.customer?.name ?? "Customer"}</Text><Text style={styles.historyMeta}>{job.status}</Text></View><Text style={styles.fare}>₱{Number(job.finalFare ?? job.estimatedFare ?? 0).toFixed(2)}</Text></View>
+          <View key={job.id} style={styles.historyCard}><View style={{ flex: 1 }}><Text style={styles.customer}>{job.order?.customer?.name ?? "Customer"}</Text><Text style={styles.historyMeta}>{job.order?.status === "completed" ? "completed" : job.status}</Text></View><Text style={styles.fare}>₱{Number(job.finalFare ?? job.estimatedFare ?? 0).toFixed(2)}</Text></View>
         )) : <Empty text="No completed deliveries yet." />}
       </ScrollView>
     </SafeAreaView>
