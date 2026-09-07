@@ -16,7 +16,7 @@ type CachedQuote = {
   quote: QuoteResult;
 };
 
-const PICKUP_ADDRESS = "Empanada Hauz";
+const PICKUP_ADDRESS = "Empanada Hauz, Cabancalan 2, Bulacao, Cebu City";
 const PICKUP_LATITUDE = 10.2760457;
 const PICKUP_LONGITUDE = 123.8466921;
 const QUOTE_CACHE_TTL_MS = 60_000;
