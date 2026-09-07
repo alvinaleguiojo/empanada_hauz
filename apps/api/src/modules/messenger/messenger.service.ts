@@ -107,42 +107,44 @@ export class MessengerService {
     let reply = ai.suggestedReply?.trim() ?? "";
 
     if (effectiveOrderAction === "new_order" && shouldReuseExistingDelivery) {
-      reply = this.buildApplicationOrderSummary(activeOrderState, true);
+      reply = await this.aiActionReply(event.text, effectiveOrderAction, this.buildApplicationOrderSummary(activeOrderState, true), contextMessages, reply);
     } else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) {
-      reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
+      reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: The customer already has an active order, so a separate new order was not started. The customer should choose whether to modify the existing order or place a separate new order.", contextMessages, reply);
     } else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai)) {
-      reply = this.buildNewOrderProgressReply(ai.details);
+      reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The pending new-order draft was updated but cannot be placed yet. ${this.describeOrderValidation(ai.details)} Current order state: ${this.formatOrderStateForReply(ai.details)}. Ask naturally for the next genuinely missing required information.`, contextMessages, reply);
     } else if ((effectiveOrderAction === "new_order" || effectiveOrderAction === "confirm") && this.isConfirmedOrder(ai)) {
       try {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
         this.logger.log(`Created confirmed Messenger order ${created.orderNumber} for ${event.senderId} via MCP order service`);
-        const createdReply = await this.aiService.generateOrderResultReply("created", created.orderNumber);
+        const createdReply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The confirmed order was successfully created. Order number: ${created.orderNumber}.`, contextMessages, reply);
         reply = `${createdReply}\nTrack your order here: ${this.trackingUrl(created.id)}`;
       } catch (error) {
         this.logger.error(`Confirmed Messenger order could not be created for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
-        try { reply = await this.aiService.generateOrderResultReply("failed"); }
-        catch (replyError) { this.logger.error(`Qwen order-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); reply = ai.suggestedReply?.trim() ?? ""; }
+        try { reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: The application could not create the confirmed order. No order was created.", contextMessages, reply); }
+        catch (replyError) { this.logger.error(`Qwen action-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); }
       }
     } else if (effectiveOrderAction === "modify_existing") {
       const requestedOrder = await this.findOrderForModification(conversation.customer.id, actionContext.referencedOrderDate, actionContext.requestedDeliveryDate, latestOrder);
       this.logger.log(`Messenger modify order selection: action=modify_existing referencedOrderDate=${actionContext.referencedOrderDate ?? "none"} selectedOrder=${requestedOrder?.orderNumber ?? "none"} selectedScheduledAt=${requestedOrder?.preferredSchedule?.toISOString() ?? "none"}`);
 
       if (!requestedOrder) {
-        reply = actionContext.referencedOrderDate
-          ? `I couldn't find an active order scheduled for ${this.formatReferenceDate(actionContext.referencedOrderDate)}. I won't change another order by mistake. 😊`
-          : "I couldn't find an active order to update. 😊";
+        const result = actionContext.referencedOrderDate
+          ? `APPLICATION RESULT: No active order was found for the referenced schedule date ${this.formatReferenceDate(actionContext.referencedOrderDate)}. No order was changed.`
+          : "APPLICATION RESULT: No active order was found to update. No order was changed.";
+        reply = await this.aiActionReply(event.text, effectiveOrderAction, result, contextMessages, reply);
       } else if (this.shouldUpdateCustomerOrder(ai.intent, ai.details, requestedOrder)) {
         try {
           const updated = await this.updateCustomerOrderFromAi(ai, requestedOrder.orderNumber, actionContext.requestedDeliveryDate, actionContext.requestedDeliveryTime);
           this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
-          reply = this.buildOrderUpdatedReply(updated.orderNumber, updated.preferredSchedule);
+          reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The existing order ${updated.orderNumber} was successfully updated. New scheduled time: ${updated.preferredSchedule?.toISOString() ?? "none"}. No new order was created.`, contextMessages, reply);
         } catch (error) {
           this.logger.error(`Customer order update failed for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
-          reply = "I couldn't update the order right now. Please try again. 😊";
+          try { reply = await this.aiActionReply(event.text, effectiveOrderAction, "APPLICATION RESULT: The existing order could not be updated. No order change was completed.", contextMessages, reply); }
+          catch (replyError) { this.logger.error(`Qwen action-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); }
         }
       } else {
-        reply = ai.suggestedReply?.trim() || "I didn't find any order detail that needs changing. 😊";
+        reply = await this.aiActionReply(event.text, effectiveOrderAction, `APPLICATION RESULT: The customer referred to an existing order, but the current application state did not contain a supported field change to apply. No order was changed. Current order state: ${this.formatOrderStateForReply(ai.details)}.`, contextMessages, reply);
       }
     }
 
@@ -152,6 +154,29 @@ export class MessengerService {
       catch (error) { this.logger.error(`Failed to send Qwen Messenger reply to ${event.senderId}: ${error instanceof Error ? error.message : String(error)}`); }
     }
     return { ai, reply, aiEnabled: true };
+  }
+
+  private async aiActionReply(message: string, action: Awaited<ReturnType<AiOrderActionService["analyze"]>>["orderAction"], result: string, recentMessages: string[], fallback: string) {
+    try {
+      return await this.aiOrderActionService.generateActionResultReply(message, action, result, recentMessages);
+    } catch (error) {
+      this.logger.warn(`Action-result AI reply generation failed: ${error instanceof Error ? error.message : String(error)}`);
+      return fallback;
+    }
+  }
+
+  private formatOrderStateForReply(details: OrderDetails) {
+    return [
+      details.flavors.length ? `items=${details.flavors.map((item) => `${item.quantity} pcs ${item.name}`).join(", ")}` : "items=none",
+      details.deliveryMethod ? `deliveryMethod=${details.deliveryMethod}` : "deliveryMethod=missing",
+      details.paymentMethod ? `paymentMethod=${details.paymentMethod}` : "paymentMethod=missing",
+      details.address ? `address=${details.address}` : "address=missing",
+      details.landmark ? `landmark=${details.landmark}` : "landmark=missing",
+      details.contactNumber ? `contactNumber=${details.contactNumber}` : "contactNumber=missing",
+      details.deliveryDate ? `deliveryDate=${details.deliveryDate}` : "deliveryDate=unchanged/not provided",
+      details.preferredTime ? `preferredTime=${details.preferredTime}` : "preferredTime=unchanged/not provided",
+      `missing=${details.missingFields.length ? details.missingFields.join(", ") : "none"}`
+    ].join("; ");
   }
 
   private buildNewOrderProgressReply(details: OrderDetails) {
