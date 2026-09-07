@@ -59,6 +59,7 @@ EXISTING-ORDER CHANGE VS NEW ORDER:
 - If an active database order exists and the customer asks to change, move, reschedule, postpone, advance, update, switch, or otherwise alter that existing order, choose modify_existing.
 - A request about changing the date or time of an existing reservation/order is modify_existing, even when the customer says "reservation", "book", "move it", "make it today", or similar wording.
 - A relative-date request such as moving an existing order from a prior date to today, tomorrow, next week, or another date is a modification when it refers to the existing order.
+- If the customer mentions both an existing/source date and a new/target date, treat the first date as the date of the existing order being referenced and the second date as the requested new delivery date.
 - Do NOT choose new_order merely because the customer uses words like "reservation", "reserve", "book", "order", or describes a desired new date/time. Determine whether the customer is referring to an existing order or requesting a separate one.
 - A request for another/separate order means new_order.
 - Follow-up details for a pending new order remain new_order.
@@ -70,8 +71,8 @@ CANCELLATION:
 - Do not choose cancel_existing for a pending new-order draft.
 
 CONFIRMATION:
-- Choose confirm only when the current message itself clearly accepts the immediately preceding complete pending order summary.
-- Accept natural language, shorthand, typos, misspellings, and phonetic spellings.
+- Choose confirm only when the current message itself clearly accepts the immediately preceding complete pending new-order summary.
+- Accept natural language, shorthand, typos, misspellings, phonetic spellings, and casual wording.
 - Do not choose confirm for a question, rejection, change request, summary request, new-order request, or ambiguous message.
 
 DELIVERY REUSE:
