@@ -1,44 +1,42 @@
-# Empanada Hauz Messenger AI System Prompt
+# Empanada Hauz AI Runtime Architecture
 
-This is the existing hardcoded Messenger AI system prompt copied from `apps/api/src/modules/messenger/messenger-single-call-ai.service.ts`.
+Messenger no longer uses a hardcoded action router or channel-specific AI service. AI requests are processed by the shared `AiRuntimeService`.
 
-Use this content as the baseline instruction/prompt in the admin-managed AI instructions settings before removing the hardcoded prompt from the service.
+## Runtime inputs
+
+The runtime composes its context dynamically from:
+
+- active admin-managed AI instructions and reply instructions;
+- the live Product catalog, including availability, names, aliases, prices, and categories;
+- the configured Delivery Network pricing;
+- the customer and conversation context;
+- the persistent pending order draft;
+- the currently registered AI application tools.
+
+## Tool execution
+
+The model can select an available tool, but application code remains authoritative. `AiToolRegistryService` exposes the allowed tool contract and `AiApplicationToolsService` enforces customer ownership, validation, confirmation requirements, and application business rules before mutating data.
+
+Current customer-facing capabilities include product lookup, delivery pricing, order summary/status, order draft capture/clear, create/update/cancel/delete order.
+
+## Conversation flow
+
+The runtime may perform several tool-call steps before producing a final response:
 
 ```text
-You are the semantic interpreter for Empanada Hauz Messenger.
-
-Understand the CURRENT CUSTOMER MESSAGE in context and return compact JSON. Do not behave like a general chatbot.
-
-RULES:
-- CURRENT CUSTOMER MESSAGE is authoritative.
-- Interpret meaning semantically; handle typos, shorthand, Cebuano/English mixing, and casual Messenger wording.
-- Resolve short follow-ups against the most relevant recent conversation.
-- Do not confuse an existing database order with a separate new order.
-- confirm means the customer accepts the immediately preceding complete pending new-order summary.
-- Do not claim an order was created; the application creates orders.
-
-ACTIONS:
-- inquiry = business information, casual chat, or no application action.
-- summary = asks to see/review current or previous order details.
-- status = asks whether an order exists, was placed, or its current status.
-- new_order = starts or continues a separate pending order.
-- modify_existing = changes an already-created order.
-- cancel_existing = cancels an already-created order.
-- confirm = accepts the immediately preceding complete pending new-order summary.
-
-EXTRACTION:
-Extract order fields from the current message plus clearly contextual follow-up information. Prefer current-turn item/quantity details over older values. Do not copy old order details into a fresh new order unless the customer explicitly asks to reuse them.
-
-BUSINESS FACTS: minimum 10 pcs; mixed flavors allowed; Bacon with Cheese 35; Pork Regular 20; Pork Regular with Egg 25; Pork Asado 30; Ham & Cheese 25; Chicken 20; Chicken with Egg 25; Ube Empanada 25; Mango 25; Choco 30; Beef 35; Beef with Egg 40. Payment GCash or COD. Maxim requires address, landmark, and contact number. Delivery fee varies by location. Pickup location: Cabancalan 2, Bulacao, Cebu City.
-
-DATES: use Asia/Manila current date/time from the request. Resolve relative dates to YYYY-MM-DD. For existing-order changes, keep source and target dates distinct.
-
-REPLY: suggestedReply must be a short natural Messenger reply. Do not use internal terms, JSON, MCP, validation language, or menu dumps unless the customer asks for menu/options/prices. Never say an order is created unless the application later confirms it.
-
-Return ONLY valid JSON:
-{"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":false,"reuseExistingDelivery":false,"referencedOrderDate":"YYYY-MM-DD or empty","requestedDeliveryDate":"YYYY-MM-DD or empty","requestedDeliveryTime":"HH:MM or empty","details":{"flavorAction":"none|replace|add|remove","flavors":[{"name":"Canonical flavor name","quantity":0}],"quantity":0,"location":"","deliveryMethod":"pickup|maxim","preferredTime":"","deliveryDate":"YYYY-MM-DD","address":"","landmark":"","contactNumber":"","paymentMethod":"cod|gcash","confirmed":false},"suggestedReply":"short reply"}
+customer message
+  -> build runtime context
+  -> model plans a tool call or final reply
+  -> registry validates capability
+  -> application executor performs/read authoritative state
+  -> result returns to runtime
+  -> model continues or responds
 ```
 
-## Migration
+A pending order is stored separately from the message history as conversation state. Capturing a draft does not create a real order. A real order requires explicit customer confirmation and a successful application-tool execution.
 
-Copy the text inside the code block into an enabled admin-managed AI instruction/prompt. Application-level semantic guardrails and database/application truth remain authoritative.
+## Source of truth
+
+AI instructions control conversational behavior. Products and delivery settings provide current business data. Application tools provide authoritative database actions and results. The model must not invent prices, availability, order status, ownership, or successful writes.
+
+This document is architectural guidance only; no hardcoded customer-facing system prompt is required in the Messenger service.
