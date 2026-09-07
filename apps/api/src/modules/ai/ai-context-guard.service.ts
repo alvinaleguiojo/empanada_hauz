@@ -3,10 +3,35 @@ import { AiService } from "./ai.service";
 
 type AiContext = Parameters<AiService["classifyAndExtract"]>[1];
 type ContextSafeMessage = string;
+type AiAction = "new_order" | "modify_existing" | "cancel_existing" | "status" | "summary" | "inquiry" | "confirm";
+
+const INQUIRY_BUSINESS_KNOWLEDGE = `
+EMPANADA HAUZ BUSINESS KNOWLEDGE FOR CUSTOMER INQUIRIES:
+Menu and prices per piece:
+Bacon with Cheese - ₱35
+Pork Regular - ₱20
+Pork Regular with Egg - ₱25
+Pork Asado - ₱30
+Ham & Cheese - ₱25
+Chicken - ₱20
+Chicken with Egg - ₱25
+Ube Empanada - ₱25
+Mango - ₱25
+Choco - ₱30
+Beef - ₱35
+Beef with Egg - ₱40
+Best sellers: Pork Regular with Egg, Chicken with Egg, Beef with Egg.
+Baked is ₱5 more.
+Minimum order is 10 pcs; mixed flavors are allowed.
+Preparation is about 1 hour.
+Payment: GCash or COD. GCash: Alvin Aleguiojo, 09453916796.
+Pickup/business location: Cabancalan 2, Bulacao, Cebu City, near Cabancalan 2 Chapel, beside Prince Bulacao.
+Maxim delivery is available. Delivery fee varies by location.
+`;
 
 /**
- * Validates customer-facing AI output without trying to understand the customer's
- * message itself. Semantic intent/action decisions belong to AiOrderActionService.
+ * Validates customer-facing AI output without deciding the customer's intent.
+ * Semantic intent/action decisions belong to AiOrderActionService.
  */
 @Injectable()
 export class AiContextGuardService implements OnModuleInit {
@@ -19,7 +44,9 @@ export class AiContextGuardService implements OnModuleInit {
 
     this.aiService.classifyAndExtract = async (message, context) => {
       const sanitizedContext = this.sanitizeContext(context);
-      const result = await original(message, sanitizedContext);
+      const action = this.extractApplicationAction(sanitizedContext?.recentMessages ?? []);
+      const effectiveContext = this.contextForAction(sanitizedContext, action);
+      const result = await original(message, effectiveContext);
       result.suggestedReply = this.removeUnrequestedOrderNumber(message, result.suggestedReply);
 
       if (!this.isInvalidCustomerReply(message, result.suggestedReply)) {
@@ -29,11 +56,14 @@ export class AiContextGuardService implements OnModuleInit {
       this.logger.warn(`Rejected invalid AI reply for customer message=${JSON.stringify(message)}`);
 
       const retryContext = {
-        ...sanitizedContext,
+        ...effectiveContext,
         recentMessages: [
-          ...(sanitizedContext?.recentMessages ?? []),
-          "AI RESPONSE RETRY: Answer the CURRENT CUSTOMER MESSAGE directly. Do not echo the message, describe what the customer is asking, or tell the customer what the assistant should do. Use the Empanada Hauz business knowledge from the system prompt."
-        ].slice(-17)
+          ...(effectiveContext?.recentMessages ?? []),
+          action === "inquiry" ? INQUIRY_BUSINESS_KNOWLEDGE : "",
+          action === "inquiry"
+            ? "AI RESPONSE RETRY: Answer the customer's current business question directly from the supplied business knowledge. Do not echo the question, describe what the customer is asking, ask for order details, or redirect to an order flow unless the customer actually requested an order. Return only the customer-facing answer."
+            : "AI RESPONSE RETRY: Answer the CURRENT CUSTOMER MESSAGE directly. Do not echo the message, describe what the customer is asking, or tell the customer what the assistant should do. Use the Empanada Hauz business knowledge from the system prompt."
+        ].filter(Boolean).slice(-18)
       } as AiContext;
 
       const retryResult = await original(message, retryContext);
@@ -46,6 +76,34 @@ export class AiContextGuardService implements OnModuleInit {
 
       result.suggestedReply = retryResult.suggestedReply;
       return result;
+    };
+  }
+
+  private extractApplicationAction(recentMessages: string[]): AiAction {
+    for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+      const match = recentMessages[index].match(/^APPLICATION AI ORDER ACTION:\s*(new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm)\b/i);
+      if (match) return match[1].toLowerCase() as AiAction;
+    }
+    return "inquiry";
+  }
+
+  private contextForAction(context: AiContext | undefined, action: AiAction): AiContext | undefined {
+    if (!context || action !== "inquiry") return context;
+
+    return {
+      ...context,
+      activeOrderState: undefined,
+      recentMessages: [
+        ...(context.recentMessages ?? []),
+        INQUIRY_BUSINESS_KNOWLEDGE
+      ].filter((value) => {
+        const text = value.trim();
+        return /^(?:Customer|Assistant):\s*/i.test(text)
+          || /^APPLICATION BUSINESS KNOWLEDGE:/i.test(text)
+          || /^APPLICATION AI ORDER ACTION:/i.test(text)
+          || /^AI RESPONSE RETRY:/i.test(text)
+          || text === INQUIRY_BUSINESS_KNOWLEDGE.trim();
+      })
     };
   }
 
@@ -71,7 +129,8 @@ export class AiContextGuardService implements OnModuleInit {
       || /^LATEST DATABASE ORDER:/i.test(text)
       || /^APPLICATION AI ORDER ACTION:/i.test(text)
       || /^APPLICATION REUSED DELIVERY FACTS:/i.test(text)
-      || /^AI RESPONSE RETRY:/i.test(text);
+      || /^AI RESPONSE RETRY:/i.test(text)
+      || text === INQUIRY_BUSINESS_KNOWLEDGE.trim();
   }
 
   private removeUnrequestedOrderNumber(message: string, reply?: string) {
