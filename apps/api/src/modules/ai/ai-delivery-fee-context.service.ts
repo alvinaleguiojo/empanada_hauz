@@ -90,6 +90,15 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
     }
 
     const state = activeOrderState;
+
+    if (!requestedLocation && !isLocationSelection && (this.isCoordinateOnly(state?.address) || this.isCoordinateOnly(state?.location))) {
+      recentMessages.push(
+        "APPLICATION DELIVERY FEE TOOL RESULT: The saved delivery location is invalid and is not a verified customer address. Ask the customer for their delivery location before calculating a fee. Never invent a fee."
+      );
+      const sanitizedState = state ? { ...state, address: undefined, location: undefined } : state;
+      return { context: { ...context, activeOrderState: sanitizedState, recentMessages }, estimatedFare: undefined };
+    }
+
     const dropoffAddress = [state?.address?.trim(), state?.landmark?.trim(), state?.location?.trim()].filter(Boolean).join(", ");
 
     if (!dropoffAddress || this.isUnresolvedAddress(dropoffAddress)) {
@@ -109,6 +118,13 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
 
     try {
       const candidates = await this.maps.findLocationCandidates(dropoffAddress, 5);
+      if (candidates.length === 0) {
+        recentMessages.push(
+          `APPLICATION DELIVERY FEE TOOL RESULT: Google Maps could not verify "${dropoffAddress}". Do not calculate a delivery fee. Ask the customer for a more specific delivery location.`
+        );
+        return { context: { ...context, activeOrderState: state, recentMessages }, estimatedFare: undefined };
+      }
+
       if (candidates.length > 1 && !isLocationSelection) {
         recentMessages.push(this.formatLocationOptions(candidates));
         recentMessages.push("APPLICATION DELIVERY FEE TOOL RESULT: Multiple Google Maps locations matched the supplied destination. Do not calculate a delivery fee yet. Ask the customer to choose one numbered location.");
@@ -120,9 +136,9 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
         pickupAddress: PICKUP_ADDRESS,
         pickupLatitude: PICKUP_LATITUDE,
         pickupLongitude: PICKUP_LONGITUDE,
-        dropoffAddress: selectedCandidate?.formattedAddress ?? dropoffAddress,
-        dropoffLatitude: selectedCandidate?.latitude,
-        dropoffLongitude: selectedCandidate?.longitude
+        dropoffAddress: selectedCandidate.formattedAddress,
+        dropoffLatitude: selectedCandidate.latitude,
+        dropoffLongitude: selectedCandidate.longitude
       });
 
       if (!Number.isFinite(quote.estimatedFare) || quote.estimatedFare <= 0 || quote.distanceKm == null) {
@@ -183,6 +199,10 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
     } catch {
       return null;
     }
+  }
+
+  private isCoordinateOnly(value?: string | null) {
+    return !!value?.trim() && /^[-+]?\d+(?:\.\d+)?\s*,\s*[-+]?\d+(?:\.\d+)?$/.test(value.trim());
   }
 
   private isUnresolvedAddress(value: string) {
