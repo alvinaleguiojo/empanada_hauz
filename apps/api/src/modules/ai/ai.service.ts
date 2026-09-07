@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AIIntentResult, CustomerIntent, DeliveryMethodValue } from "./types";
+import type { AIOrderAction } from "./ai-order-action.service";
 
 const CUSTOMER_SYSTEM_PROMPT = `You are the customer support assistant for Empanada Hauz.
 
@@ -157,19 +158,45 @@ export class AiService {
 
     const now = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "full", timeStyle: "long" }).format(new Date());
     const recentMessages = (context?.recentMessages ?? []).slice(-16);
-    const current = await this.interpretCurrentMessage(message, now, recentMessages, context?.activeOrderState);
+    const applicationAction = this.extractApplicationAction(recentMessages);
+    const current = await this.extractCurrentOrderFields(message, now, recentMessages, context?.activeOrderState);
+    current.intent = this.intentFromApplicationAction(applicationAction);
+    current.confirmed = applicationAction === "confirm";
+    current.startsNewConversation = applicationAction === "inquiry" && !context?.activeOrderState;
+
     const details = this.mergeOrderState(context?.activeOrderState, current);
     const systemPrompt = `${CUSTOMER_SYSTEM_PROMPT}\nCurrent date/time in Asia/Manila: ${now}\nCustomer name: ${context?.customerName?.trim() || "Customer"}`;
     const replyContext = this.buildReplyContext(message, recentMessages, details);
     const suggestedReply = await this.generateCustomerReply(systemPrompt, message, replyContext);
-    const intent = current.intent ?? this.inferIntent(message, details);
+    const intent = current.intent;
+    const confidence = current.flavors.length || details.flavors.length || current.confirmed || applicationAction !== "inquiry" || Boolean(details.deliveryMethod) || Boolean(details.paymentMethod) ? 1 : 0;
     return {
       intent,
-      confidence: current.flavors.length || details.flavors.length || current.confirmed || Boolean(details.deliveryMethod) || Boolean(details.paymentMethod) ? 1 : 0,
+      confidence,
       details,
       suggestedReply,
       source: "ollama"
     };
+  }
+
+  private extractApplicationAction(recentMessages: string[]): AIOrderAction {
+    for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+      const match = recentMessages[index].match(/^APPLICATION AI ORDER ACTION:\s*(new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm)\b/i);
+      if (match) return match[1].toLowerCase() as AIOrderAction;
+    }
+    return "inquiry";
+  }
+
+  private intentFromApplicationAction(action: AIOrderAction): CustomerIntent {
+    switch (action) {
+      case "confirm": return "order_confirmation";
+      case "new_order": return "reservation";
+      case "modify_existing": return "reservation";
+      case "cancel_existing": return "reservation";
+      case "status": return "inquiry";
+      case "summary": return "inquiry";
+      case "inquiry": return "inquiry";
+    }
   }
 
   async generateOrderResultReply(outcome: "created" | "failed", orderNumber?: string): Promise<string> {
@@ -191,7 +218,7 @@ export class AiService {
     return this.cleanReply(reply);
   }
 
-  private async interpretCurrentMessage(message: string, now: string, recentMessages: string[], activeOrderState?: Details): Promise<CurrentInterpretation> {
+  private async extractCurrentOrderFields(message: string, now: string, recentMessages: string[], activeOrderState?: Details): Promise<CurrentInterpretation> {
     const conversationContext = recentMessages.length
       ? `RECENT CONVERSATION (oldest to newest):\n${recentMessages.join("\n")}`
       : "RECENT CONVERSATION: none.";
@@ -207,17 +234,17 @@ export class AiService {
       messages: [
         {
           role: "system",
-          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nReturn ONLY compact valid JSON for the CURRENT CUSTOMER MESSAGE. Do not use markdown or explanations. Omit fields that are not needed. Use the recent conversation and current application order state to understand references, but only return fields explicitly stated or strongly implied by the current message in context. Never invent unrelated customer data.\n\nSchema:\n{\n  "intent": "inquiry|order_confirmation|reservation|delivery_request|pickup_request|pricing_question",\n  "startsNewConversation": true|false,\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash",\n  "confirmed": true|false\n}\nFor any explicit or strongly implied date, return deliveryDate as a concrete YYYY-MM-DD value. Resolve relative dates such as today/tomorrow/yesterday and weekday references from CURRENT DATE/TIME IN ASIA/MANILA. When changing an existing order date, use the requested new date and do not turn the message into a new-order request.\nConfirmation is semantic, not keyword based. When the immediately preceding conversation contains a complete order summary awaiting confirmation, interpret the CURRENT CUSTOMER MESSAGE as confirmed=true when it clearly accepts that summary, even when it contains a typo, abbreviation, phonetic spelling, shorthand, or casual wording. For example, "confir" should be understood as a likely confirmation in that context. Do not require an exact spelling. Set confirmed=false when the customer is asking a question, supplying new order details, requesting changes, including date/time changes, or otherwise not accepting the current summary. A customer asking "can I order...", "can I get...", "may I order...", or similar wording is a new-order request, not a confirmation. A customer saying what they want to order without an explicit confirmation is not a confirmation. Use startsNewConversation=true for a simple greeting that does not reference an existing order. Use flavorAction=replace for a new complete flavor selection, add only when explicitly adding items, and remove only when explicitly removing items.`
+          content: `${CUSTOMER_SYSTEM_PROMPT}\n\nYou are an order-field extractor. The application has already determined the customer's top-level action separately. Do NOT decide or return the customer's intent, action, or confirmation state. Extract only order fields explicitly stated or strongly implied by the CURRENT CUSTOMER MESSAGE in context. Return ONLY compact valid JSON. Do not use markdown or explanations.\n\nSchema:\n{\n  "flavorAction": "none|replace|add|remove",\n  "flavors": [{"name":"Canonical flavor name","quantity":number}],\n  "quantity": number,\n  "location": "string",\n  "deliveryMethod": "pickup|maxim",\n  "preferredTime": "string",\n  "deliveryDate": "YYYY-MM-DD",\n  "address": "string",\n  "landmark": "string",\n  "contactNumber": "string",\n  "paymentMethod": "cod|gcash"\n}\nFor dates, resolve explicit or strongly implied relative dates from CURRENT DATE/TIME IN ASIA/MANILA. Do not classify the message as a new order, modification, cancellation, status request, summary, inquiry, or confirmation. Do not decide whether an order should be created or changed. Only extract customer-provided order fields.`
         },
         {
           role: "user",
           content: `${conversationContext}\n\n${activeStateContext}\n\nCURRENT CUSTOMER MESSAGE:\n${message}\n\nCURRENT DATE/TIME IN ASIA/MANILA:\n${now}`
         }
       ]
-    }, "Ollama order interpretation failed");
+    }, "Ollama order-field extraction failed");
 
     const raw = response.message?.content?.trim();
-    if (!raw) throw new Error("Ollama returned an empty order interpretation");
+    if (!raw) throw new Error("Ollama returned an empty order-field extraction");
     return this.parseCurrentInterpretation(raw);
   }
 
@@ -240,14 +267,14 @@ export class AiService {
       }
     }
 
-    this.logger.error("Qwen returned invalid structured interpretation", "Unable to parse or repair JSON");
-    throw new Error("Qwen returned invalid order interpretation JSON");
+    this.logger.error("Qwen returned invalid structured order-field extraction", "Unable to parse or repair JSON");
+    throw new Error("Qwen returned invalid order-field extraction JSON");
   }
 
   private normalizeCurrentInterpretation(parsed: Partial<CurrentInterpretation>): CurrentInterpretation {
     return {
-      intent: this.normalizeIntent(parsed.intent),
-      startsNewConversation: Boolean(parsed.startsNewConversation),
+      intent: "inquiry",
+      startsNewConversation: false,
       flavorAction: parsed.flavorAction === "replace" || parsed.flavorAction === "add" || parsed.flavorAction === "remove" ? parsed.flavorAction : "none",
       flavors: Array.isArray(parsed.flavors)
         ? parsed.flavors
@@ -263,7 +290,7 @@ export class AiService {
       landmark: this.optionalText(parsed.landmark),
       contactNumber: this.normalizePhone(parsed.contactNumber),
       paymentMethod: parsed.paymentMethod === "cod" || parsed.paymentMethod === "gcash" ? parsed.paymentMethod : undefined,
-      confirmed: Boolean(parsed.confirmed)
+      confirmed: false
     };
   }
 
@@ -522,14 +549,6 @@ export class AiService {
 
   private isSummaryRequest(lower: string) { return /\b(summary|summarize|summarize my order|send.*summary|show.*summary)\b/i.test(lower); }
   private isOrderStatusQuestion(lower: string) { return /\b(did you place my order|have you placed my order|was my order placed|is my order placed|order status|has my order been placed)\b/i.test(lower); }
-  private inferIntent(message: string, details: Details): CustomerIntent {
-    if (details.confirmed) return "order_confirmation";
-    if (/\b(delivery fee|df)\b/.test(message.toLowerCase())) return "delivery_request";
-    if (/\b(pickup|pick up)\b/.test(message.toLowerCase())) return "pickup_request";
-    if (/\b(hm|how much|price|pila|tagpila|presyo)\b/.test(message.toLowerCase()) && !details.flavors.length) return "pricing_question";
-    if (details.flavors.length || /\border\b|\b\d+\s*(?:pcs?|pieces?)\b/.test(message.toLowerCase())) return "reservation";
-    return "inquiry";
-  }
 
   private normalizeFlavorName(value?: string) {
     const raw = this.optionalText(value);
@@ -550,12 +569,6 @@ export class AiService {
       "chocolate": "Choco"
     };
     return aliases[normalized] ?? raw.trim();
-  }
-
-  private normalizeIntent(value?: CustomerIntent): CustomerIntent {
-    return value === "order_confirmation" || value === "reservation" || value === "delivery_request" || value === "pickup_request" || value === "pricing_question" || value === "inquiry"
-      ? value
-      : "inquiry";
   }
 
   private optionalText(value?: unknown) {
