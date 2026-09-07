@@ -239,7 +239,7 @@ export class AiService {
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0.1, num_predict: 384, num_ctx: 2048 },
+      options: { temperature: 0.1, num_predict: 384, num_ctx: 4096 },
       messages: [
         {
           role: "system",
