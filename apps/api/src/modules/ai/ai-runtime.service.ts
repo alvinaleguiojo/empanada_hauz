@@ -7,7 +7,19 @@ import { AiInstructionsService } from "../ai-instructions/ai-instructions.servic
 import { ProductsService, ProductRecord } from "../products/products.service";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 
-interface OllamaResponse { message?: { content?: string } }
+interface OllamaToolCall {
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: Record<string, unknown>;
+  };
+}
+interface OllamaResponse {
+  message?: {
+    content?: string;
+    tool_calls?: OllamaToolCall[];
+  };
+}
 interface RuntimeRequest { customerId: string; conversationId: string; channel: string; customerName?: string; message: string; recentMessages?: string[] }
 interface ToolCallPlan { type: "tool_call"; tool: string; arguments?: Record<string, unknown> }
 interface FinalPlan { type: "final"; reply: string }
@@ -57,13 +69,12 @@ export class AiRuntimeService {
     let lastToolResult: unknown;
     let lastAction: string | undefined;
 
+    this.logger.log(`AI process context: model=${this.model} instructionsChars=${instructions.length} products=${products.length} tools=${tools.length} historyMessages=${currentMessages.length}`);
+
     for (let step = 0; step < 4; step += 1) {
       const liveState = await this.stateService.get(request.conversationId, request.customerId);
       const context = this.buildContext(request, products, deliveryPricing, liveState?.draft, tools);
-      const initialPlan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction });
-      const plan = initialPlan.type === "final"
-        ? await this.reconsiderToolPlan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction, initialPlan })
-        : initialPlan;
+      const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction, tools });
 
       this.logger.log(`AI planner step=${step + 1}: type=${plan.type}${plan.type === "tool_call" ? ` tool=${plan.tool}` : ""}`);
 
@@ -90,6 +101,7 @@ export class AiRuntimeService {
           conversationId: request.conversationId,
           channel: request.channel
         });
+        this.logger.log(`AI tool executed: ${plan.tool}`);
       } catch (error) {
         this.logger.warn(`AI tool execution failed: ${plan.tool}: ${error instanceof Error ? error.message : String(error)}`);
         lastToolResult = { ok: false, error: error instanceof Error ? error.message : "Application action failed." };
@@ -150,112 +162,74 @@ export class AiRuntimeService {
     message: string;
     lastToolResult?: unknown;
     lastAction?: string;
+    tools: AiToolDefinition[];
   }): Promise<Plan> {
     const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}
 
-You are the semantic intent router for an application. Your job is to decide whether the customer message requires an available application tool or only a normal conversational response.
+You are the semantic intent router for an application.
 
-Do not match literal phrases, maintain keyword lists, use regular expressions, or expect customers to use the wording of a tool description. Infer intent from meaning, grammar, conversational context, and the pending order state.
+Use the application's available tools whenever the customer's request can be answered or completed with a tool. Decide based on meaning and conversational context, not exact phrases.
 
-IMPORTANT: when an available tool can answer or perform what the customer is asking, you MUST return a tool_call. Do not return a final reply just because the customer used a short, vague, polite, or differently worded request.
+Do not use keyword lists, regular expressions, literal phrase matching, or exact wording requirements. A customer may ask the same thing in many different ways.
 
-Tool-selection priority:
-1. Use a read tool when the customer is asking for current application data.
-2. Use an action tool when the customer is asking the application to change or save something.
-3. Use the pending-order tool for a new or unfinished purchase conversation.
-4. Use a final reply only when no available tool can satisfy the intent.
+Examples of intent:
+- A request to browse, see, view, get, or know the shop's menu, products, flavors, offerings, or current prices requires the live product catalog tool.
+- A request about one specific product requires the corresponding product lookup tool.
+- A request about delivery charges requires the delivery-pricing tool.
+- A message that provides information for an unfinished purchase should use the pending-order tool.
+- A request to change an existing order should use the order-update tool.
+- A request to cancel or delete an existing order should use the corresponding action, subject to its confirmation requirement.
 
-Conversation-state rules:
-- Treat the persisted pending order draft as the source of truth for unfinished checkout.
-- A follow-up message can contain only one field. Merge it with the existing draft rather than starting over.
-- When a follow-up supplies delivery, payment, contact, address, schedule, quantity, or item information, use the pending-order tool to persist the new information.
-- After a pending-order update, continue reasoning from the updated draft and identify the next missing checkout detail. Do not repeat information that is already present.
-- Choosing a delivery method is not confirmation to place an order.
-- Only create a real order after explicit confirmation and only with the complete persisted draft.
+These are semantic examples, not keyword rules. Generalize from intent.
 
-Output ONLY one JSON object:
-{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}
-or
-{"type":"final","reply":"customer-facing reply"}
+Use a final conversational response only when no available tool can satisfy the customer's intent.
 
-The tool name must be exactly one of the tools in RUNTIME CONTEXT. Arguments must contain only information supported by the customer message and conversation state. Do not invent missing values.
+Never invent missing arguments. Only provide arguments supported by the customer message or conversation state.
+
+AVAILABLE AI TOOLS:
+${input.tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT SCHEMA: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}
 
 RUNTIME CONTEXT:
 ${input.context}`;
+
     const user = [
       `CONVERSATION:\n${input.messages.join("\n") || "none"}`,
       `CURRENT CUSTOMER MESSAGE:\n${input.message}`,
       input.lastAction ? `LAST TOOL: ${input.lastAction}` : "",
       input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : ""
     ].filter(Boolean).join("\n\n");
+
     const response = await this.chat({
       model: this.model,
       stream: false,
       think: false,
-      format: "json",
       options: { temperature: 0, num_predict: 256, num_ctx: 16384 },
+      tools: input.tools.map((tool) => ({
+        type: "function",
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema
+        }
+      })),
       messages: [{ role: "system", content: system }, { role: "user", content: user }]
     });
+
+    const nativeToolCall = response.message?.tool_calls?.[0];
+    if (nativeToolCall?.function?.name) {
+      const argumentsValue = nativeToolCall.function.arguments;
+      this.logger.log(`AI native tool call: ${nativeToolCall.function.name}`);
+      return {
+        type: "tool_call",
+        tool: nativeToolCall.function.name,
+        arguments: argumentsValue && typeof argumentsValue === "object" ? argumentsValue : {}
+      };
+    }
+
     const raw = response.message?.content?.trim();
-    this.logger.log(`AI planner raw response: ${raw?.slice(0, 1200) ?? "<empty>"}`);
+    this.logger.log(`AI planner final response: ${raw?.slice(0, 1200) ?? "<empty>"}`);
     if (!raw) throw new Error("Ollama returned an empty AI runtime plan");
     return this.parsePlan(raw);
-  }
-
-  private async reconsiderToolPlan(input: {
-    instructions: string;
-    context: string;
-    messages: string[];
-    message: string;
-    lastToolResult?: unknown;
-    lastAction?: string;
-    initialPlan: FinalPlan;
-  }): Promise<Plan> {
-    const toolContext = input.context.includes("AVAILABLE AI TOOLS:")
-      ? input.context.slice(input.context.indexOf("AVAILABLE AI TOOLS:"))
-      : input.context;
-    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}
-
-Reconsider the customer's intent specifically for application-tool use.
-
-The first planner returned a conversational final answer. Before accepting that answer, independently determine whether any available application tool can satisfy the customer's actual request.
-
-Use semantic understanding only. Do not use literal phrase matching, keyword rules, regex, or exact wording requirements.
-
-If a tool can satisfy the request, return a tool_call even when the customer's wording is short, polite, indirect, grammatically unusual, or uses different words from the tool description.
-
-For requests to browse or obtain the shop's current menu, products, offerings, flavors, or prices, the appropriate live catalog capability is the product-listing tool shown in RUNTIME CONTEXT. This is an intent example, not a keyword rule.
-
-Only return final when no available tool can satisfy the customer's request.
-
-Return ONLY one JSON object:
-{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}
-or
-{"type":"final","reply":"customer-facing reply"}
-
-RUNTIME CONTEXT:
-${toolContext}`;
-    const user = [
-      `CURRENT CUSTOMER MESSAGE:\n${input.message}`,
-      `CONVERSATION:\n${input.messages.join("\n") || "none"}`,
-      `FIRST PLANNER DECISION:\n${JSON.stringify(input.initialPlan)}`,
-      input.lastAction ? `LAST TOOL: ${input.lastAction}` : "",
-      input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : ""
-    ].filter(Boolean).join("\n\n");
-
-    const response = await this.chat({
-      model: this.model,
-      stream: false,
-      think: false,
-      format: "json",
-      options: { temperature: 0, num_predict: 128, num_ctx: 16384 },
-      messages: [{ role: "system", content: system }, { role: "user", content: user }]
-    });
-    const raw = response.message?.content?.trim();
-    this.logger.log(`AI planner reconsideration: ${raw?.slice(0, 1200) ?? "<empty>"}`);
-    if (!raw) return input.initialPlan;
-    const reconsidered = this.parsePlan(raw);
-    return reconsidered.type === "tool_call" ? reconsidered : input.initialPlan;
   }
 
   private async generateFinalReply(message: string, instructions: string, context: string[], result: unknown, lastAction?: string) {
