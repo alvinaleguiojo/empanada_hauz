@@ -14,6 +14,11 @@ const SEMANTIC_GUARDRAILS = `APPLICATION SEMANTIC GUARDRAILS (authoritative appl
 - Never infer referencedOrderDate merely from an earlier order schedule. referencedOrderDate is allowed only when the CURRENT CUSTOMER MESSAGE semantically refers to the existing order or its schedule.
 - A customer asking for clarification about something the assistant previously said is an inquiry/clarification, not automatically an order-status request.
 - For a fresh new-order request, do not revive or copy a stale pending draft when the CURRENT CUSTOMER MESSAGE supplies different item details. Current-turn details take precedence over stale conversation state.
+- For CURRENT-TURN EXTRACTION, the current customer message is the source of truth for explicitly supplied order fields. Historical flavor, quantity, delivery date, payment, or other order values are context only and must not overwrite current-turn values.
+- If the CURRENT CUSTOMER MESSAGE explicitly supplies a flavor and/or quantity, output those current values in details.flavors/details.quantity even when conversation history contains different values.
+- If the CURRENT CUSTOMER MESSAGE does not supply a flavor or quantity, do not invent one by copying an older order unless the customer is clearly referring to the pending new order with a contextual continuation.
+- Do not copy an old deliveryDate or preferredTime into the current turn unless the customer clearly refers to the pending new-order schedule or explicitly asks to reuse/keep it.
+- A separate new-order request should start from the customer's current requested items. Existing database-order items are never the new-order items unless the customer explicitly asks to copy/reuse them.
 - Language preference is conversational state: an explicitly requested language controls the reply. Cebuano means Cebuano; English-only means English. Do not switch to Waray, Tagalog, or another language.
 `;
 
