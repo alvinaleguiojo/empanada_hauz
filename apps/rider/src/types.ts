@@ -7,9 +7,12 @@ export type RiderProfile = { id: string; status: RiderStatus; rating: number; co
 export type DeliveryJob = {
   id: string; status: JobStatus; riderId?: string | null; pickupAddress: string; pickupLatitude?: number | null; pickupLongitude?: number | null; dropoffAddress: string; dropoffLatitude?: number | null; dropoffLongitude?: number | null;
   distanceKm?: number | null; estimatedDurationMinutes?: number | null; estimatedFare: number; finalFare?: number | null; notes?: string | null; requestedAt?: string; deliveredAt?: string | null;
-  order?: { orderNumber: string; quantity?: number; totalAmount?: number; deliveryFee?: number; paymentMethod?: "cod" | "gcash"; customer: { name: string; phoneNumber?: string | null } } | null;
+  order?: { status?: string; orderNumber: string; quantity?: number; totalAmount?: number; deliveryFee?: number; paymentMethod?: "cod" | "gcash"; customer: { name: string; phoneNumber?: string | null } } | null;
 };
 export const ACTIVE_JOB_STATUSES: JobStatus[] = ["requested", "searching_rider", "assigned", "accepted", "pickup_started", "picked_up", "delivering"];
 export const JOB_NEXT_STATUS: Partial<Record<JobStatus, JobStatus>> = { assigned: "accepted", accepted: "pickup_started", pickup_started: "picked_up", picked_up: "delivering", delivering: "delivered" };
+export function isCompletedDelivery(job: DeliveryJob): boolean {
+  return job.status === "delivered" || job.status === "cancelled" || job.order?.status === "completed";
+}
 export function jobActionLabel(status: JobStatus): string { switch (status) { case "assigned": return "Go to Pickup"; case "accepted": return "Confirm Pickup"; case "pickup_started": return "Confirm Pickup"; case "picked_up": return "Start Delivery"; case "delivering": return "Complete Delivery"; default: return "Open Order"; } }
 export function shortJobCode(id: string): string { return `EH-${id.slice(-4).toUpperCase()}`; }
