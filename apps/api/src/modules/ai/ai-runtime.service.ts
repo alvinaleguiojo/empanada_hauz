@@ -60,7 +60,12 @@ export class AiRuntimeService {
     for (let step = 0; step < 4; step += 1) {
       const liveState = await this.stateService.get(request.conversationId, request.customerId);
       const context = this.buildContext(request, products, deliveryPricing, liveState?.draft, tools);
-      const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction });
+      const initialPlan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction });
+      const plan = initialPlan.type === "final"
+        ? await this.reconsiderToolPlan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction, initialPlan })
+        : initialPlan;
+
+      this.logger.log(`AI planner step=${step + 1}: type=${plan.type}${plan.type === "tool_call" ? ` tool=${plan.tool}` : ""}`);
 
       if (plan.type === "final") {
         return {
@@ -192,8 +197,65 @@ ${input.context}`;
       messages: [{ role: "system", content: system }, { role: "user", content: user }]
     });
     const raw = response.message?.content?.trim();
+    this.logger.log(`AI planner raw response: ${raw?.slice(0, 1200) ?? "<empty>"}`);
     if (!raw) throw new Error("Ollama returned an empty AI runtime plan");
     return this.parsePlan(raw);
+  }
+
+  private async reconsiderToolPlan(input: {
+    instructions: string;
+    context: string;
+    messages: string[];
+    message: string;
+    lastToolResult?: unknown;
+    lastAction?: string;
+    initialPlan: FinalPlan;
+  }): Promise<Plan> {
+    const toolContext = input.context.includes("AVAILABLE AI TOOLS:")
+      ? input.context.slice(input.context.indexOf("AVAILABLE AI TOOLS:"))
+      : input.context;
+    const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}
+
+Reconsider the customer's intent specifically for application-tool use.
+
+The first planner returned a conversational final answer. Before accepting that answer, independently determine whether any available application tool can satisfy the customer's actual request.
+
+Use semantic understanding only. Do not use literal phrase matching, keyword rules, regex, or exact wording requirements.
+
+If a tool can satisfy the request, return a tool_call even when the customer's wording is short, polite, indirect, grammatically unusual, or uses different words from the tool description.
+
+For requests to browse or obtain the shop's current menu, products, offerings, flavors, or prices, the appropriate live catalog capability is the product-listing tool shown in RUNTIME CONTEXT. This is an intent example, not a keyword rule.
+
+Only return final when no available tool can satisfy the customer's request.
+
+Return ONLY one JSON object:
+{"type":"tool_call","tool":"TOOL_NAME","arguments":{}}
+or
+{"type":"final","reply":"customer-facing reply"}
+
+RUNTIME CONTEXT:
+${toolContext}`;
+    const user = [
+      `CURRENT CUSTOMER MESSAGE:\n${input.message}`,
+      `CONVERSATION:\n${input.messages.join("\n") || "none"}`,
+      `FIRST PLANNER DECISION:\n${JSON.stringify(input.initialPlan)}`,
+      input.lastAction ? `LAST TOOL: ${input.lastAction}` : "",
+      input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : ""
+    ].filter(Boolean).join("\n\n");
+
+    const response = await this.chat({
+      model: this.model,
+      stream: false,
+      think: false,
+      format: "json",
+      options: { temperature: 0, num_predict: 128, num_ctx: 16384 },
+      messages: [{ role: "system", content: system }, { role: "user", content: user }]
+    });
+    const raw = response.message?.content?.trim();
+    this.logger.log(`AI planner reconsideration: ${raw?.slice(0, 1200) ?? "<empty>"}`);
+    if (!raw) return input.initialPlan;
+    const reconsidered = this.parsePlan(raw);
+    return reconsidered.type === "tool_call" ? reconsidered : input.initialPlan;
   }
 
   private async generateFinalReply(message: string, instructions: string, context: string[], result: unknown, lastAction?: string) {
