@@ -66,6 +66,26 @@ export class AiRuntimeService {
       }
     }
 
+    const directOrder = await this.detectDirectOrderDraft(request.message, products);
+    if (directOrder) {
+      try {
+        lastAction = "capture_order_draft";
+        lastToolResult = await this.toolRegistry.execute("capture_order_draft", directOrder, {
+          customerId: request.customerId,
+          conversationId: request.conversationId,
+          channel: request.channel
+        });
+        return {
+          reply: this.renderDraftReply(lastToolResult),
+          tool: lastAction,
+          toolResult: lastToolResult,
+          state: await this.stateService.get(request.conversationId, request.customerId)
+        };
+      } catch (error) {
+        this.logger.warn(`Direct order draft capture failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     for (let step = 0; step < 4; step += 1) {
       const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction });
       if (plan.type === "final") {
@@ -119,6 +139,20 @@ export class AiRuntimeService {
       return "get_delivery_pricing";
     }
     return undefined;
+  }
+
+  private async detectDirectOrderDraft(message: string, products: ProductRecord[]) {
+    const text = message.trim();
+    const match = text.match(/\b(?:i(?:'d| would like to| want to| want)|let me get|give me|can i get|please add|order)\s+(\d+)\s*(?:pcs?|pieces?|pc)?\s+(.+?)\s*$/i);
+    if (!match) return undefined;
+    const quantity = Math.trunc(Number(match[1]));
+    const requestedName = match[2].replace(/\bplease\s*$/i, "").trim();
+    if (!Number.isFinite(quantity) || quantity < 1 || !requestedName) return undefined;
+    const product = await this.productsService.resolveByName(requestedName, { requireAvailable: true });
+    if (!product) return undefined;
+    return {
+      items: [{ name: product.name, quantity }]
+    };
   }
 
   private buildContext(request: RuntimeRequest, products: ProductRecord[], deliveryPricing: { baseFare: number; perKmRate: number }, draft: unknown, tools: AiToolDefinition[]) {
@@ -184,6 +218,7 @@ export class AiRuntimeService {
 
   private fallbackReply(lastAction?: string, lastToolResult?: unknown) {
     if (lastAction === "list_products" || lastAction === "get_product" || lastAction === "get_delivery_pricing") return this.renderReadToolReply(lastAction, lastToolResult);
+    if (lastAction === "capture_order_draft") return this.renderDraftReply(lastToolResult);
     return "How can I help you with your Empanada Hauz order? 😊";
   }
 
@@ -204,6 +239,21 @@ export class AiRuntimeService {
       .filter((product) => product?.name && typeof product.price === "number")
       .map((product) => `• ${product.name} — ₱${product.price!.toFixed(2)}${product.category ? ` (${product.category})` : ""}`);
     return ["Sure! Here’s our current product list:", ...lines, "", "Message me what you’d like to order and I’ll help you with it. 😊"].join("\n");
+  }
+
+  private renderDraftReply(result: unknown) {
+    const draft = result as {
+      draft?: {
+        items?: Array<{ name?: string; quantity?: number; unitPrice?: number; subtotal?: number }>;
+        quantity?: number;
+      };
+    } | null;
+    const items = draft?.draft?.items ?? [];
+    const quantity = draft?.draft?.quantity ?? items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+    if (!items.length) return "I can help with your order. What product and quantity would you like?";
+    const lines = items.map((item) => `• ${item.name} × ${item.quantity}${typeof item.subtotal === "number" ? ` — ₱${item.subtotal.toFixed(2)}` : ""}`);
+    const total = items.reduce((sum, item) => sum + Number(item.subtotal ?? 0), 0);
+    return ["Sure! I’ve started your order:", ...lines, `Total: ${quantity} pcs${total > 0 ? ` — ₱${total.toFixed(2)}` : ""}`, "", "What delivery method would you prefer: pickup or Maxim? 😊"].join("\n");
   }
 
   private async chat(body: Record<string, unknown>): Promise<OllamaResponse> {
