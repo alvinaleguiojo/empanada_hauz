@@ -6,6 +6,6 @@ import { MapsService } from "./maps.service";
 @Module({
   controllers: [DeliveryNetworkController],
   providers: [DeliveryNetworkService, MapsService],
-  exports: [DeliveryNetworkService]
+  exports: [DeliveryNetworkService, MapsService]
 })
 export class DeliveryNetworkModule {}
