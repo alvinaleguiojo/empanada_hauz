@@ -51,7 +51,8 @@ export class AiContextGuardService implements OnModuleInit {
       const action = this.extractApplicationAction(sanitizedContext?.recentMessages ?? []);
 
       if (action === "inquiry") {
-        const inquiryResult = `APPLICATION RESULT: This is a general Empanada Hauz business inquiry. Answer the customer's current question directly using the supplied business knowledge. Do not ask for order details unless the customer actually asks to place an order.\n\n${INQUIRY_BUSINESS_KNOWLEDGE}`;
+        const applicationResults = this.extractApplicationResults(sanitizedContext?.recentMessages ?? []);
+        const inquiryResult = `APPLICATION RESULT: This is a general Empanada Hauz business inquiry. Answer the customer's current question directly using the supplied business knowledge and any authoritative application results below. Do not ask for order details unless the customer actually asks to place an order.\n\n${INQUIRY_BUSINESS_KNOWLEDGE}\n\n${applicationResults}`;
         let suggestedReply = await this.generateInquiryReply(message, inquiryResult);
 
         if (!this.isInvalidCustomerReply(message, suggestedReply)) {
@@ -67,7 +68,7 @@ export class AiContextGuardService implements OnModuleInit {
         this.logger.warn(`Rejected invalid direct inquiry AI reply for customer message=${JSON.stringify(message)}`);
         suggestedReply = await this.generateInquiryReply(
           message,
-          `${inquiryResult}\n\nAI RESPONSE RETRY: Answer the customer's current business question directly. Do not echo the question, describe what the customer is asking, ask for order details, or redirect to an order flow unless the customer actually requested an order. Return only the customer-facing answer.`
+          `${inquiryResult}\n\nAI RESPONSE RETRY: Answer the customer's current business question directly. If an authoritative application delivery-fee result is present, state that exact calculated fee. Do not echo the question, describe what the customer is asking, ask for order details, or redirect to an order flow unless the customer actually requested an order. Return only the customer-facing answer.`
         );
 
         if (this.isInvalidCustomerReply(message, suggestedReply)) {
@@ -138,11 +139,7 @@ export class AiContextGuardService implements OnModuleInit {
         INQUIRY_BUSINESS_KNOWLEDGE
       ].filter((value) => {
         const text = value.trim();
-        return /^(?:Customer|Assistant):\s*/i.test(text)
-          || /^APPLICATION BUSINESS KNOWLEDGE:/i.test(text)
-          || /^APPLICATION AI ORDER ACTION:/i.test(text)
-          || /^AI RESPONSE RETRY:/i.test(text)
-          || text === INQUIRY_BUSINESS_KNOWLEDGE.trim();
+        return this.isAllowedHistoryMessage(text);
       })
     };
   }
@@ -158,10 +155,7 @@ export class AiContextGuardService implements OnModuleInit {
     return { ...context, recentMessages };
   }
 
-  private isSafeHistoryMessage(value: string) {
-    const text = value.trim();
-    if (!text) return false;
-
+  private isAllowedHistoryMessage(text: string) {
     return /^(?:Customer|Assistant):\s*/i.test(text)
       || /^APPLICATION BUSINESS KNOWLEDGE:/i.test(text)
       || /^APPLICATION ORDER STATUS TOOL RESULT:/i.test(text)
@@ -169,8 +163,29 @@ export class AiContextGuardService implements OnModuleInit {
       || /^LATEST DATABASE ORDER:/i.test(text)
       || /^APPLICATION AI ORDER ACTION:/i.test(text)
       || /^APPLICATION REUSED DELIVERY FACTS:/i.test(text)
+      || /^APPLICATION DELIVERY FEE TOOL RESULT:/i.test(text)
+      || /^APPLICATION DELIVERY LOCATION OPTIONS:/i.test(text)
+      || /^APPLICATION VERIFIED DELIVERY LOCATION:/i.test(text)
+      || /^APPLICATION DELIVERY LOCATION RESULT:/i.test(text)
       || /^AI RESPONSE RETRY:/i.test(text)
       || text === INQUIRY_BUSINESS_KNOWLEDGE.trim();
+  }
+
+  private isSafeHistoryMessage(value: string) {
+    const text = value.trim();
+    if (!text) return false;
+    return this.isAllowedHistoryMessage(text);
+  }
+
+  private extractApplicationResults(recentMessages: string[]) {
+    const results = recentMessages.filter((value) => {
+      const text = value.trim();
+      return /^APPLICATION DELIVERY FEE TOOL RESULT:/i.test(text)
+        || /^APPLICATION DELIVERY LOCATION OPTIONS:/i.test(text)
+        || /^APPLICATION VERIFIED DELIVERY LOCATION:/i.test(text)
+        || /^APPLICATION DELIVERY LOCATION RESULT:/i.test(text);
+    });
+    return results.length ? `AUTHORITATIVE APPLICATION RESULTS:\n${results.join("\n")}` : "AUTHORITATIVE APPLICATION RESULTS: none.";
   }
 
   private removeUnrequestedOrderNumber(message: string, reply?: string) {
