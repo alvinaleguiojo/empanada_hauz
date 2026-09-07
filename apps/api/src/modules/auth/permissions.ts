@@ -2,7 +2,7 @@ import { UserRole } from "@prisma/client";
 
 export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   admin: [
-    "dashboard.view", "customers.view", "customers.manage", "orders.view", "orders.manage",
+    "admin.only", "dashboard.view", "customers.view", "customers.manage", "orders.view", "orders.manage",
     "inbox.view", "inbox.manage", "expenses.view", "expenses.manage", "inventory.view", "inventory.manage",
     "kitchen.view", "kitchen.manage", "batches.view", "batches.manage", "deliveries.view", "deliveries.manage",
     "delivery-network.view", "delivery-network.manage", "riders.view", "riders.manage", "analytics.view",
@@ -27,6 +27,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
 };
 
 export const PERMISSION_LABELS: Record<string, string> = {
+  "admin.only": "Admin-only fallback access",
   "dashboard.view": "View dashboard",
   "customers.view": "View customers",
   "customers.manage": "Manage customers",
@@ -70,20 +71,20 @@ export function permissionForRequest(method: string, path: string): string | nul
   const view = upperMethod === "GET" || upperMethod === "HEAD";
   const manage = ["POST", "PUT", "PATCH", "DELETE"].includes(upperMethod);
 
-  if (normalizedPath.startsWith("/customers")) return view ? "customers.view" : manage ? "customers.manage" : null;
-  if (normalizedPath.startsWith("/orders")) return view ? "orders.view" : manage ? "orders.manage" : null;
-  if (normalizedPath.startsWith("/chat")) return view ? "chat.view" : manage ? "chat.manage" : null;
-  if (normalizedPath.startsWith("/expenses")) return view ? "expenses.view" : manage ? "expenses.manage" : null;
-  if (normalizedPath.startsWith("/inventory")) return view ? "inventory.view" : manage ? "inventory.manage" : null;
-  if (normalizedPath.startsWith("/kitchen")) return view ? "kitchen.view" : manage ? "kitchen.manage" : null;
-  if (normalizedPath.startsWith("/batches")) return view ? "batches.view" : manage ? "batches.manage" : null;
-  if (normalizedPath.startsWith("/deliveries")) return view ? "deliveries.view" : manage ? "deliveries.manage" : null;
-  if (normalizedPath.startsWith("/delivery-network")) return view ? "delivery-network.view" : manage ? "delivery-network.manage" : null;
-  if (normalizedPath.startsWith("/rider")) return view ? "riders.view" : manage ? "riders.manage" : null;
+  if (normalizedPath.startsWith("/customers")) return view ? "customers.view" : manage ? "customers.manage" : "admin.only";
+  if (normalizedPath.startsWith("/orders")) return view ? "orders.view" : manage ? "orders.manage" : "admin.only";
+  if (normalizedPath.startsWith("/chat")) return view ? "chat.view" : manage ? "chat.manage" : "admin.only";
+  if (normalizedPath.startsWith("/expenses")) return view ? "expenses.view" : manage ? "expenses.manage" : "admin.only";
+  if (normalizedPath.startsWith("/inventory")) return view ? "inventory.view" : manage ? "inventory.manage" : "admin.only";
+  if (normalizedPath.startsWith("/kitchen")) return view ? "kitchen.view" : manage ? "kitchen.manage" : "admin.only";
+  if (normalizedPath.startsWith("/batches")) return view ? "batches.view" : manage ? "batches.manage" : "admin.only";
+  if (normalizedPath.startsWith("/deliveries")) return view ? "deliveries.view" : manage ? "deliveries.manage" : "admin.only";
+  if (normalizedPath.startsWith("/delivery-network")) return view ? "delivery-network.view" : manage ? "delivery-network.manage" : "admin.only";
+  if (normalizedPath.startsWith("/rider")) return view ? "riders.view" : manage ? "riders.manage" : "admin.only";
   if (normalizedPath.startsWith("/analytics")) return "analytics.view";
-  if (normalizedPath.startsWith("/referrals")) return view ? "referrals.view" : manage ? "referrals.manage" : null;
+  if (normalizedPath.startsWith("/referrals")) return view ? "referrals.view" : manage ? "referrals.manage" : "admin.only";
   if (normalizedPath.startsWith("/notifications")) return "notifications.view";
   if (normalizedPath.startsWith("/ai-instructions")) return "ai-instructions.manage";
 
-  return null;
+  return "admin.only";
 }
