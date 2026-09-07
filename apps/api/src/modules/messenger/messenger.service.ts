@@ -125,7 +125,7 @@ export class MessengerService {
         catch (replyError) { this.logger.error(`Qwen order-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); reply = ai.suggestedReply?.trim() ?? ""; }
       }
     } else if (effectiveOrderAction === "modify_existing") {
-      const requestedOrder = await this.findOrderForModification(conversation.customer.id, actionContext.referencedOrderDate, latestOrder);
+      const requestedOrder = await this.findOrderForModification(conversation.customer.id, actionContext.referencedOrderDate, actionContext.requestedDeliveryDate, latestOrder);
       this.logger.log(`Messenger modify order selection: action=modify_existing referencedOrderDate=${actionContext.referencedOrderDate ?? "none"} selectedOrder=${requestedOrder?.orderNumber ?? "none"} selectedScheduledAt=${requestedOrder?.preferredSchedule?.toISOString() ?? "none"}`);
 
       if (!requestedOrder) {
@@ -231,9 +231,21 @@ export class MessengerService {
     });
   }
 
-  private async findOrderForModification(customerId: string, referencedOrderDate: string | undefined, latestOrder: LatestOrder | null) {
-    if (referencedOrderDate) return this.findActiveOrderByScheduleDate(customerId, referencedOrderDate);
-    return latestOrder;
+  private async findOrderForModification(customerId: string, referencedOrderDate: string | undefined, requestedDeliveryDate: string | undefined, latestOrder: LatestOrder | null) {
+    if (!referencedOrderDate) return latestOrder;
+
+    const scheduledOrder = await this.findActiveOrderByScheduleDate(customerId, referencedOrderDate);
+    if (scheduledOrder) return scheduledOrder;
+
+    const today = this.getTodayDate();
+    const isTodaySource = referencedOrderDate === today;
+    const isMovingToAnotherDate = Boolean(requestedDeliveryDate && requestedDeliveryDate !== referencedOrderDate);
+    if (isTodaySource && isMovingToAnotherDate && latestOrder && !latestOrder.preferredSchedule) {
+      this.logger.log(`No active order is scheduled for today; falling back to latest unscheduled active order ${latestOrder.orderNumber} for today's reschedule request`);
+      return latestOrder;
+    }
+
+    return null;
   }
 
   private shouldUpdateCustomerOrder(intent: string, details: OrderDetails, latestOrder: LatestOrder) {
