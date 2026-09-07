@@ -308,26 +308,46 @@ export class MessengerService {
     while (nextUrl && conversationsSeen < maxConversations) {
       const page: MetaPage<MetaConversation> = await this.metaGet<MetaPage<MetaConversation>>(nextUrl);
       for (const metaConversation of page.data ?? []) {
-        if (conversationsSeen >= maxConversations) break; conversationsSeen += 1;
+        if (conversationsSeen >= maxConversations) break;
+        conversationsSeen += 1;
         const participant = this.findCustomerParticipant(metaConversation.participants?.data ?? [], pageId);
         if (!participant?.id) { this.logger.warn(`Skipping Meta conversation ${metaConversation.id}: no customer participant found`); continue; }
         const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
         let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
-        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) });
-        else conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
+        if (!conversation) {
+          conversation = await this.prisma.conversation.create({
+            data: {
+              customerId: customer.id,
+              channel: "messenger",
+              metaConversationId: metaConversation.id,
+              ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {})
+            }
+          });
+        } else {
+          conversation = await this.prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              customerId: customer.id,
+              channel: "messenger",
+              ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {})
+            }
+          });
+        }
         conversationsImported += 1;
         let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
         let conversationMessageCount = 0; let newestMessage: MetaMessage | undefined;
         while (messageUrl && conversationMessageCount < maxMessagesPerConversation) {
           const messagesPage: MetaPage<MetaMessage> = await this.metaGet<MetaPage<MetaMessage>>(messageUrl);
           for (const metaMessage of messagesPage.data ?? []) {
-            if (conversationMessageCount >= maxMessagesPerConversation || !metaMessage.id) break; conversationMessageCount += 1;
+            if (conversationMessageCount >= maxMessagesPerConversation || !metaMessage.id) break;
+            conversationMessageCount += 1;
             if (!newestMessage || this.messageTime(metaMessage) > this.messageTime(newestMessage)) newestMessage = metaMessage;
             const existing = await this.prisma.message.findFirst({ where: { metaMessageId: metaMessage.id } });
             const data = { conversationId: conversation.id, metaMessageId: metaMessage.id, direction: (metaMessage.from?.id === pageId ? "outbound" : "inbound") as "outbound" | "inbound", type: (this.hasAttachments(metaMessage) ? "attachment" : "text") as "attachment" | "text", content: this.messageContent(metaMessage), rawPayload: metaMessage as never, ...(metaMessage.created_time ? { createdAt: new Date(metaMessage.created_time) } : {}) };
             if (existing) await this.prisma.message.update({ where: { id: existing.id }, data }); else await this.prisma.message.create({ data }); messagesImported += 1;
           }
-          if (conversationMessageCount >= maxMessagesPerConversation) break; messageUrl = messagesPage.paging?.next;
+          if (conversationMessageCount >= maxMessagesPerConversation) break;
+          messageUrl = messagesPage.paging?.next;
         }
         if (newestMessage) await this.prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessage: this.messageContent(newestMessage), ...(newestMessage.created_time ? { updatedAt: new Date(newestMessage.created_time) } : {}) } });
       }
