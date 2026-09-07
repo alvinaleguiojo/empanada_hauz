@@ -4,6 +4,7 @@ import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
 import { AiOrderActionService } from "../ai/ai-order-action.service";
 import { MessengerService } from "./messenger.service";
+import { McpOrdersService } from "../mcp/mcp-orders.service";
 
 interface OrderSummary {
   orderNumber: string;
@@ -31,13 +32,19 @@ export class MessengerOrderSummaryService {
     private readonly prisma: PrismaService,
     private readonly customersService: CustomersService,
     private readonly aiOrderActionService: AiOrderActionService,
-    private readonly messengerService: MessengerService
+    private readonly messengerService: MessengerService,
+    private readonly mcpOrdersService: McpOrdersService
   ) {}
 
   async tryHandle(senderId: string, message: string): Promise<boolean> {
     const actionContext = await this.getActionContext(senderId, message);
     if (actionContext?.orderAction === "cancel_existing") {
-      return this.handleCancellation(senderId, actionContext.hasActiveOrder, actionContext.customerId);
+      return this.handleCancellation(
+        senderId,
+        actionContext.hasActiveOrder,
+        actionContext.customerId,
+        this.extractOrderNumber(message)
+      );
     }
 
     if (!this.isSummaryRequest(message)) return false;
@@ -119,14 +126,16 @@ export class MessengerOrderSummaryService {
     }
   }
 
-  private async handleCancellation(senderId: string, hasActiveOrder: boolean, customerId: string) {
+  private async handleCancellation(senderId: string, hasActiveOrder: boolean, customerId: string, requestedOrderNumber: string | null) {
     const latestOrder = await this.prisma.order.findFirst({
-      where: { customerId, status: { notIn: ["completed", "cancelled"] } },
+      where: requestedOrderNumber
+        ? { customerId, orderNumber: requestedOrderNumber }
+        : { customerId, status: { notIn: ["completed", "cancelled"] } },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: { id: true, orderNumber: true, status: true }
     });
 
-    if (!hasActiveOrder || !latestOrder) {
+    if (!latestOrder || (!hasActiveOrder && !requestedOrderNumber)) {
       await this.messengerService.sendText(senderId, "I couldn't find an active order that can be cancelled. 😊");
       return true;
     }
@@ -140,11 +149,11 @@ export class MessengerOrderSummaryService {
     }
 
     try {
-      const cancelled = await this.prisma.order.update({
-        where: { id: latestOrder.id },
-        data: { status: "cancelled" }
+      const cancelled = await this.mcpOrdersService.updateOrder({
+        orderNumber: latestOrder.orderNumber,
+        status: "cancelled"
       });
-      this.logger.log(`Cancelled queued Messenger order ${cancelled.orderNumber} for ${senderId}`);
+      this.logger.log(`Cancelled queued Messenger order ${latestOrder.orderNumber} for ${senderId}`);
       await this.messengerService.sendText(senderId, `Your order #${cancelled.orderNumber} has been cancelled successfully. 😊`);
     } catch (error) {
       this.logger.error(`Customer order cancellation failed for ${senderId}`, error instanceof Error ? error.stack : String(error));
