@@ -11,10 +11,19 @@ import { AiOrderActionService } from "./ai-order-action.service";
 import { AiOrderNormalizationService } from "./ai-order-normalization.service";
 import { AiOrderRescheduleService } from "./ai-order-reschedule.service";
 import { AiService } from "./ai.service";
+import { SafeAiService } from "./safe-ai.service";
 
 @Module({
   imports: [DatabaseModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
-  providers: [AiService, AiControlService, AiContextGuardService, AiDeliveryFeeContextService, AiOrderActionService, AiOrderRescheduleService, AiOrderNormalizationService],
+  providers: [
+    { provide: AiService, useClass: SafeAiService },
+    AiControlService,
+    AiContextGuardService,
+    AiDeliveryFeeContextService,
+    AiOrderActionService,
+    AiOrderRescheduleService,
+    AiOrderNormalizationService
+  ],
   exports: [AiService, AiControlService, AiOrderActionService]
 })
 export class AiModule {}
