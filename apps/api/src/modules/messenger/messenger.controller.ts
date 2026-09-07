@@ -19,12 +19,13 @@ export class MessengerController {
     const standbyCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.standby) ? entry.standby.length : 0), 0);
     const handoverCount = entries.reduce((sum: number, entry: any) => sum + (Array.isArray(entry?.messaging_handovers) ? entry.messaging_handovers.length : 0), 0);
     this.logger.log(`Meta webhook POST received: signature=${Boolean(signature)} rawBody=${Boolean(rawBody)} rawBodyLength=${rawBody?.length ?? 0} object=${payload?.object ?? "unknown"} entries=${entries.length} messaging=${messagingCount} standby=${standbyCount} handovers=${handoverCount}`);
-    if (!this.verifySignature(rawBody, signature)) return { received: false };
+    if (!this.verifySignature(rawBody, signature)) { this.logger.warn(`Rejected Messenger webhook: invalid signature`); return { received: false }; }
     const pageId = this.metaAuthService.getConfiguredPageId();
+    if (entries.some((entry: any) => pageId && entry?.id && entry.id !== pageId)) this.logger.warn(`Ignoring Messenger events for unexpected Page ID`);
     setImmediate(() => { void this.processWebhookEntries(entries.filter((entry: any) => !pageId || !entry?.id || entry.id === pageId)); });
     return { received: true };
   }
-  private async processWebhookEntries(entries: any[]) { for (const entry of entries) { await this.processEvents(entry.messaging ?? [], "messaging"); await this.processEvents(entry.standby ?? [], "standby"); } }
+  private async processWebhookEntries(entries: any[]) { for (const entry of entries) { await this.processEvents(entry.messaging ?? [], "messaging"); await this.processEvents(entry.standby ?? [], "standby"); for (const handover of entry.messaging_handovers ?? []) this.logger.log(`Messenger handover event: sender=${handover.sender?.id ?? "unknown"}`); } }
   private async processEvents(events: any[], channel: "messaging" | "standby") {
     for (const event of events) {
       const text = event.message?.text; const attachments = event.message?.attachments;
@@ -32,10 +33,8 @@ export class MessengerController {
       const senderId = event.sender?.id; if (!senderId) continue;
       if (channel === "standby") { try { await this.messengerService.handleStandbyEvent({ senderId, messageId: event.message?.mid, text, rawPayload: event }); } catch (err) { this.logger.error(`Failed standby event from ${senderId}`, err); } continue; }
       if (event.message?.is_echo === true || (!text && !hasAttachments)) continue;
-      try {
-        if (text) await this.messengerService.processIncoming({ senderId, messageId: event.message?.mid, text, rawPayload: event });
-        else await this.messengerService.persistInbound({ senderId, messageId: event.message?.mid, text: "[Attachment]", type: "attachment", rawPayload: event });
-      } catch (err) { this.logger.error(`Failed to process message from ${senderId}`, err); }
+      try { if (text) await this.messengerService.processIncoming({ senderId, messageId: event.message?.mid, text, rawPayload: event }); else await this.messengerService.persistInbound({ senderId, messageId: event.message?.mid, text: "[Attachment]", type: "attachment", rawPayload: event }); }
+      catch (err) { this.logger.error(`Failed to process message from ${senderId}`, err); }
     }
   }
   private verifySignature(rawBody?: Buffer, signature?: string) {
