@@ -58,6 +58,8 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
     if (!this.isDeliveryFeeQuestion(message) && !isLocationSelection) return { context, estimatedFare: undefined };
 
     let activeOrderState = context?.activeOrderState;
+    const requestedLocation = this.extractRequestedDeliveryLocation(message);
+
     if (isLocationSelection) {
       const selected = this.resolveLocationSelection(message, recentMessages);
       if (selected) {
@@ -76,6 +78,15 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
         recentMessages.push("APPLICATION DELIVERY LOCATION RESULT: The selected location number was invalid. Ask the customer to choose one of the listed location numbers.");
         return { context: { ...context, recentMessages }, estimatedFare: undefined };
       }
+    } else if (requestedLocation) {
+      activeOrderState = {
+        ...activeOrderState,
+        flavors: [...(activeOrderState?.flavors ?? [])],
+        missingFields: [...(activeOrderState?.missingFields ?? [])],
+        confirmed: activeOrderState?.confirmed ?? false,
+        address: requestedLocation,
+        location: requestedLocation
+      };
     }
 
     const state = activeOrderState;
@@ -132,6 +143,19 @@ export class AiDeliveryFeeContextService implements OnModuleInit {
       this.logger.warn(`Delivery fee quote failed for AI: ${error instanceof Error ? error.message : String(error)}`);
       return { context: { ...context, activeOrderState: state, recentMessages }, estimatedFare: undefined };
     }
+  }
+
+  private extractRequestedDeliveryLocation(message: string) {
+    const match = message.match(/(?:delivery\s*(?:fee|charge)|shipping\s*fee|\bdf\b)\s+(?:in|at|to|for|sa)\s+(.+?)(?:\?|$)/i);
+    if (!match?.[1]) return undefined;
+
+    const location = match[1]
+      .replace(/[.!,;]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!location || /^(?:my area|your area|there|here)$/i.test(location)) return undefined;
+    return location;
   }
 
   private formatLocationOptions(candidates: LocationCandidate[]) {
