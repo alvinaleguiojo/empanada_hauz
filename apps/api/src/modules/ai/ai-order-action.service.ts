@@ -15,6 +15,9 @@ export interface AIOrderActionResult {
   confidence: number;
   newOrderFlowActive: boolean;
   reuseExistingDelivery: boolean;
+  referencedOrderDate?: string;
+  requestedDeliveryDate?: string;
+  requestedDeliveryTime?: string;
 }
 
 interface OllamaResponse { message?: { content?: string } }
@@ -37,14 +40,23 @@ export class AiOrderActionService {
     const hasPendingNewOrder = Boolean(context.hasPendingNewOrder);
     const response = await this.chat({
       model: this.model, stream: false, think: false, format: "json",
-      options: { temperature: 0.1, num_predict: 192, num_ctx: 3072 },
+      options: { temperature: 0.1, num_predict: 256, num_ctx: 3072 },
       messages: [
         { role: "system", content: `You are the semantic action router for Empanada Hauz Messenger. Determine WHAT THE CUSTOMER WANTS TO DO NOW from the CURRENT CUSTOMER MESSAGE plus recent conversation and current order state. Never depend on exact keywords.
 
 Understand natural language, typos, misspellings, shorthand, abbreviations, phonetic spellings, incomplete phrases, casual Messenger wording, and Cebuano/English mixing. Resolve references such as "that", "same", "it", "this one", "again", and follow-up replies from conversation context.
 
 Return ONLY valid JSON with this shape:
-{"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":true,"reuseExistingDelivery":false}
+{"orderAction":"new_order|modify_existing|cancel_existing|status|summary|inquiry|confirm","confidence":0.0,"newOrderFlowActive":true,"reuseExistingDelivery":false,"referencedOrderDate":"YYYY-MM-DD or empty","requestedDeliveryDate":"YYYY-MM-DD or empty","requestedDeliveryTime":"HH:MM or empty"}
+
+DATE/TIME REFERENCE EXTRACTION:
+- When modifying an existing order, identify the date of the existing order being referred to as referencedOrderDate when the customer states it.
+- If the customer states a new/target date, return it as requestedDeliveryDate.
+- If the customer states a new/target time, return it as requestedDeliveryTime.
+- For a relative date such as today, tomorrow, next Monday, or next week, resolve it using the current date/time supplied in context.
+- If the customer says something like "move my order on Nov 1 to today", the first date is referencedOrderDate and "today" is requestedDeliveryDate.
+- Never put the old/source date into requestedDeliveryDate.
+- These date/time fields are for application routing only; do not invent values when the customer did not provide or clearly imply them.
 
 ACTION MEANINGS:
 - new_order: start or continue a separate/new order.
@@ -84,7 +96,7 @@ STATE RULES:
 - confirm for a pending new order means newOrderFlowActive=true.
 - Do not treat a fresh new-order request as a modification just because an old order exists.
 - Do not decide pricing, required fields, ownership, database validity, cancellation eligibility, or execution safety. Those are application responsibilities.` },
-        { role: "user", content: `ACTIVE DATABASE ORDER EXISTS: ${hasActiveOrder}\nPENDING NEW ORDER EXISTS: ${hasPendingNewOrder}\n\nEXISTING ORDER DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}; scheduledAt=${delivery.preferredSchedule ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}` }
+        { role: "user", content: `ACTIVE DATABASE ORDER EXISTS: ${hasActiveOrder}\nPENDING NEW ORDER EXISTS: ${hasPendingNewOrder}\nCURRENT DATE/TIME IN ASIA/MANILA: ${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date())}\n\nEXISTING ORDER DETAILS:\ndeliveryMethod=${delivery.deliveryMethod ?? "none"}; address=${delivery.address ?? "none"}; landmark=${delivery.location ?? "none"}; contactNumber=${delivery.contactNumber ?? "none"}; paymentMethod=${delivery.paymentMethod ?? "none"}; scheduledAt=${delivery.preferredSchedule ?? "none"}\n\nRECENT CONVERSATION:\n${recentMessages.length ? recentMessages.join("\n") : "none"}\n\nCURRENT CUSTOMER MESSAGE:\n${message}` }
       ]
     });
     const raw = response.message?.content?.trim();
@@ -96,7 +108,15 @@ STATE RULES:
       const reuseExistingDelivery = Boolean(parsed.reuseExistingDelivery) && hasPendingNewOrder;
       const newOrderFlowActive = hasPendingNewOrder ? requestedNewOrderFlow || reuseExistingDelivery || requestedAction === "new_order" || requestedAction === "confirm" : !hasActiveOrder && requestedAction === "new_order" && requestedNewOrderFlow;
       const confidence = Number(parsed.confidence);
-      return { orderAction: requestedAction, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0, newOrderFlowActive, reuseExistingDelivery };
+      return {
+        orderAction: requestedAction,
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+        newOrderFlowActive,
+        reuseExistingDelivery,
+        referencedOrderDate: typeof parsed.referencedOrderDate === "string" && parsed.referencedOrderDate.trim() ? parsed.referencedOrderDate.trim() : undefined,
+        requestedDeliveryDate: typeof parsed.requestedDeliveryDate === "string" && parsed.requestedDeliveryDate.trim() ? parsed.requestedDeliveryDate.trim() : undefined,
+        requestedDeliveryTime: typeof parsed.requestedDeliveryTime === "string" && parsed.requestedDeliveryTime.trim() ? parsed.requestedDeliveryTime.trim() : undefined
+      };
     } catch (error) {
       this.logger.warn(`Order action JSON parse failed: ${error instanceof Error ? error.message : String(error)}`);
       return { orderAction: "inquiry", confidence: 0, newOrderFlowActive: false, reuseExistingDelivery: false };
