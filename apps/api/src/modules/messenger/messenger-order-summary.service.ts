@@ -173,20 +173,32 @@ export class MessengerOrderSummaryService {
     return [
       header,
       "",
-      ...orders.flatMap((order, index) => [
-        `Order ${index + 1}: #${order.orderNumber}`,
-        `Placed: ${this.formatDate(order.createdAt)}`,
-        `Status: ${this.titleCase(order.status)}`,
-        this.formatItems(order),
-        `Total: ₱${Number(order.totalAmount || 0).toFixed(2)}`,
-        `Delivery: ${this.formatDelivery(order.deliveryMethod)}`,
-        `Payment: ${this.formatPayment(order.paymentMethod)}`,
-        `Schedule: ${order.preferredSchedule ? this.formatSchedule(order.preferredSchedule) : "Not specified"}`,
-        ""
-      ]),
+      ...orders.flatMap((order, index) => {
+        const lines = [
+          `Order ${index + 1} • #${order.orderNumber}`,
+          `Status: ${this.titleCase(order.status)}`,
+          this.formatItems(order),
+          `Total: ₱${Number(order.totalAmount || 0).toFixed(2)}`,
+          `Delivery: ${this.formatDelivery(order.deliveryMethod)}`,
+          `Payment: ${this.formatPayment(order.paymentMethod)}`
+        ];
+
+        if (order.preferredSchedule) {
+          lines.push(`Schedule: ${this.formatSchedule(order.preferredSchedule)}`);
+        }
+
+        if (order.deliveryMethod === "maxim" && order.address?.trim()) {
+          lines.push(`Address: ${order.address.trim()}`);
+        }
+
+        if (order.deliveryMethod === "maxim" && order.location?.trim()) {
+          lines.push(`Landmark: ${order.location.trim()}`);
+        }
+
+        return [...lines, ""];
+      }),
       orders.length === 5 ? "Showing your 5 most recent orders." : ""
-    ].filter(Boolean).join("\n")
-      .trim();
+    ].filter(Boolean).join("\n").trim();
   }
 
   private formatItems(order: OrderSummary) {
@@ -227,13 +239,6 @@ export class MessengerOrderSummaryService {
       timeZone: "Asia/Manila",
       dateStyle: "medium",
       timeStyle: "short"
-    }).format(value);
-  }
-
-  private formatDate(value: Date) {
-    return new Intl.DateTimeFormat("en-PH", {
-      timeZone: "Asia/Manila",
-      dateStyle: "medium"
     }).format(value);
   }
 
