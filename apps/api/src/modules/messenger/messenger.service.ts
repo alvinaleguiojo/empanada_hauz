@@ -1,7 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
-import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
 import { AiControlService } from "../ai/ai-control.service";
 import { AiOrderActionService } from "../ai/ai-order-action.service";
@@ -84,8 +83,8 @@ export class MessengerService {
       existingDeliveryDetails: latestOrder ? { deliveryMethod: latestOrder.deliveryMethod, address: latestOrder.address, location: latestOrder.location, contactNumber: latestOrder.customer?.phoneNumber, paymentMethod: latestOrder.paymentMethod, preferredSchedule: latestOrder.preferredSchedule?.toISOString() } : undefined
     });
 
-    const inNewOrderFlow = actionContext.orderAction === "new_order" && (hasPendingNewOrder || (!latestOrder && actionContext.newOrderFlowActive));
     const effectiveOrderAction = actionContext.orderAction;
+    const inNewOrderFlow = effectiveOrderAction === "new_order" && (hasPendingNewOrder || (!latestOrder && actionContext.newOrderFlowActive));
     const shouldReuseExistingDelivery = actionContext.reuseExistingDelivery && inNewOrderFlow && Boolean(latestOrder);
     const reusedDeliveryState: Partial<OrderDetails> = shouldReuseExistingDelivery && latestOrder ? { deliveryMethod: latestOrder.deliveryMethod === "pickup" || latestOrder.deliveryMethod === "maxim" ? latestOrder.deliveryMethod : undefined, address: latestOrder.address ?? undefined, landmark: latestOrder.location ?? undefined, contactNumber: latestOrder.customer?.phoneNumber ?? undefined } : {};
 
@@ -93,7 +92,7 @@ export class MessengerService {
     const activeOrderState: OrderDetails = { ...(baseState ?? {}), ...reusedDeliveryState, flavors: baseState?.flavors ?? [], missingFields: baseState?.missingFields ?? [], confirmed: false };
     const hasActiveOrderState = Boolean(activeOrderState.flavors.length || activeOrderState.quantity !== undefined || activeOrderState.deliveryMethod || activeOrderState.paymentMethod || activeOrderState.address || activeOrderState.location || activeOrderState.contactNumber);
     const orderValidation = hasActiveOrderState ? this.describeOrderValidation(activeOrderState) : "No active order state is available.";
-    const latestOrderContext = latestOrder ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.` : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
+    const latestOrderContext = latestOrder ? `LATEST DATABASE ORDER: orderNumber=${latestOrder.orderNumber}; status=${latestOrder.status}; createdAt=${latestOrder.createdAt.toISOString()}; scheduledAt=${latestOrder.preferredSchedule?.toISOString() ?? "none"}. This is factual database state. Do not claim the current order was placed unless this latest order clearly matches the current order.` : "LATEST DATABASE ORDER: none found for this customer. Therefore no order has been created in the database yet.";
     contextMessages.push(`APPLICATION ORDER VALIDATION: ${orderValidation}`);
     contextMessages.push(latestOrderContext);
     contextMessages.push(`APPLICATION AI ORDER ACTION: ${effectiveOrderAction}; newOrderFlowActive=${inNewOrderFlow}; reuseExistingDelivery=${shouldReuseExistingDelivery}`);
@@ -105,10 +104,14 @@ export class MessengerService {
     await this.prisma.message.update({ where: { id: stored.id }, data: { aiIntent: ai.intent, aiConfidence: ai.confidence, extractedOrder: ai.details as never, processedAt: new Date() } });
 
     let reply = ai.suggestedReply?.trim() ?? "";
-    if (effectiveOrderAction === "new_order" && shouldReuseExistingDelivery) reply = this.buildApplicationOrderSummary(activeOrderState, true);
-    else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
-    else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai)) reply = this.buildNewOrderProgressReply(ai.details);
-    else if (this.isConfirmedOrder(ai)) {
+
+    if (effectiveOrderAction === "new_order" && shouldReuseExistingDelivery) {
+      reply = this.buildApplicationOrderSummary(activeOrderState, true);
+    } else if (effectiveOrderAction === "new_order" && latestOrder && !inNewOrderFlow) {
+      reply = "You already have an active order. Would you like to change your existing order or place a new order? 😊";
+    } else if (effectiveOrderAction === "new_order" && inNewOrderFlow && ai.details.flavors.length && !this.isConfirmedOrder(ai)) {
+      reply = this.buildNewOrderProgressReply(ai.details);
+    } else if ((effectiveOrderAction === "new_order" || effectiveOrderAction === "confirm") && this.isConfirmedOrder(ai)) {
       try {
         const created = await this.createConfirmedOrder(ai, conversation.customer?.name || "Messenger Customer", event.text);
         this.notificationsService.notify("order.created_from_messenger", { conversationId: conversation.id, senderId: event.senderId, orderId: created.id, orderNumber: created.orderNumber });
@@ -120,12 +123,27 @@ export class MessengerService {
         try { reply = await this.aiService.generateOrderResultReply("failed"); }
         catch (replyError) { this.logger.error(`Qwen order-result reply generation failed for ${event.senderId}`, replyError instanceof Error ? replyError.stack : String(replyError)); reply = ai.suggestedReply?.trim() ?? ""; }
       }
-    } else if (effectiveOrderAction === "modify_existing" && latestOrder && this.shouldUpdateCustomerOrder(ai.intent, ai.details, latestOrder)) {
-      try {
-        const updated = await this.updateCustomerOrderFromAi(ai, latestOrder.orderNumber);
-        this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
-        reply = ai.suggestedReply?.trim() || "Your order has been updated successfully.";
-      } catch (error) { this.logger.error(`Customer order update failed for ${event.senderId}`, error instanceof Error ? error.stack : String(error)); reply = ai.suggestedReply?.trim() || "I couldn't update the order right now. Please try again."; }
+    } else if (effectiveOrderAction === "modify_existing") {
+      const requestedOrder = actionContext.referencedOrderDate
+        ? await this.findActiveOrderByScheduleDate(conversation.customer.id, actionContext.referencedOrderDate)
+        : latestOrder;
+
+      if (!requestedOrder) {
+        reply = actionContext.referencedOrderDate
+          ? `I couldn't find an active order scheduled for ${this.formatReferenceDate(actionContext.referencedOrderDate)}. I won't change another order by mistake. 😊`
+          : "I couldn't find an active order to update. 😊";
+      } else if (this.shouldUpdateCustomerOrder(ai.intent, ai.details, requestedOrder)) {
+        try {
+          const updated = await this.updateCustomerOrderFromAi(ai, requestedOrder.orderNumber, actionContext.requestedDeliveryDate, actionContext.requestedDeliveryTime);
+          this.logger.log(`Updated Messenger order ${updated.orderNumber} for ${event.senderId}`);
+          reply = this.buildOrderUpdatedReply(updated.orderNumber, updated.preferredSchedule);
+        } catch (error) {
+          this.logger.error(`Customer order update failed for ${event.senderId}`, error instanceof Error ? error.stack : String(error));
+          reply = "I couldn't update the order right now. Please try again. 😊";
+        }
+      } else {
+        reply = ai.suggestedReply?.trim() || "I didn't find any order detail that needs changing. 😊";
+      }
     }
 
     if (reply) {
@@ -169,6 +187,17 @@ export class MessengerService {
     return lines.join("\n").trim();
   }
 
+  private buildOrderUpdatedReply(orderNumber: string, preferredSchedule: Date | null) {
+    if (!preferredSchedule) return `Done — your order #${orderNumber} has been updated successfully. 😊`;
+    const formatted = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(preferredSchedule);
+    return `Done — I rescheduled order #${orderNumber} to ${formatted}. Your existing order was updated; no new order was created. 😊`;
+  }
+
+  private formatReferenceDate(value: string) {
+    const parsed = new Date(`${value}T00:00:00+08:00`);
+    return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium" }).format(parsed);
+  }
+
   private titleCase(value: string) { return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()); }
   async getAiSettings() { return this.aiControl.getState(); }
   async setGlobalAiEnabled(enabled: boolean) { this.logger.warn(`Messenger AI global switch changed: enabled=${enabled}`); return this.aiControl.setGlobalEnabled(enabled); }
@@ -190,9 +219,21 @@ export class MessengerService {
 
   private trackingUrl(orderId: string) { const baseUrl = (this.config.get<string>("PUBLIC_APP_URL") ?? "https://www.empanadahauz.com").replace(/\/$/, ""); return `${baseUrl}/track/${orderId}`; }
 
+  private async findActiveOrderByScheduleDate(customerId: string, dateValue: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return null;
+    const start = new Date(`${dateValue}T00:00:00+08:00`);
+    const end = new Date(`${dateValue}T00:00:00+08:00`);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return this.prisma.order.findFirst({
+      where: { customerId, status: { notIn: ["completed", "cancelled"] }, preferredSchedule: { gte: start, lt: end } },
+      orderBy: [{ preferredSchedule: "asc" }, { createdAt: "desc" }, { id: "desc" }],
+      select: { id: true, orderNumber: true, status: true, quantity: true, deliveryMethod: true, paymentMethod: true, location: true, address: true, preferredSchedule: true, items: true, customer: { select: { phoneNumber: true } } }
+    });
+  }
+
   private shouldUpdateCustomerOrder(intent: string, details: OrderDetails, latestOrder: LatestOrder) {
     if (["completed", "cancelled"].includes(latestOrder.status)) return false;
-    if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length) return false;
+    if (["inquiry", "pricing_question", "delivery_request", "pickup_request"].includes(intent) && !details.flavors.length && details.deliveryDate === undefined && details.preferredTime === undefined) return false;
     if (!details.flavors.length && details.quantity === undefined && !details.deliveryMethod && !details.paymentMethod && details.address === undefined && details.location === undefined && details.contactNumber === undefined && details.deliveryDate === undefined && details.preferredTime === undefined) return false;
     const existingItems = Array.isArray(latestOrder.items) ? latestOrder.items.map((item) => ({ name: String((item as Record<string, unknown>)?.name ?? ""), quantity: Number((item as Record<string, unknown>)?.quantity ?? 0) })).filter((item) => item.name) : [];
     const newItems = details.flavors.map((item) => ({ name: item.name, quantity: Number(item.quantity) }));
@@ -205,19 +246,23 @@ export class MessengerService {
     const contactChanged = details.contactNumber !== undefined && details.contactNumber !== (latestOrder.customer.phoneNumber ?? undefined);
     const proposedSchedule = details.deliveryDate && details.preferredTime ? this.toManilaIso(details.deliveryDate, details.preferredTime) : undefined;
     const scheduleChanged = proposedSchedule !== undefined && proposedSchedule !== (latestOrder.preferredSchedule?.toISOString() ?? undefined);
-    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged;
+    const dateOnlyChange = details.deliveryDate !== undefined && details.preferredTime === undefined;
+    const timeOnlyChange = details.preferredTime !== undefined && details.deliveryDate === undefined;
+    return itemsChanged || quantityChanged || deliveryChanged || paymentChanged || locationChanged || addressChanged || contactChanged || scheduleChanged || dateOnlyChange || timeOnlyChange;
   }
 
-  private async updateCustomerOrderFromAi(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, orderNumber: string) {
+  private async updateCustomerOrderFromAi(ai: Awaited<ReturnType<AiService["classifyAndExtract"]>>, orderNumber: string, requestedDeliveryDate?: string, requestedDeliveryTime?: string) {
     const details = ai.details;
     const flavors = details.flavors ?? [];
+    const deliveryDate = requestedDeliveryDate || details.deliveryDate;
+    const deliveryTime = requestedDeliveryTime || details.preferredTime;
     let preferredSchedule: string | undefined;
-    if (details.deliveryDate && details.preferredTime) {
-      preferredSchedule = this.toManilaIso(details.deliveryDate, details.preferredTime);
-    } else if (details.deliveryDate) {
-      preferredSchedule = await this.mergeDateWithExistingOrderTime(details.deliveryDate, orderNumber);
-    } else if (details.preferredTime) {
-      preferredSchedule = this.toManilaIso(this.getTodayDate(), details.preferredTime);
+    if (deliveryDate && deliveryTime) {
+      preferredSchedule = this.toManilaIso(deliveryDate, deliveryTime);
+    } else if (deliveryDate) {
+      preferredSchedule = await this.mergeDateWithExistingOrderTime(deliveryDate, orderNumber);
+    } else if (deliveryTime) {
+      preferredSchedule = this.toManilaIso(this.getTodayDate(), deliveryTime);
     }
     return this.mcpOrdersService.updateOrder({ orderNumber, ...(flavors.length ? { items: flavors.map((item) => ({ name: item.name, quantity: item.quantity, price: item.unitPrice, subtotal: item.subtotal })) } : {}), ...(details.quantity !== undefined ? { quantity: Number(details.quantity) } : {}), ...(details.deliveryMethod ? { deliveryMethod: details.deliveryMethod } : {}), ...(details.paymentMethod ? { paymentMethod: details.paymentMethod } : {}), ...(details.address !== undefined ? { address: details.address } : {}), ...(details.location !== undefined ? { location: details.location } : {}), ...(details.contactNumber !== undefined ? { phoneNumber: details.contactNumber } : {}), ...(preferredSchedule ? { preferredSchedule } : {}) });
   }
