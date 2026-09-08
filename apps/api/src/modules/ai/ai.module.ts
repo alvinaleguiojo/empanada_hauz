@@ -13,6 +13,7 @@ import { AiActionConfigService } from "./ai-action-config.service";
 import { AiActionsController } from "./ai-actions.controller";
 import { AiPublicAgentController } from "./ai-public-agent.controller";
 import { AiPublicAgentService } from "./ai-public-agent.service";
+import { AiDateTimeService } from "./ai-datetime.service";
 
 @Module({
   imports: [DatabaseModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
@@ -24,8 +25,9 @@ import { AiPublicAgentService } from "./ai-public-agent.service";
     AiToolRegistryService,
     AiControlService,
     AiActionConfigService,
-    AiPublicAgentService
+    AiPublicAgentService,
+    AiDateTimeService
   ],
-  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService]
+  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService, AiDateTimeService]
 })
 export class AiModule {}

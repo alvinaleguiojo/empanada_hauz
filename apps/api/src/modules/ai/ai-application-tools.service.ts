@@ -3,8 +3,10 @@ import { DeliveryMethod, PaymentMethod } from "../orders/dto";
 import { PrismaService } from "../../database/prisma.service";
 import { McpOrdersService } from "../mcp/mcp-orders.service";
 import { ProductsService } from "../products/products.service";
+import { AiDateTimeService } from "./ai-datetime.service";
 
 export type AiApplicationToolName =
+  | "get_current_datetime"
   | "get_order_summary"
   | "get_my_orders"
   | "check_order_status"
@@ -18,11 +20,13 @@ export class AiApplicationToolsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mcpOrdersService: McpOrdersService,
-    private readonly productsService: ProductsService
+    private readonly productsService: ProductsService,
+    private readonly aiDateTimeService: AiDateTimeService
   ) {}
 
   async execute(tool: AiApplicationToolName, args: Record<string, unknown>) {
     switch (tool) {
+      case "get_current_datetime": return this.aiDateTimeService.now();
       case "get_order_summary": return this.getCustomerOrderSummary(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
       case "get_my_orders": return this.getMyOrders(this.stringArg(args.customerId), Number(args.limit));
       case "check_order_status": return this.getCustomerOrderStatus(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
@@ -105,7 +109,7 @@ export class AiApplicationToolsService {
       paymentMethod,
       location,
       address,
-      preferredSchedule: this.stringArg(args.preferredSchedule) || undefined,
+      preferredSchedule: this.normalizePreferredSchedule(this.stringArg(args.preferredSchedule)) || undefined,
       items: productItems,
       notes: this.stringArg(args.notes) || undefined
     };
@@ -114,10 +118,69 @@ export class AiApplicationToolsService {
 
   private async updateCustomerOrder(customerId: string, args: Record<string, unknown>) {
     const order = await this.findCustomerOrder(customerId, this.stringArg(args.orderNumber), this.stringArg(args.id));
+    const hasScheduleChange = args.preferredSchedule !== undefined;
+    if (hasScheduleChange && order.status !== "queued") {
+      throw new BadRequestException(`This order can only be rescheduled while it is queued. Current status: ${order.status}.`);
+    }
     const payload = { ...args, id: order.id } as Parameters<McpOrdersService["updateOrder"]>[0];
     delete (payload as Record<string, unknown>).customerId;
     delete (payload as Record<string, unknown>).confirmed;
+    if (hasScheduleChange) {
+      const normalizedSchedule = this.normalizePreferredSchedule(this.stringArg(args.preferredSchedule));
+      if (!normalizedSchedule) throw new BadRequestException("The requested schedule could not be understood. Please provide an exact date or a date and time.");
+      payload.preferredSchedule = normalizedSchedule;
+    }
     return this.mcpOrdersService.updateOrder(payload);
+  }
+
+  private normalizePreferredSchedule(value: string) {
+    const raw = value.trim();
+    if (!raw) return undefined;
+
+    if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(raw)) return raw;
+
+    const current = this.aiDateTimeService.now();
+    const currentDate = new Date(`${current.date}T00:00:00+08:00`);
+    const lowered = raw.toLowerCase().replace(/\s+/g, " ").trim();
+    const timeMatch = lowered.match(/(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+    const time = timeMatch ? this.parseTime(timeMatch[1], timeMatch[2], timeMatch[3]) : undefined;
+    const datePhrase = timeMatch ? lowered.slice(0, timeMatch.index).trim() : lowered;
+    if (!datePhrase) return undefined;
+
+    let targetDate: Date | undefined;
+    if (datePhrase === "today") {
+      targetDate = currentDate;
+    } else if (datePhrase === "tomorrow") {
+      targetDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+    } else if (datePhrase === "day after tomorrow") {
+      targetDate = new Date(currentDate.getTime() + 2 * 24 * 60 * 60 * 1000);
+    } else {
+      const weekday = datePhrase.replace(/^(next|this)\s+/, "");
+      const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      const targetDay = weekdays.indexOf(weekday);
+      if (targetDay >= 0) {
+        const dayDifference = (targetDay - currentDate.getDay() + 7) % 7 || 7;
+        targetDate = new Date(currentDate.getTime() + dayDifference * 24 * 60 * 60 * 1000);
+      }
+    }
+
+    if (!targetDate) return undefined;
+    const date = this.formatManilaDate(targetDate);
+    if (!time) return date;
+    return `${date}T${time}+08:00`;
+  }
+
+  private parseTime(hourValue: string, minuteValue?: string, meridiem?: string) {
+    let hour = Number(hourValue);
+    const minute = Number(minuteValue ?? "0");
+    if (!Number.isFinite(hour) || hour < 1 || hour > 12 || !Number.isFinite(minute) || minute < 0 || minute > 59) return undefined;
+    if (meridiem?.toLowerCase() === "pm" && hour !== 12) hour += 12;
+    if (meridiem?.toLowerCase() === "am" && hour === 12) hour = 0;
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
+  }
+
+  private formatManilaDate(date: Date) {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: this.aiDateTimeService.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
   }
 
   private async cancelCustomerOrder(customerId: string, orderNumber?: string, id?: string, confirmed = false) {
