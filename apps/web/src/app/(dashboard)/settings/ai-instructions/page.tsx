@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import AiActionsPanel from "@/components/settings/ai-actions-panel";
+import AiGlobalSwitch from "@/components/settings/ai-global-switch";
 
 type InstructionKind = "instruction" | "prompt";
 type SettingsTab = "instructions" | "actions";
@@ -204,6 +205,8 @@ export default function AiInstructionsPage() {
           </p>
         </div>
       </div>
+
+      <AiGlobalSwitch />
 
       <div className="mb-6 border-b border-white/[0.08]">
         <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="AI configuration tabs">
