@@ -21,13 +21,13 @@ export class AiToolRegistryService {
   async getTools(): Promise<AiToolDefinition[]> {
     const handlers = await this.handlers();
     const configs = new Map((await this.actionConfig.list()).map((item) => [item.name, item]));
-    const builtIn = handlers.filter((handler) => configs.get(handler.definition.name)?.enabled ?? true).map((handler) => {
+    const builtIn = handlers.filter((handler) => handler.definition.name !== "get_delivery_pricing" && (configs.get(handler.definition.name)?.enabled ?? true)).map((handler) => {
       const config = configs.get(handler.definition.name);
       return { ...handler.definition, description: config?.description?.trim() || handler.definition.description };
     });
     const custom = (await this.actionConfig.list()).filter((config) => config.custom && config.enabled).flatMap((config) => {
       const target = handlers.find((handler) => handler.definition.name === config.executor);
-      if (!target) return [];
+      if (!target || target.definition.name === "get_delivery_pricing") return [];
       if (config.name === config.executor) return [];
       return [{ ...target.definition, name: config.name, description: config.description?.trim() || target.definition.description }];
     });
@@ -36,7 +36,7 @@ export class AiToolRegistryService {
   }
 
   async listApprovedExecutors() {
-    return (await this.handlers()).map((handler) => ({
+    return (await this.handlers()).filter((handler) => handler.definition.name !== "get_delivery_pricing").map((handler) => ({
       name: handler.definition.name,
       description: handler.definition.description,
       risk: handler.definition.risk,
@@ -82,7 +82,7 @@ export class AiToolRegistryService {
         configured: true,
         custom: true,
         executor: target.definition.name
-      };
+      }];
     });
     return [...builtIns, ...custom];
   }
@@ -94,13 +94,7 @@ export class AiToolRegistryService {
     if (!target) throw new BadRequestException(`Unknown approved executor: ${executor}`);
     const name = String(input.name ?? "").trim();
     if (handlers.some((handler) => handler.definition.name === name)) throw new BadRequestException(`Action name is reserved: ${name}`);
-    return this.actionConfig.createCustom({
-      name,
-      label: String(input.label ?? "").trim(),
-      description: String(input.description ?? "").trim(),
-      executor,
-      enabled: input.enabled
-    }, createdById);
+    return this.actionConfig.createCustom({ name, label: String(input.label ?? "").trim(), description: String(input.description ?? "").trim(), executor, enabled: input.enabled }, createdById);
   }
 
   async configure(name: string, patch: AiActionConfigPatch, createdById: string) {
@@ -139,22 +133,27 @@ export class AiToolRegistryService {
         execute: async (args) => { const name = String(args.name ?? "").trim(); const product = await this.productsService.resolveByName(name, { requireAvailable: true }); if (!product) throw new BadRequestException(`Product not found or unavailable: ${name}`); return product; }
       },
       {
-        definition: { name: "get_delivery_quote", description: "Calculate the current estimated delivery fee for the customer's destination using the application's live route and delivery-quote logic. Use this for questions about the delivery fee/cost/df when a delivery destination is known. Do not expose internal base-fare or per-kilometer pricing rules; return only the destination-specific estimated fee and route details from this tool.", risk: "read", inputSchema: { type: "object", properties: { address: { type: "string", description: "Customer delivery address." }, landmark: { type: "string", description: "Customer landmark or more precise destination description." }, latitude: { type: "number" }, longitude: { type: "number" } }, required: ["address"], additionalProperties: false } },
+        definition: { name: "get_delivery_pricing", description: "Internal delivery pricing configuration. Not customer-facing. Do not expose base-fare or per-km values to customers; use get_delivery_quote for an address-specific customer delivery fee.", risk: "read", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+        execute: async () => this.deliveryNetworkService.getDeliveryPricing()
+      },
+      {
+        definition: { name: "get_delivery_quote", description: "Get the application-generated delivery fee estimate for a customer's destination. Use when the customer asks how much delivery will cost. Requires the customer's delivery address or landmark; do not substitute internal base/per-km pricing.", risk: "read", inputSchema: { type: "object", properties: { address: { type: "string" }, landmark: { type: "string" }, latitude: { type: "number" }, longitude: { type: "number" } }, additionalProperties: false } },
         execute: async (args) => {
-          const address = typeof args.address === "string" ? args.address.trim() : "";
-          const landmark = typeof args.landmark === "string" ? args.landmark.trim() : "";
-          if (!address) throw new BadRequestException("A delivery address is required to calculate the delivery fee.");
+          const address = String(args.address ?? "").trim();
+          const landmark = String(args.landmark ?? "").trim();
+          const parsedLatitude = Number(args.latitude);
+          const parsedLongitude = Number(args.longitude);
+          const hasCoordinates = Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude);
           const dropoffAddress = [landmark, address].filter(Boolean).join(", ");
-          const latitude = Number(args.latitude);
-          const longitude = Number(args.longitude);
-          const hasDropoffCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+          if (!dropoffAddress && !hasCoordinates) throw new BadRequestException("A delivery address or landmark is required to calculate the delivery fee.");
           const quote = await this.deliveryNetworkService.quoteJob({
             pickupAddress: "Empanada Hauz",
             pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
             pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
-            dropoffAddress,
-            ...(hasDropoffCoordinates ? { dropoffLatitude: latitude, dropoffLongitude: longitude } : {})
+            dropoffAddress: dropoffAddress || "Customer location",
+            ...(hasCoordinates ? { dropoffLatitude: parsedLatitude, dropoffLongitude: parsedLongitude } : {})
           });
+          if (quote.distanceKm == null || typeof quote.estimatedFare !== "number") throw new BadRequestException("Unable to calculate a route-based delivery fee for that destination right now.");
           return quote;
         }
       },
@@ -176,7 +175,7 @@ export class AiToolRegistryService {
       },
       {
         definition: { name: "create_order", description: "Create a real order from the customer's complete validated pending order after explicit confirmation. Before execution, combine the persisted pending draft with any explicitly supplied fields. Never infer missing required checkout data; let application validation reject an incomplete order.", risk: "write", requiresCustomerContext: true, requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string", enum: ["pickup", "maxim"] }, paymentMethod: { type: "string", enum: ["cod", "gcash"] }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false } },
-        execute: async (args, context) => { const existing = await this.stateService.get(context.conversationId ?? "", context.customerId); const draft = (existing?.draft ?? {}) as Record<string, unknown>; const merged: Record<string, unknown> = { ...draft, ...args }; if (merged.phoneNumber === undefined && draft.contactNumber !== undefined) merged.phoneNumber = draft.contactNumber; if (merged.preferredSchedule === undefined) { const date = typeof draft.deliveryDate === "string" ? draft.deliveryDate : undefined; const time = typeof draft.preferredTime === "string" ? draft.preferredTime : undefined; if (date || time) merged.preferredSchedule = [date, time].filter(Boolean).join(" "); } if (merged.location === undefined && draft.landmark !== undefined) merged.location = draft.landmark; const result = await this.applicationTools.execute("create_order", { ...merged, customerId: context.customerId }); await this.stateService.clear(context.conversationId ?? "", context.customerId); return result; }
+        execute: async (args, context) => { const existing = await this.stateService.get(context.conversationId ?? "", context.customerId); const draft = (existing?.draft ?? {}) as Record<string, unknown>; const merged: Record<string, unknown> = { ...draft, ...args }; if (merged.phoneNumber === undefined && draft.contactNumber !== undefined) merged.phoneNumber = draft.contactNumber; if (merged.preferredSchedule === undefined) { const date = typeof draft.deliveryDate === "string" ? draft.deliveryDate : undefined; const time = typeof draft.preferredTime === "string" ? draft.preferredTime : undefined; if (date || time) merged.preferredSchedule = [date, time].filter(Boolean).join(" "); } if (merged.location === undefined && draft.landmark !== undefined) merged.location = draft.landmark; if (typeof merged.preferredSchedule === "string" && draft.preferredTime && /^(today|tomorrow)$/i.test(merged.preferredSchedule.trim())) merged.preferredSchedule = `${merged.preferredSchedule.trim()} ${draft.preferredTime}`; const result = await this.applicationTools.execute("create_order", { ...merged, customerId: context.customerId }); await this.stateService.clear(context.conversationId ?? "", context.customerId); return result; }
       },
       {
         definition: { name: "update_order", description: "Update an existing active customer order when the customer asks to change its items, quantity, delivery, payment, address, or schedule.", risk: "write", requiresCustomerContext: true, inputSchema: { type: "object", properties: { id: { type: "string" }, orderNumber: { type: "string" }, items: { type: "array" }, quantity: { type: "number" }, deliveryMethod: { type: "string", enum: ["pickup", "maxim"] }, paymentMethod: { type: "string", enum: ["cod", "gcash"] }, location: { type: "string" }, address: { type: "string" }, phoneNumber: { type: "string" }, preferredSchedule: { type: "string" } }, additionalProperties: false } },
