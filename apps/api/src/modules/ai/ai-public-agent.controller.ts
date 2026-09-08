@@ -1,6 +1,6 @@
 import { Body, Controller, Post } from "@nestjs/common";
-import { IsArray, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
-import { AiPublicAgentService, PublicAgentFormContext } from "./ai-public-agent.service";
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { AiPublicAgentService, PublicAgentFormContext, PublicAgentHistoryMessage } from "./ai-public-agent.service";
 
 class PublicAgentItemDto {
   @IsString()
@@ -44,6 +44,15 @@ class PublicAgentContextDto implements PublicAgentFormContext {
   landmark?: string;
 }
 
+class PublicAgentHistoryMessageDto implements PublicAgentHistoryMessage {
+  @IsIn(["user", "assistant"])
+  role!: "user" | "assistant";
+
+  @IsString()
+  @MaxLength(1200)
+  content!: string;
+}
+
 class PublicAgentChatDto {
   @IsString()
   @MaxLength(80)
@@ -52,6 +61,10 @@ class PublicAgentChatDto {
   @IsString()
   @MaxLength(600)
   message!: string;
+
+  @IsOptional()
+  @IsArray()
+  history?: PublicAgentHistoryMessageDto[];
 
   @IsOptional()
   context?: PublicAgentContextDto;
@@ -63,6 +76,6 @@ export class AiPublicAgentController {
 
   @Post("chat")
   chat(@Body() dto: PublicAgentChatDto) {
-    return this.publicAgent.chat(dto.sessionId, dto.message, dto.context);
+    return this.publicAgent.chat(dto.sessionId, dto.message, dto.history, dto.context);
   }
 }
