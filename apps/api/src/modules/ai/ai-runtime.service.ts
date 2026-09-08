@@ -5,7 +5,6 @@ import { AiToolDefinition } from "./ai-tool.types";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 import { ProductsService, ProductRecord } from "../products/products.service";
-import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 
 interface OllamaToolCall {
   type?: string;
@@ -50,8 +49,7 @@ export class AiRuntimeService {
     private readonly stateService: AiConversationStateService,
     private readonly toolRegistry: AiToolRegistryService,
     private readonly instructionsService: AiInstructionsService,
-    private readonly productsService: ProductsService,
-    private readonly deliveryNetworkService: DeliveryNetworkService
+    private readonly productsService: ProductsService
   ) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
@@ -63,7 +61,6 @@ export class AiRuntimeService {
     const instructions = await this.instructionsService.getActiveInstructionBlock();
     const replyInstructions = await this.instructionsService.getActiveReplyPromptBlock();
     const products = await this.productsService.list({ availableOnly: true });
-    const deliveryPricing = await this.deliveryNetworkService.getDeliveryPricing();
     const tools = await this.toolRegistry.getTools();
     let currentMessages = [...(request.recentMessages ?? []).slice(-16)];
     let lastToolResult: unknown;
@@ -73,7 +70,7 @@ export class AiRuntimeService {
 
     for (let step = 0; step < 4; step += 1) {
       const liveState = await this.stateService.get(request.conversationId, request.customerId);
-      const context = this.buildContext(request, products, deliveryPricing, liveState?.draft, tools);
+      const context = this.buildContext(request, products, liveState?.draft, tools);
       const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction, tools });
 
       this.logger.log(`AI planner step=${step + 1}: type=${plan.type}${plan.type === "tool_call" ? ` tool=${plan.tool}` : ""}`);
@@ -113,7 +110,7 @@ export class AiRuntimeService {
       currentMessages.push(`AI TOOL CALL: ${plan.tool} ${JSON.stringify(args)}`);
       currentMessages.push(`AI TOOL RESULT: ${JSON.stringify(lastToolResult)}`);
 
-      if (plan.tool === "list_products" || plan.tool === "get_product" || plan.tool === "get_delivery_pricing") {
+      if (plan.tool === "list_products" || plan.tool === "get_product" || plan.tool === "get_delivery_quote") {
         return {
           reply: this.renderReadToolReply(plan.tool, lastToolResult),
           tool: lastAction,
@@ -147,7 +144,6 @@ export class AiRuntimeService {
   private buildContext(
     request: RuntimeRequest,
     products: ProductRecord[],
-    deliveryPricing: { baseFare: number; perKmRate: number },
     draft: unknown,
     tools: AiToolDefinition[]
   ) {
@@ -157,10 +153,9 @@ export class AiRuntimeService {
       `CUSTOMER ID: ${request.customerId}`,
       `CONVERSATION ID: ${request.conversationId}`,
       `AVAILABLE PRODUCTS:\n${products.map((product) => `${product.name} | price=₱${product.price} | category=${product.category} | aliases=${product.aliases.join(", ") || "none"}`).join("\n") || "none"}`,
-      `DELIVERY PRICING: baseFare=₱${deliveryPricing.baseFare}; perKmRate=₱${deliveryPricing.perKmRate}`,
       `PENDING ORDER DRAFT: ${draft ? JSON.stringify(draft) : "none"}`,
       `AVAILABLE AI TOOLS:\n${tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}`,
-      `SYSTEM SAFETY: Application tools are authoritative. Never invent prices, availability, order status, ownership, successful writes, or business policy. Use tools for current application facts.`
+      `SYSTEM SAFETY: Application tools are authoritative. Never invent prices, availability, delivery fees, route details, order status, ownership, successful writes, or business policy. Use tools for current application facts.`
     ].join("\n\n");
   }
 
@@ -184,12 +179,18 @@ Do not use keyword lists, regular expressions, literal phrase matching, or exact
 Examples of intent:
 - A request to browse, see, view, get, or know the shop's menu, products, flavors, offerings, or current prices requires the live product catalog tool.
 - A request about one specific product requires the corresponding product lookup tool.
-- A request about delivery charges requires the delivery-pricing tool.
+- A request about a delivery fee, delivery cost, or "df" requires the destination-specific delivery quote tool when a delivery destination is known.
+- A request about delivery pricing rules, base fare, or per-kilometer rates is not customer-facing information. Do not answer with internal rate configuration. When the customer wants to know what they will pay for their destination, use the destination-specific delivery quote tool instead.
 - A message that provides information for an unfinished purchase should use the pending-order tool.
 - A request to change an existing order should use the order-update tool.
 - A request to cancel or delete an existing order should use the corresponding action, subject to its confirmation requirement.
 
-These are semantic examples, not keyword rules. Generalize from intent.
+Delivery quote rules:
+- Never expose or calculate a customer-facing fee from internal base-fare or per-kilometer configuration.
+- Never tell the customer the configured delivery rate as a substitute for an address-specific quote.
+- When the customer asks for the delivery fee and the pending draft already contains an address, use that address and landmark from the draft with the delivery quote tool.
+- A delivery quote is destination-specific and application-generated. Do not invent, estimate, round, or substitute a fee yourself.
+- If a destination is not yet known, ask for the delivery address/landmark needed to calculate the quote.
 
 Checkout recovery rules:
 - The persisted pending order draft is the source of truth for unfinished checkout.
@@ -260,7 +261,7 @@ ${input.context}`;
       messages: [
         {
           role: "system",
-          content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nApplication results are authoritative. Never invent successful actions or data. Do not mention tools or internal implementation. Return ONLY JSON: {"reply":"customer-facing reply"}. Keep the reply concise and Messenger-friendly.`
+          content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nApplication results are authoritative. Never invent successful actions or data. Never expose internal pricing rules such as base fare or per-kilometer rates. Do not mention tools or internal implementation. Return ONLY JSON: {"reply":"customer-facing reply"}. Keep the reply concise and Messenger-friendly.`
         },
         {
           role: "user",
@@ -283,11 +284,7 @@ ${input.context}`;
       try {
         const parsed = JSON.parse(candidate) as Partial<Plan> & { arguments?: Record<string, unknown> };
         if (parsed.type === "tool_call" && typeof parsed.tool === "string") {
-          return {
-            type: "tool_call",
-            tool: parsed.tool,
-            arguments: parsed.arguments && typeof parsed.arguments === "object" ? parsed.arguments : {}
-          };
+          return { type: "tool_call", tool: parsed.tool, arguments: parsed.arguments && typeof parsed.arguments === "object" ? parsed.arguments : {} };
         }
         if (parsed.type === "final" && typeof parsed.reply === "string") return { type: "final", reply: parsed.reply };
       } catch {}
@@ -304,24 +301,24 @@ ${input.context}`;
   private cleanReply(value: string, lastAction?: string, lastToolResult?: unknown) {
     const text = value.replace(/^```(?:text|markdown|json)?/i, "").replace(/```$/i, "").trim();
     if (!text) return this.fallbackReply(lastAction, lastToolResult);
-    if (text.includes('"type":"tool_call"') || text.includes('"type": "tool_call"') || /\bAI\s+TOOL\s+CALL\b/i.test(text)) {
-      return this.fallbackReply(lastAction, lastToolResult);
-    }
+    if (text.includes('"type":"tool_call"') || text.includes('"type": "tool_call"') || /\bAI\s+TOOL\s+CALL\b/i.test(text)) return this.fallbackReply(lastAction, lastToolResult);
     if (/^\{\s*"type"\s*:\s*"(?:tool_call|final)"/i.test(text)) return this.fallbackReply(lastAction, lastToolResult);
+    if (/\bbase\s+fare\b|\bper[- ]kilometer\b|\bper[- ]km\b/i.test(text) && lastAction !== "get_delivery_quote") return this.fallbackReply(lastAction, lastToolResult);
     return text;
   }
 
   private fallbackReply(lastAction?: string, lastToolResult?: unknown) {
-    if (lastAction === "list_products" || lastAction === "get_product" || lastAction === "get_delivery_pricing") return this.renderReadToolReply(lastAction, lastToolResult);
+    if (lastAction === "list_products" || lastAction === "get_product" || lastAction === "get_delivery_quote") return this.renderReadToolReply(lastAction, lastToolResult);
     if (lastAction === "capture_order_draft") return this.renderDraftReply(lastToolResult);
     return "How can I help you with your Empanada Hauz order? 😊";
   }
 
   private renderReadToolReply(tool: string, result: unknown) {
-    if (tool === "get_delivery_pricing") {
-      const pricing = result as { baseFare?: number; perKmRate?: number } | null;
-      if (!pricing || typeof pricing.baseFare !== "number" || typeof pricing.perKmRate !== "number") return "I couldn’t retrieve the current delivery pricing right now. Please try again in a moment.";
-      return `Our current delivery rate is ₱${pricing.baseFare.toFixed(2)} base fare + ₱${pricing.perKmRate.toFixed(2)} per km.`;
+    if (tool === "get_delivery_quote") {
+      const quote = result as { distanceKm?: number | null; estimatedDurationMinutes?: number | null; estimatedFare?: number | null; estimatedArrivalAt?: string | null } | null;
+      if (!quote || typeof quote.estimatedFare !== "number") return "I couldn’t calculate the delivery fee for that address right now. Please check the address or try again in a moment.";
+      const distance = typeof quote.distanceKm === "number" ? ` for about ${quote.distanceKm.toFixed(2)} km` : "";
+      return `The estimated delivery fee${distance} is ₱${quote.estimatedFare.toFixed(2)}.`;
     }
     if (tool === "get_product") {
       const product = result as { name?: string; price?: number; category?: string } | null;
