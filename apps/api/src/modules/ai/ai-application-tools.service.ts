@@ -6,6 +6,7 @@ import { ProductsService } from "../products/products.service";
 
 export type AiApplicationToolName =
   | "get_order_summary"
+  | "get_my_orders"
   | "check_order_status"
   | "create_order"
   | "update_order"
@@ -23,6 +24,7 @@ export class AiApplicationToolsService {
   async execute(tool: AiApplicationToolName, args: Record<string, unknown>) {
     switch (tool) {
       case "get_order_summary": return this.getCustomerOrderSummary(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
+      case "get_my_orders": return this.getMyOrders(this.stringArg(args.customerId), Number(args.limit));
       case "check_order_status": return this.getCustomerOrderStatus(this.stringArg(args.customerId), this.stringArg(args.orderNumber), this.stringArg(args.id));
       case "create_order": return this.createCustomerOrder(args);
       case "update_order": return this.updateCustomerOrder(this.stringArg(args.customerId), args);
@@ -34,6 +36,31 @@ export class AiApplicationToolsService {
   private async getCustomerOrderSummary(customerId: string, orderNumber?: string, id?: string) {
     const order = await this.findCustomerOrder(customerId, orderNumber, id);
     return this.mcpOrdersService.getOrder({ id: order.id });
+  }
+
+  private async getMyOrders(customerId: string, requestedLimit?: number) {
+    if (!customerId) throw new BadRequestException("Customer context is required.");
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 20) : 10;
+    return this.prisma.order.findMany({
+      where: { customerId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        quantity: true,
+        totalAmount: true,
+        deliveryFee: true,
+        deliveryMethod: true,
+        paymentMethod: true,
+        address: true,
+        location: true,
+        preferredSchedule: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
   }
 
   private async getCustomerOrderStatus(customerId: string, orderNumber?: string, id?: string) {
