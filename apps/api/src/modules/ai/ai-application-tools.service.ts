@@ -103,11 +103,20 @@ export class AiApplicationToolsService {
 
   private async findCustomerOrder(customerId: string, orderNumber?: string, id?: string) {
     if (!customerId) throw new BadRequestException("Customer context is required.");
-    const order = await this.prisma.order.findFirst({ where: { ...(id ? { id } : {}), ...(orderNumber ? { orderNumber } : {}), customerId, status: { notIn: ["completed", "cancelled"] } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
-    if (!order) throw new NotFoundException("No active order was found for this customer.");
-    return order;
+    const safeId = this.isObjectId(id) ? id : undefined;
+    const safeOrderNumber = this.stringArg(orderNumber);
+    if (safeId) {
+      const byId = await this.prisma.order.findFirst({ where: { id: safeId, customerId, status: { notIn: ["completed", "cancelled"] } } });
+      if (byId) return byId;
+    }
+    if (safeOrderNumber) {
+      const byOrderNumber = await this.prisma.order.findFirst({ where: { orderNumber: safeOrderNumber, customerId, status: { notIn: ["completed", "cancelled"] } } });
+      if (byOrderNumber) return byOrderNumber;
+    }
+    throw new NotFoundException("No active order was found for this customer.");
   }
 
+  private isObjectId(value?: string) { return typeof value === "string" && /^[a-f0-9]{24}$/i.test(value.trim()); }
   private normalizeItems(value: unknown) {
     if (!Array.isArray(value)) return [] as Array<{ name: string; quantity: number }>;
     return value.map((item) => ({ name: typeof item?.name === "string" ? item.name.trim() : "", quantity: Math.trunc(Number(item?.quantity)) })).filter((item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0);
