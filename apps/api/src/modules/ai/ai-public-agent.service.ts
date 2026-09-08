@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
-import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 import { ProductsService, ProductRecord } from "../products/products.service";
 
 export type PublicAgentFormContext = {
@@ -17,7 +16,6 @@ export type PublicAgentResponse = {
   reply: string;
 };
 
-const DEFAULT_PICKUP_COORDINATES = { latitude: 10.2760457, longitude: 123.8466921 };
 const MAX_MESSAGE_LENGTH = 600;
 const MAX_CONTEXT_LENGTH = 3000;
 const MIN_REQUEST_INTERVAL_MS = 1200;
@@ -33,8 +31,7 @@ export class AiPublicAgentService {
   constructor(
     private readonly config: ConfigService,
     private readonly instructionsService: AiInstructionsService,
-    private readonly productsService: ProductsService,
-    private readonly deliveryNetworkService: DeliveryNetworkService
+    private readonly productsService: ProductsService
   ) {
     this.baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
@@ -66,6 +63,7 @@ export class AiPublicAgentService {
 
     const user = `CUSTOMER MESSAGE:\n${normalizedMessage}\n\n${context}`;
     const response = await this.chatOllama(system, user);
+    this.logger.log(`Public AI assistant responded for session=${normalizedSessionId}`);
     return { reply: this.cleanReply(response) };
   }
 
