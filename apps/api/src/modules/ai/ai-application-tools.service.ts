@@ -196,14 +196,17 @@ export class AiApplicationToolsService {
 
   private async findCustomerOrder(customerId: string, orderNumber?: string, id?: string) {
     if (!customerId) throw new BadRequestException("Customer context is required.");
-    const safeId = this.isObjectId(id) ? id : undefined;
-    const safeOrderNumber = this.stringArg(orderNumber);
-    if (safeId) {
-      const byId = await this.prisma.order.findFirst({ where: { id: safeId, customerId, status: { notIn: ["completed", "cancelled"] } } });
+    const normalizedId = this.stringArg(id);
+    const normalizedOrderNumber = this.stringArg(orderNumber);
+    const candidateIds = [normalizedId, normalizedOrderNumber].filter((value, index, values) => Boolean(value) && this.isObjectId(value) && values.indexOf(value) === index);
+
+    for (const candidateId of candidateIds) {
+      const byId = await this.prisma.order.findFirst({ where: { id: candidateId, customerId, status: { notIn: ["completed", "cancelled"] } } });
       if (byId) return byId;
     }
-    if (safeOrderNumber) {
-      const byOrderNumber = await this.prisma.order.findFirst({ where: { orderNumber: safeOrderNumber, customerId, status: { notIn: ["completed", "cancelled"] } } });
+
+    if (normalizedOrderNumber) {
+      const byOrderNumber = await this.prisma.order.findFirst({ where: { orderNumber: normalizedOrderNumber, customerId, status: { notIn: ["completed", "cancelled"] } } });
       if (byOrderNumber) return byOrderNumber;
     }
     throw new NotFoundException("No active order was found for this customer.");
