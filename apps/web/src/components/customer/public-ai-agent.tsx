@@ -75,7 +75,7 @@ export default function PublicAiAgent() {
         body: JSON.stringify({
           sessionId: getSessionId(),
           message: text,
-          history: nextMessages.slice(-12),
+          history: messages.slice(-12),
           context: getFormContext()
         })
       });
