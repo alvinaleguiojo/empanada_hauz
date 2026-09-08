@@ -43,8 +43,10 @@ export class AiApplicationToolsService {
 
   private async createCustomerOrder(args: Record<string, unknown>) {
     if (args.confirmed !== true) throw new BadRequestException("Explicit customer confirmation is required before creating an order.");
-    const customerName = this.stringArg(args.customerName);
-    const phoneNumber = this.stringArg(args.phoneNumber) || undefined;
+    const customerId = this.stringArg(args.customerId);
+    const existingCustomer = customerId ? await this.prisma.customer.findUnique({ where: { id: customerId } }) : null;
+    const customerName = this.stringArg(args.customerName) || existingCustomer?.name?.trim() || "";
+    const phoneNumber = this.stringArg(args.phoneNumber) || existingCustomer?.phoneNumber?.trim() || undefined;
     const quantity = Number(args.quantity);
     const items = this.normalizeItems(args.items);
     const deliveryMethod = this.parseDeliveryMethod(args.deliveryMethod);
@@ -61,8 +63,10 @@ export class AiApplicationToolsService {
     if (totalQuantity !== Math.trunc(quantity)) throw new BadRequestException("Item quantities must match the requested order quantity.");
     if (!deliveryMethod) throw new BadRequestException("A valid delivery method is required.");
     if (!paymentMethod) throw new BadRequestException("A valid payment method is required.");
-    const location = this.stringArg(args.location) || undefined;
-    const address = this.stringArg(args.address) || undefined;
+
+    const savedAddress = existingCustomer?.defaultAddress?.trim() || undefined;
+    const location = this.stringArg(args.location) || savedAddress;
+    const address = this.stringArg(args.address) || savedAddress;
     if (deliveryMethod === "maxim" && (!address || !location || !phoneNumber)) throw new BadRequestException("Maxim delivery requires address, landmark/location, and contact number.");
 
     const payload: Parameters<McpOrdersService["createOrder"]>[0] = {
