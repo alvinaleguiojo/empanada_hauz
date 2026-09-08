@@ -91,6 +91,7 @@ export class AiRuntimeService {
       if (!definition) throw new BadRequestException(`AI selected an unavailable tool: ${plan.tool}`);
 
       const args = { ...(plan.arguments ?? {}) };
+      let executionFailed = false;
       try {
         lastAction = plan.tool;
         if (definition.requiresExplicitConfirmation && args.confirmed !== true) {
@@ -103,8 +104,10 @@ export class AiRuntimeService {
         });
         this.logger.log(`AI tool executed: ${plan.tool}`);
       } catch (error) {
-        this.logger.warn(`AI tool execution failed: ${plan.tool}: ${error instanceof Error ? error.message : String(error)}`);
-        lastToolResult = { ok: false, error: error instanceof Error ? error.message : "Application action failed." };
+        executionFailed = true;
+        const errorMessage = error instanceof Error ? error.message : "Application action failed.";
+        this.logger.warn(`AI tool execution failed: ${plan.tool}: ${errorMessage}`);
+        lastToolResult = { ok: false, error: errorMessage };
       }
 
       currentMessages.push(`AI TOOL CALL: ${plan.tool} ${JSON.stringify(args)}`);
@@ -122,7 +125,13 @@ export class AiRuntimeService {
       if (plan.tool === "capture_order_draft") {
         const updatedState = await this.stateService.get(request.conversationId, request.customerId);
         const updatedDraft = this.getDraftFromToolResult(lastToolResult) ?? updatedState?.draft;
+        this.logger.log(`AI pending draft saved: ${updatedDraft ? JSON.stringify(updatedDraft) : "none"}`);
         currentMessages.push(`UPDATED PENDING ORDER DRAFT: ${updatedDraft ? JSON.stringify(updatedDraft) : "none"}`);
+        continue;
+      }
+
+      if (plan.tool === "create_order" && executionFailed) {
+        currentMessages.push("CREATE ORDER RECOVERY REQUIRED: The application rejected the order. Do not retry create_order immediately. Re-read the pending draft and conversation, capture any missing checkout fields with capture_order_draft, then retry create_order only after the persisted draft is complete and the customer has already confirmed the order.");
         continue;
       }
     }
@@ -182,6 +191,14 @@ Examples of intent:
 
 These are semantic examples, not keyword rules. Generalize from intent.
 
+Checkout recovery rules:
+- The persisted pending order draft is the source of truth for unfinished checkout.
+- A customer may provide checkout details across several messages; preserve and merge them.
+- If create_order fails because required checkout information is missing, do not treat the conversation as complete and do not immediately retry create_order.
+- Use the pending-order action to capture missing fields from the conversation and persisted state.
+- After repairing the pending draft, retry create_order only when the order is complete and the customer has already explicitly confirmed it.
+- A previous customer confirmation remains valid for the same unchanged order details. If the order details change, ask for confirmation again.
+
 Use a final conversational response only when no available tool can satisfy the customer's intent.
 
 Never invent missing arguments. Only provide arguments supported by the customer message or conversation state.
@@ -219,6 +236,7 @@ ${input.context}`;
     if (nativeToolCall?.function?.name) {
       const argumentsValue = nativeToolCall.function.arguments;
       this.logger.log(`AI native tool call: ${nativeToolCall.function.name}`);
+      this.logger.log(`AI native tool args: ${JSON.stringify(argumentsValue ?? {})}`);
       return {
         type: "tool_call",
         tool: nativeToolCall.function.name,
