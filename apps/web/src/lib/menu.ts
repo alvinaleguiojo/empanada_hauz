@@ -40,11 +40,12 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
     .map((product) => {
       const name = product.name.trim();
       const metadata = metadataByName.get(name.toLowerCase());
+      const available = product.available !== false;
       return {
-        label: name,
+        label: available ? name : `${name} — SOLD OUT`,
         value: name,
         price: Number(product.price),
-        available: product.available,
+        available,
         ...(metadata?.popular ? { popular: true } : {}),
         ...(metadata?.isNew ? { isNew: true } : {})
       };
