@@ -43,6 +43,7 @@ export class AiRuntimeService {
   private readonly baseUrl: string;
   private readonly model: string;
   private readonly timeoutMs: number;
+  private readonly trackingBaseUrl: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -55,6 +56,7 @@ export class AiRuntimeService {
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
     const configuredTimeout = Number(this.config.get<string>("OLLAMA_TIMEOUT_MS", "120000"));
     this.timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 1000 ? configuredTimeout : 120000;
+    this.trackingBaseUrl = (this.config.get<string>("AI_TRACKING_BASE_URL") ?? "https://empanadahauz.com").replace(/\/$/, "");
   }
 
   async process(request: RuntimeRequest) {
@@ -70,6 +72,29 @@ export class AiRuntimeService {
 
     for (let step = 0; step < 4; step += 1) {
       const liveState = await this.stateService.get(request.conversationId, request.customerId);
+
+      // Confirmation of an existing pending order is a high-impact write. Do not
+      // leave that decision to the small local model: execute the real create_order
+      // action deterministically after the customer has explicitly confirmed.
+      if (step === 0 && this.isExplicitConfirmation(request.message) && liveState?.draft?.items?.length) {
+        const confirmedResult = await this.createConfirmedOrder(request, liveState.draft);
+        if (confirmedResult.ok) {
+          return {
+            reply: this.renderCreatedOrderReply(confirmedResult.order),
+            tool: "create_order",
+            toolResult: confirmedResult.order,
+            state: await this.stateService.get(request.conversationId, request.customerId)
+          };
+        }
+
+        return {
+          reply: confirmedResult.reply,
+          tool: "create_order",
+          toolResult: { ok: false, error: confirmedResult.error },
+          state: liveState
+        };
+      }
+
       const context = this.buildContext(request, products, liveState?.draft, tools);
       const plan = await this.plan({ instructions, context, messages: currentMessages, message: request.message, lastToolResult, lastAction, tools });
 
@@ -141,6 +166,99 @@ export class AiRuntimeService {
     };
   }
 
+  private async createConfirmedOrder(request: RuntimeRequest, draft: DraftState) {
+    const args: Record<string, unknown> = {
+      customerName: request.customerName,
+      items: draft.items,
+      quantity: draft.quantity,
+      deliveryMethod: draft.deliveryMethod,
+      paymentMethod: draft.paymentMethod,
+      address: draft.address,
+      location: draft.landmark,
+      phoneNumber: draft.contactNumber,
+      preferredSchedule: [draft.deliveryDate, draft.preferredTime].filter(Boolean).join(" "),
+      confirmed: true
+    };
+
+    try {
+      const order = await this.toolRegistry.execute("create_order", args, {
+        customerId: request.customerId,
+        conversationId: request.conversationId,
+        channel: request.channel
+      });
+      this.logger.log(`AI confirmed order created: customer=${request.customerId} order=${this.readOrderNumber(order) ?? "unknown"}`);
+      return { ok: true as const, order };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Application action failed.";
+      this.logger.warn(`AI confirmed order creation failed: ${errorMessage}`);
+      return { ok: false as const, error: errorMessage, reply: this.renderOrderCreationFailure(errorMessage, draft) };
+    }
+  }
+
+  private isExplicitConfirmation(message: string) {
+    const normalized = message.trim().toLowerCase().replace(/[.!?]+$/g, "");
+    return /^(confirm|confirmed|yes|y|okay|ok|correct|that is correct|that's correct|go ahead|proceed|submit|place it|place my order|do it|yes please)$/.test(normalized);
+  }
+
+  private renderCreatedOrderReply(order: unknown) {
+    const record = (order && typeof order === "object" ? order : {}) as Record<string, unknown>;
+    const orderNumber = this.readOrderNumber(order) ?? "your order";
+    const id = typeof record.id === "string" ? record.id : "";
+    const trackingUrl = id ? `${this.trackingBaseUrl}/track/${encodeURIComponent(id)}` : "";
+    const total = typeof record.totalAmount === "number" ? ` Total: ₱${record.totalAmount.toFixed(2)}.` : "";
+    const lines = [
+      `Order confirmed! 🎉`,
+      `Order ID: ${orderNumber}.`,
+      total.trim(),
+      trackingUrl ? `Track your order: ${trackingUrl}` : "",
+      this.readMaximTrackingLink(order) ? `Live Maxim tracking: ${this.readMaximTrackingLink(order)}` : "",
+      "Thank you! We’ll keep you updated on your order. 😊"
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
+
+  private renderOrderCreationFailure(error: string, draft: DraftState) {
+    const missing: string[] = [];
+    if (!draft.items?.length) missing.push("the items and quantities");
+    if (!draft.deliveryMethod) missing.push("pickup or delivery");
+    if (!draft.paymentMethod) missing.push("your payment method");
+    if (draft.deliveryMethod === "maxim" && !draft.address) missing.push("your delivery address");
+    if (draft.deliveryMethod === "maxim" && !draft.landmark) missing.push("your landmark/location");
+    if (draft.deliveryMethod === "maxim" && !draft.contactNumber) missing.push("your contact number");
+    if (!draft.items?.length || !draft.quantity || draft.quantity < 10) missing.push("at least 10 pieces");
+
+    if (missing.length) {
+      const unique = [...new Set(missing)];
+      return `I’m ready to place your order, but I still need ${this.joinNatural(unique)} before I can submit it. Please send those details and I’ll place the order after your confirmation. 😊`;
+    }
+
+    if (/confirmation is required/i.test(error)) {
+      return "I still need your explicit confirmation before I can submit the order. Please reply CONFIRM when the details are correct.";
+    }
+
+    return `I couldn't place the order yet because the application rejected the request: ${error}. Please send the missing or corrected checkout details and I'll try again. 😊`;
+  }
+
+  private joinNatural(values: string[]) {
+    if (values.length === 1) return values[0];
+    if (values.length === 2) return `${values[0]} and ${values[1]}`;
+    return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+  }
+
+  private readOrderNumber(order: unknown) {
+    if (!order || typeof order !== "object") return undefined;
+    const value = (order as Record<string, unknown>).orderNumber;
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  }
+
+  private readMaximTrackingLink(order: unknown) {
+    if (!order || typeof order !== "object") return undefined;
+    const delivery = (order as Record<string, unknown>).delivery;
+    if (!delivery || typeof delivery !== "object") return undefined;
+    const value = (delivery as Record<string, unknown>).trackingLink;
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  }
+
   private buildContext(
     request: RuntimeRequest,
     products: ProductRecord[],
@@ -179,7 +297,7 @@ Do not use keyword lists, regular expressions, literal phrase matching, or exact
 Examples of intent:
 - A request to browse, see, view, get, or know the shop's menu, products, flavors, offerings, or current prices requires the live product catalog tool.
 - A request about one specific product requires the corresponding product lookup tool.
-- A request about a delivery fee, delivery cost, or "df" requires the destination-specific delivery quote tool when a delivery destination is known.
+- A request about a delivery fee, delivery cost, or \"df\" requires the destination-specific delivery quote tool when a delivery destination is known.
 - A request about delivery pricing rules, base fare, or per-kilometer rates is not customer-facing information. Do not answer with internal rate configuration. When the customer wants to know what they will pay for their destination, use the destination-specific delivery quote tool instead.
 - A message that provides information for an unfinished purchase should use the pending-order tool.
 - A request to change an existing order should use the order-update tool.
@@ -197,8 +315,9 @@ Checkout recovery rules:
 - A customer may provide checkout details across several messages; preserve and merge them.
 - If create_order fails because required checkout information is missing, do not treat the conversation as complete and do not immediately retry create_order.
 - Use the pending-order action to capture missing fields from the conversation and persisted state.
-- After repairing the pending draft, retry create_order only when the order is complete and the customer has already explicitly confirmed it.
+- After repairing the pending draft, retry create_order only when the order is complete and the customer has already explicitly confirmed the order.
 - A previous customer confirmation remains valid for the same unchanged order details. If the order details change, ask for confirmation again.
+- When the customer explicitly confirms a pending order, the runtime executes the real create_order action; never claim success unless that action returns a created order.
 
 Use a final conversational response only when no available tool can satisfy the customer's intent.
 
@@ -261,7 +380,7 @@ ${input.context}`;
       messages: [
         {
           role: "system",
-          content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nApplication results are authoritative. Never invent successful actions or data. Never expose internal pricing rules such as base fare or per-kilometer rates. Do not mention tools or internal implementation. Return ONLY JSON: {"reply":"customer-facing reply"}. Keep the reply concise and Messenger-friendly.`
+          content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nApplication results are authoritative. Never invent successful actions or data. Never expose internal pricing rules such as base fare or per-kilometer rates. Do not mention tools or internal implementation. Return ONLY JSON: {\"reply\":\"customer-facing reply\"}. Keep the reply concise and Messenger-friendly.`
         },
         {
           role: "user",
@@ -310,6 +429,11 @@ ${input.context}`;
   private fallbackReply(lastAction?: string, lastToolResult?: unknown) {
     if (lastAction === "list_products" || lastAction === "get_product" || lastAction === "get_delivery_quote") return this.renderReadToolReply(lastAction, lastToolResult);
     if (lastAction === "capture_order_draft") return this.renderDraftReply(lastToolResult);
+    if (lastAction === "create_order" && lastToolResult && typeof lastToolResult === "object" && (lastToolResult as Record<string, unknown>).ok === false) {
+      const error = typeof (lastToolResult as Record<string, unknown>).error === "string" ? (lastToolResult as Record<string, unknown>).error as string : "Application action failed.";
+      return `I couldn't place the order yet: ${error}. Please provide the missing checkout details and confirm again. 😊`;
+    }
+    if (lastAction === "create_order" && lastToolResult && typeof lastToolResult === "object" && (lastToolResult as Record<string, unknown>).orderNumber) return this.renderCreatedOrderReply(lastToolResult);
     return "How can I help you with your Empanada Hauz order? 😊";
   }
 
