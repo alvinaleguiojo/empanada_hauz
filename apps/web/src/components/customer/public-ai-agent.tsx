@@ -98,13 +98,13 @@ export default function PublicAiAgent() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-full border-[3px] border-[#3a2c1c] bg-[#C0472B] px-4 py-3 text-sm font-bold text-[#F6EFDD] shadow-[0_14px_30px_-12px_rgba(0,0,0,0.7)] transition hover:scale-[1.02]"
+          className="fixed bottom-24 right-5 z-50 inline-flex items-center gap-2 rounded-full border-[3px] border-[#3a2c1c] bg-[#C0472B] px-4 py-3 text-sm font-bold text-[#F6EFDD] shadow-[0_14px_30px_-12px_rgba(0,0,0,0.7)] transition hover:scale-[1.02] sm:bottom-5"
           aria-label="Open Empanada Hauz AI assistant"
         >
           <Bot size={18} /> Ask AI
         </button>
       ) : (
-        <div className="fixed bottom-4 right-4 z-50 w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-2xl border-[3px] border-[#3a2c1c] bg-[#241c13] text-[#F2E8D5] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.8)] sm:bottom-5 sm:right-5">
+        <div className="fixed bottom-24 right-4 z-50 w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-2xl border-[3px] border-[#3a2c1c] bg-[#241c13] text-[#F2E8D5] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.8)] sm:bottom-5 sm:right-5">
           <div className="flex items-center justify-between border-b border-[#3a2c1c] bg-[#1c150e] px-4 py-3">
             <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-full bg-[#E3A64B]/15 text-[#E3A64B]"><Bot size={16} /></span><div><p className="text-sm font-bold">Empanada Hauz AI</p><p className="text-[10px] uppercase tracking-[0.18em] text-[#F2E8D5]/45">Order assistant</p></div></div>
             <button type="button" onClick={() => setOpen(false)} className="rounded-lg p-2 text-[#F2E8D5]/55 transition hover:bg-white/5 hover:text-[#F2E8D5]" aria-label="Close AI assistant"><X size={17} /></button>
