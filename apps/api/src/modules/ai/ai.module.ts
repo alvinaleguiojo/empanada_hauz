@@ -11,18 +11,21 @@ import { AiToolRegistryService } from "./ai-tool-registry.service";
 import { AiControlService } from "./ai-control.service";
 import { AiActionConfigService } from "./ai-action-config.service";
 import { AiActionsController } from "./ai-actions.controller";
+import { AiPublicAgentController } from "./ai-public-agent.controller";
+import { AiPublicAgentService } from "./ai-public-agent.service";
 
 @Module({
   imports: [DatabaseModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
-  controllers: [AiActionsController],
+  controllers: [AiActionsController, AiPublicAgentController],
   providers: [
     AiApplicationToolsService,
     AiConversationStateService,
     AiRuntimeService,
     AiToolRegistryService,
     AiControlService,
-    AiActionConfigService
+    AiActionConfigService,
+    AiPublicAgentService
   ],
-  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService]
+  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService]
 })
 export class AiModule {}
