@@ -1,10 +1,41 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import CustomerKioskPage from "./page-client";
+import { apiFetch } from "@/lib/api";
+import { replaceMenuItems } from "@/lib/menu";
+
+type PublicProduct = {
+  name: string;
+  price: number;
+  available: boolean;
+  sortOrder?: number;
+};
 
 function CustomerKioskGuard() {
+  const [menuLoaded, setMenuLoaded] = useState(false);
+
   useEffect(() => {
+    let active = true;
+
+    void apiFetch<PublicProduct[]>("/products")
+      .then((products) => {
+        if (!active) return;
+        replaceMenuItems(products);
+        setMenuLoaded(true);
+      })
+      .catch(() => {
+        if (active) setMenuLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!menuLoaded) return;
+
     const syncSoldOutButtons = () => {
       const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
       for (const button of buttons) {
@@ -50,9 +81,9 @@ function CustomerKioskGuard() {
       observer.disconnect();
       document.removeEventListener("click", handleClick, true);
     };
-  }, []);
+  }, [menuLoaded]);
 
-  return <CustomerKioskPage />;
+  return <CustomerKioskPage key={menuLoaded ? "live-menu" : "fallback-menu"} />;
 }
 
 export default CustomerKioskGuard;
