@@ -40,7 +40,8 @@ export class AiApplicationToolsService {
 
   private async getMyOrders(customerId: string, requestedLimit?: number) {
     if (!customerId) throw new BadRequestException("Customer context is required.");
-    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 20) : 10;
+    const numericLimit = Number(requestedLimit);
+    const limit = Number.isFinite(numericLimit) ? Math.min(Math.max(Math.trunc(numericLimit), 1), 20) : 10;
     return this.prisma.order.findMany({
       where: { customerId },
       orderBy: { createdAt: "desc" },
@@ -113,10 +114,6 @@ export class AiApplicationToolsService {
 
   private async updateCustomerOrder(customerId: string, args: Record<string, unknown>) {
     const order = await this.findCustomerOrder(customerId, this.stringArg(args.orderNumber), this.stringArg(args.id));
-    const isRescheduling = args.preferredSchedule !== undefined;
-    if (isRescheduling && order.status !== "queued") {
-      throw new BadRequestException(`This order can only be rescheduled while it is queued. Current status: ${order.status}.`);
-    }
     const payload = { ...args, id: order.id } as Parameters<McpOrdersService["updateOrder"]>[0];
     delete (payload as Record<string, unknown>).customerId;
     delete (payload as Record<string, unknown>).confirmed;
