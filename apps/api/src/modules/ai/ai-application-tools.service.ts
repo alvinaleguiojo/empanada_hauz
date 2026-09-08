@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { DeliveryMethod, OrderStatus, PaymentMethod } from "../orders/dto";
+import { DeliveryMethod, PaymentMethod } from "../orders/dto";
 import { PrismaService } from "../../database/prisma.service";
 import { McpOrdersService } from "../mcp/mcp-orders.service";
 import { ProductsService } from "../products/products.service";
@@ -95,14 +95,12 @@ export class AiApplicationToolsService {
   private async cancelCustomerOrder(customerId: string, orderNumber?: string, id?: string, confirmed = false) {
     if (!confirmed) throw new BadRequestException("Explicit customer confirmation is required before cancellation.");
     const order = await this.findCustomerOrder(customerId, orderNumber, id);
+    if (order.status !== "queued") throw new BadRequestException(`This order can only be cancelled while it is queued. Current status: ${order.status}.`);
     return this.mcpOrdersService.updateOrder({ id: order.id, status: "cancelled" });
   }
 
-  private async deleteCustomerOrder(customerId: string, orderNumber?: string, id?: string, confirmed = false) {
-    if (!confirmed) throw new BadRequestException("Explicit customer confirmation is required before deletion.");
-    const order = await this.findCustomerOrder(customerId, orderNumber, id);
-    if (["completed", "cancelled"].includes(order.status)) throw new BadRequestException("Closed orders cannot be deleted from AI.");
-    return this.mcpOrdersService.deleteOrder({ id: order.id });
+  private async deleteCustomerOrder(_customerId: string, _orderNumber?: string, _id?: string, _confirmed = false) {
+    throw new BadRequestException("Customer orders cannot be deleted through AI. Use cancellation instead when the order is still queued.");
   }
 
   private async findCustomerOrder(customerId: string, orderNumber?: string, id?: string) {
