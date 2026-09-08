@@ -31,7 +31,7 @@ export class ProductsController {
 
   @Get("products")
   listPublic() {
-    return this.productsService.list({ availableOnly: true });
+    return this.productsService.list({ availableOnly: false });
   }
 
   @UseGuards(JwtAuthGuard)
