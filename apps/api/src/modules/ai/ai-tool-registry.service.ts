@@ -6,6 +6,8 @@ import { AiToolDefinition, AiToolExecutionContext, AiToolHandler } from "./ai-to
 import { ProductsService } from "../products/products.service";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 
+const DEFAULT_PICKUP_COORDINATES = { latitude: 10.2760457, longitude: 123.8466921 };
+
 @Injectable()
 export class AiToolRegistryService {
   constructor(
@@ -80,7 +82,7 @@ export class AiToolRegistryService {
         configured: true,
         custom: true,
         executor: target.definition.name
-      }];
+      };
     });
     return [...builtIns, ...custom];
   }
@@ -137,8 +139,24 @@ export class AiToolRegistryService {
         execute: async (args) => { const name = String(args.name ?? "").trim(); const product = await this.productsService.resolveByName(name, { requireAvailable: true }); if (!product) throw new BadRequestException(`Product not found or unavailable: ${name}`); return product; }
       },
       {
-        definition: { name: "get_delivery_pricing", description: "Read the current delivery pricing configuration when the customer asks about delivery charges, shipping cost, delivery rates, or how much delivery will cost.", risk: "read", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
-        execute: async () => this.deliveryNetworkService.getDeliveryPricing()
+        definition: { name: "get_delivery_quote", description: "Calculate the current estimated delivery fee for the customer's destination using the application's live route and delivery-quote logic. Use this for questions about the delivery fee/cost/df when a delivery destination is known. Do not expose internal base-fare or per-kilometer pricing rules; return only the destination-specific estimated fee and route details from this tool.", risk: "read", inputSchema: { type: "object", properties: { address: { type: "string", description: "Customer delivery address." }, landmark: { type: "string", description: "Customer landmark or more precise destination description." }, latitude: { type: "number" }, longitude: { type: "number" } }, required: ["address"], additionalProperties: false } },
+        execute: async (args) => {
+          const address = typeof args.address === "string" ? args.address.trim() : "";
+          const landmark = typeof args.landmark === "string" ? args.landmark.trim() : "";
+          if (!address) throw new BadRequestException("A delivery address is required to calculate the delivery fee.");
+          const dropoffAddress = [landmark, address].filter(Boolean).join(", ");
+          const latitude = Number(args.latitude);
+          const longitude = Number(args.longitude);
+          const hasDropoffCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+          const quote = await this.deliveryNetworkService.quoteJob({
+            pickupAddress: "Empanada Hauz",
+            pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
+            pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
+            dropoffAddress,
+            ...(hasDropoffCoordinates ? { dropoffLatitude: latitude, dropoffLongitude: longitude } : {})
+          });
+          return quote;
+        }
       },
       {
         definition: { name: "get_order_summary", description: "Read the customer's active order summary and details when they ask what they ordered or request their order details.", risk: "read", requiresCustomerContext: true, inputSchema: { type: "object", properties: { orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false } },
