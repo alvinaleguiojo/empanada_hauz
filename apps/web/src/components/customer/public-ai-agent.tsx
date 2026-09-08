@@ -66,12 +66,18 @@ export default function PublicAiAgent() {
     if (!text || sending) return;
     setMessage("");
     setError("");
-    setMessages((current) => [...current, { role: "user", content: text }]);
+    const nextMessages = [...messages, { role: "user" as const, content: text }];
+    setMessages(nextMessages);
     setSending(true);
     try {
       const result = await apiFetch<{ reply: string }>("/ai/public/chat", {
         method: "POST",
-        body: JSON.stringify({ sessionId: getSessionId(), message: text, context: getFormContext() })
+        body: JSON.stringify({
+          sessionId: getSessionId(),
+          message: text,
+          history: nextMessages.slice(-12),
+          context: getFormContext()
+        })
       });
       setMessages((current) => [...current, { role: "assistant", content: result.reply }]);
     } catch (err) {
