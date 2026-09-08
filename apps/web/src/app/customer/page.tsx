@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import CustomerKioskPage from "./page-client";
+import PublicAiAgent from "@/components/customer/public-ai-agent";
 import { apiFetch } from "@/lib/api";
 import { replaceMenuItems } from "@/lib/menu";
 
@@ -83,7 +84,12 @@ function CustomerKioskGuard() {
     };
   }, [menuLoaded]);
 
-  return <CustomerKioskPage key={menuLoaded ? "live-menu" : "fallback-menu"} />;
+  return (
+    <>
+      <CustomerKioskPage key={menuLoaded ? "live-menu" : "fallback-menu"} />
+      <PublicAiAgent />
+    </>
+  );
 }
 
 export default CustomerKioskGuard;
