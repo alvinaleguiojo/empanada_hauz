@@ -5,7 +5,6 @@ import { Baloo_2, Caveat, IBM_Plex_Mono } from "next/font/google";
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   CheckCircle2,
   ChefHat,
   Copy,
@@ -14,8 +13,6 @@ import {
   Minus,
   Phone,
   Plus,
-  Search,
-  ShoppingBag,
   Ticket,
   Truck,
   Wallet
@@ -63,9 +60,9 @@ const initialState: FormState = {
 };
 
 const steps = [
-  { title: "Shop", subtitle: "Choose your flavors" },
-  { title: "Details", subtitle: "Delivery & payment" },
-  { title: "Review", subtitle: "Confirm your order" }
+  { title: "Choose flavors", subtitle: "Pick one or more flavors" },
+  { title: "Delivery details", subtitle: "Set your delivery window" },
+  { title: "Review & submit", subtitle: "Confirm your order" }
 ];
 
 function formatProductTag(tag: string) {
@@ -77,7 +74,7 @@ function formatProductTag(tag: string) {
 
 function ProductBadges({ option }: { option: (typeof MENU_ITEMS)[number] }) {
   const tags = Array.isArray(option.tags) ? option.tags.filter(Boolean) : [];
-  const bestSeller = tags.some((tag) => {
+  const bestSellerTags = tags.filter((tag) => {
     const normalized = tag.trim().toLowerCase();
     return normalized === "best-seller" || normalized === "bestseller";
   });
@@ -86,27 +83,36 @@ function ProductBadges({ option }: { option: (typeof MENU_ITEMS)[number] }) {
     return normalized !== "best-seller" && normalized !== "bestseller";
   });
 
-  if (!option.isFeatured && !option.isNew && !bestSeller && otherTags.length === 0) return null;
+  if (!option.isFeatured && !option.isNew && tags.length === 0) {
+    return null;
+  }
 
   return (
-    <div className="absolute left-3 top-3 z-10 flex max-w-[85%] flex-wrap gap-1.5">
-      {bestSeller ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-[#C0472B] px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white shadow-sm">
-          <Flame size={10} /> Best seller
-        </span>
-      ) : null}
+    <div className="mb-3 flex flex-wrap items-center gap-1.5">
       {option.isFeatured ? (
-        <span className="rounded-full border border-[#E3A64B]/60 bg-[#241c13]/90 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#E3A64B] backdrop-blur">
+        <span className="rounded-full border border-[#E3A64B]/45 bg-[#E3A64B]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#E3A64B]">
           Featured
         </span>
       ) : null}
       {option.isNew ? (
-        <span className="rounded-full border border-[#7A9B4E]/60 bg-[#241c13]/90 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#c9dba6] backdrop-blur">
+        <span className="rounded-full border border-[#7A9B4E]/45 bg-[#7A9B4E]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#c9dba6]">
           New
         </span>
       ) : null}
+      {bestSellerTags.map((tag) => (
+        <span
+          key={`${option.value}-${tag}`}
+          className="inline-flex items-center gap-1 rounded-full border border-[#C0472B]/45 bg-[#C0472B]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#f1a48e]"
+        >
+          <Flame size={10} />
+          Best seller
+        </span>
+      ))}
       {otherTags.map((tag) => (
-        <span key={`${option.value}-${tag}`} className="rounded-full border border-[#F2E8D5]/20 bg-[#241c13]/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#F2E8D5]/80 backdrop-blur">
+        <span
+          key={`${option.value}-${tag}`}
+          className="rounded-full border border-[#F2E8D5]/20 bg-[#F2E8D5]/8 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#F2E8D5]/75"
+        >
           {formatProductTag(tag)}
         </span>
       ))}
@@ -116,7 +122,6 @@ function ProductBadges({ option }: { option: (typeof MENU_ITEMS)[number] }) {
 
 export default function CustomerKioskPage() {
   const [step, setStep] = useState(0);
-  const [search, setSearch] = useState("");
   const [selectedFlavors, setSelectedFlavors] = useState<SelectedFlavor[]>([]);
   const [form, setForm] = useState<FormState>(initialState);
   const [submitting, setSubmitting] = useState(false);
@@ -142,17 +147,7 @@ export default function CustomerKioskPage() {
     return { items, totalQuantity, subtotal, deliveryFee, total: subtotal + deliveryFee };
   }, [selectedFlavors, deliveryQuote, form.deliveryMethod]);
 
-  const visibleFlavorOptions = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return flavorOptions;
-    return flavorOptions.filter((option) =>
-      option.label.toLowerCase().includes(query) ||
-      option.category.toLowerCase().includes(query) ||
-      option.tags.some((tag) => tag.toLowerCase().includes(query))
-    );
-  }, [search]);
-
-  const allFlavorsSelected = flavorOptions.length > 0 && flavorOptions.filter((option) => option.available !== false).every((option) => selectedFlavors.some((item) => item.value === option.value));
+  const allFlavorsSelected = selectedFlavors.length === flavorOptions.length;
   const todayDateString = useMemo(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -194,8 +189,6 @@ export default function CustomerKioskPage() {
   };
 
   const toggleFlavor = (value: string) => {
-    const option = flavorOptions.find((item) => item.value === value);
-    if (!option || option.available === false) return;
     setSelectedFlavors((current) => {
       const existing = current.find((item) => item.value === value);
       return existing ? current.filter((item) => item.value !== value) : [...current, { value, quantity: "1" }];
@@ -203,9 +196,9 @@ export default function CustomerKioskPage() {
   };
 
   const toggleAllFlavors = () => {
-    setSelectedFlavors((current) => allFlavorsSelected
+    setSelectedFlavors((current) => current.length === flavorOptions.length
       ? []
-      : flavorOptions.filter((option) => option.available !== false).map((option) => current.find((item) => item.value === option.value) ?? { value: option.value, quantity: "1" }));
+      : flavorOptions.map((option) => current.find((item) => item.value === option.value) ?? { value: option.value, quantity: "1" }));
   };
 
   const updateFlavorQuantity = (value: string, quantity: string) => {
@@ -271,25 +264,24 @@ export default function CustomerKioskPage() {
   if (success) {
     return (
       <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board flex min-h-screen items-center justify-center px-4 py-10 text-[#F2E8D5] sm:px-6`}>
-        <div className="w-full max-w-lg">
-          <div className="overflow-hidden rounded-[28px] border border-[#F2E8D5]/10 bg-[#241c13]/95 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.8)] backdrop-blur">
-            <div className="jeepney-stripe h-2 w-full" />
-            <div className="p-7 sm:p-10">
+        <div className="w-full max-w-md">
+          <div className="overflow-hidden rounded-[26px] border-[3px] border-[#3a2c1c] bg-[#241c13] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.7)]">
+            <div className="jeepney-stripe h-2.5 w-full" />
+            <div className="p-6 sm:p-8">
               <div className="flex flex-col items-center text-center">
-                <span className="grid h-16 w-16 place-items-center rounded-full bg-[#7A9B4E] text-[#1a140d] shadow-[0_10px_30px_-12px_rgba(122,155,78,0.8)]"><CheckCircle2 size={32} /></span>
-                <span className="mt-5 rounded-full border border-[#7A9B4E]/30 bg-[#7A9B4E]/10 px-3 py-1 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.2em] text-[#c9dba6]">Order confirmed</span>
-                <h1 className="mt-4 font-[family-name:var(--font-display)] text-4xl text-[#F6EFDD]">Thank you!</h1>
-                <p className="mt-1 font-[family-name:var(--font-script)] text-xl text-[#F2E8D5]/65">salamat po — we're on it</p>
-                {success.orderNumber ? <p className="mt-5 rounded-xl border border-dashed border-[#F2E8D5]/20 bg-[#1a140d] px-4 py-2 font-[family-name:var(--font-mono)] text-sm text-[#F2E8D5]/75">Order {success.orderNumber}</p> : null}
-                <p className="mt-5 max-w-sm text-sm leading-6 text-[#F2E8D5]/60">Keep your tracking link handy so you can check your order status anytime.</p>
-                <div className="mt-5 grid w-full gap-2.5">
-                  <input readOnly value={success.trackingUrl} className="w-full min-w-0 rounded-xl border border-[#F2E8D5]/10 bg-[#1a140d] px-4 py-3 text-center font-[family-name:var(--font-mono)] text-xs text-[#F2E8D5]/75 outline-none" />
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button type="button" onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#F2E8D5]/10 bg-[#2b2117] px-3 py-3 font-semibold text-[#F2E8D5] transition hover:bg-[#35281c]"><Copy size={15} /> Copy</button>
-                    <a href={success.trackingPath} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#E3A64B] px-3 py-3 font-semibold text-[#20160d] transition hover:bg-[#f1b65f]">Track order <ExternalLink size={15} /></a>
+                <span className="grid h-16 w-16 place-items-center rounded-full bg-[#7A9B4E] text-[#1a140d]"><CheckCircle2 size={32} /></span>
+                <h1 className="mt-4 font-[family-name:var(--font-display)] text-3xl text-[#F6EFDD]">Order received!</h1>
+                <p className="mt-2 font-[family-name:var(--font-script)] text-xl text-[#F2E8D5]/75">salamat po, we're on it</p>
+                {success.orderNumber ? <p className="mt-4 inline-block rounded border border-dashed border-[#F2E8D5]/30 px-3 py-1 font-[family-name:var(--font-mono)] text-sm text-[#F2E8D5]/70">Order {success.orderNumber}</p> : null}
+                <p className="mt-5 text-sm text-[#F2E8D5]/60">Use this link to track your order status anytime.</p>
+                <div className="mt-3 grid w-full gap-2">
+                  <input readOnly value={success.trackingUrl} className="w-full min-w-0 rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-2.5 text-center font-[family-name:var(--font-mono)] text-xs text-[#F2E8D5] outline-none" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)} className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-[#3a2c1c] bg-[#1c150e] px-3 py-2.5 font-semibold text-[#F2E8D5] transition active:bg-[#E3A64B]/15"><Copy size={15} /> Copy</button>
+                    <a href={success.trackingPath} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#7A9B4E] px-3 py-2.5 font-semibold text-[#1a140d] transition hover:bg-[#6c8a43]">Track <ExternalLink size={15} /></a>
                   </div>
                 </div>
-                <button type="button" onClick={handleStartNewOrder} className="mt-6 w-full rounded-xl bg-[#C0472B] px-5 py-3.5 text-sm font-bold uppercase tracking-[0.08em] text-[#F6EFDD] shadow-[0_10px_28px_-14px_rgba(192,71,43,0.9)] transition hover:bg-[#d05336]">Place another order</button>
+                <button type="button" onClick={handleStartNewOrder} className="mt-6 w-full rounded-xl bg-[#C0472B] px-5 py-3.5 text-sm font-bold uppercase tracking-wide text-[#F6EFDD]">Place another order</button>
               </div>
             </div>
           </div>
@@ -299,170 +291,52 @@ export default function CustomerKioskPage() {
   }
 
   return (
-    <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-3 pb-28 pt-3 text-[#F2E8D5] sm:px-6 lg:px-8 lg:pb-8`}>
-      <div className="mx-auto max-w-7xl">
-        <header className="sticky top-0 z-30 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#E3A64B] text-[#20160d] shadow-[0_8px_24px_-14px_rgba(227,166,75,0.9)]"><ChefHat size={20} /></div>
-              <div className="min-w-0">
-                <div className="font-[family-name:var(--font-display)] text-base font-extrabold leading-none text-[#F6EFDD]">Empanada Hauz</div>
-                <div className="mt-1 truncate text-xs text-[#F2E8D5]/50">Freshly made, your way.</div>
+    <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-4 py-6 pb-28 text-[#F2E8D5] sm:px-6 lg:px-8 lg:pb-6`}>
+      <div className="mx-auto flex max-w-6xl flex-col gap-5">
+        <section className="overflow-hidden rounded-[26px] border-[3px] border-[#3a2c1c] bg-[#241c13] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.7)]">
+          <div className="jeepney-stripe h-2.5 w-full" />
+          <div className="relative overflow-hidden px-6 py-7 sm:px-9">
+            <div className="chalk-texture pointer-events-none absolute inset-0" />
+            <div className="relative flex flex-wrap items-center justify-between gap-5">
+              <div>
+                <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-[#E3A64B]"><ChefHat size={14} /> Empanada Hauz</p>
+                <h1 className="font-[family-name:var(--font-display)] text-4xl leading-[1.05] tracking-tight text-[#F6EFDD] sm:text-5xl">Fresh from the pan,<br /><span className="text-[#E3A64B]">straight to your door.</span></h1>
+                <p className="mt-3 max-w-xl font-[family-name:var(--font-script)] text-xl text-[#F2E8D5]/80 sm:text-2xl">~ pick your flavors, we do the rest ~</p>
               </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-full border border-[#F2E8D5]/10 bg-[#241c13] px-3 py-2">
-              <ShoppingBag size={15} className="text-[#E3A64B]" />
-              <span className="font-[family-name:var(--font-mono)] text-xs font-semibold text-[#F2E8D5]">{summary.totalQuantity} pcs</span>
-              <span className="hidden text-[#F2E8D5]/30 sm:inline">·</span>
-              <span className="hidden font-[family-name:var(--font-mono)] text-xs font-semibold text-[#E3A64B] sm:inline">Php {summary.total}</span>
+              <div className="rotate-[-2deg] rounded-xl border-2 border-dashed border-[#F2E8D5]/30 bg-[#1a140d] px-4 py-3 text-sm shadow-inner"><div className="flex items-center gap-2 font-semibold text-[#F6EFDD]"><Ticket size={16} className="text-[#E3A64B]" /> Order slip #{step + 1}/3</div><div className="mt-1 text-xs uppercase tracking-[0.2em] text-[#F2E8D5]/55">10 pcs minimum</div></div>
             </div>
           </div>
-        </header>
 
-        <section className="mt-5 overflow-hidden rounded-[30px] border border-[#F2E8D5]/10 bg-[#241c13] shadow-[0_30px_90px_-35px_rgba(0,0,0,0.8)]">
-          <div className="jeepney-stripe h-1.5 w-full" />
-          <div className="grid gap-8 px-5 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.75fr] lg:px-10 lg:py-10">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/30 bg-[#E3A64B]/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-[#E3A64B]">Made to order <span className="h-1 w-1 rounded-full bg-[#E3A64B]/60" /> 10 pcs minimum</div>
-              <h1 className="mt-4 max-w-3xl font-[family-name:var(--font-display)] text-4xl font-extrabold leading-[1.02] tracking-tight text-[#F6EFDD] sm:text-5xl lg:text-6xl">Build your box.<br /><span className="text-[#E3A64B]">We'll handle the rest.</span></h1>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#F2E8D5]/60 sm:text-base">Choose your favorite flavors, set your quantities, then tell us where to send your freshly made empanadas.</p>
-              <div className="mt-6 flex flex-wrap gap-2.5">
-                {steps.map((item, index) => {
-                  const active = index === step;
-                  const complete = index < step;
-                  return <button key={item.title} type="button" onClick={() => complete && setStep(index)} disabled={!complete && !active} className={`group flex items-center gap-2.5 rounded-full border px-3.5 py-2 transition ${active ? "border-[#E3A64B]/70 bg-[#E3A64B]/12 text-[#F6EFDD]" : complete ? "border-[#7A9B4E]/35 bg-[#7A9B4E]/8 text-[#c9dba6]" : "border-[#F2E8D5]/10 text-[#F2E8D5]/35"}`}><span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-extrabold ${active ? "bg-[#E3A64B] text-[#20160d]" : complete ? "bg-[#7A9B4E] text-[#17110b]" : "bg-[#34271a] text-[#F2E8D5]/40"}`}>{complete ? <Check size={13} /> : index + 1}</span><span className="font-semibold">{item.title}</span></button>;
-                })}
-              </div>
+          <div className="border-t border-[#3a2c1c] bg-[#1c150e] px-6 py-4 sm:px-9"><div className="flex flex-wrap gap-2.5">{steps.map((item, index) => { const active = index === step; const complete = index < step; const reachable = complete; return <button key={item.title} type="button" onClick={() => reachable && setStep(index)} disabled={!reachable} className={`flex items-center gap-2 rounded-lg border-2 px-3.5 py-2 text-sm transition ${active ? "border-[#E3A64B] bg-[#E3A64B]/15 text-[#F6EFDD]" : complete ? "border-[#7A9B4E]/50 bg-[#7A9B4E]/10 text-[#c9dba6]" : "border-[#3a2c1c] bg-transparent text-[#F2E8D5]/45"}`}><span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${active ? "bg-[#E3A64B] text-[#1a140d]" : complete ? "bg-[#7A9B4E] text-[#1a140d]" : "bg-[#3a2c1c] text-[#F2E8D5]/60"}`}>{complete ? <CheckCircle2 size={13} /> : index + 1}</span><span className="font-medium">{item.title}</span></button>; })}</div></div>
+
+          <form id="kiosk-order-form" onSubmit={handleSubmit} className="grid gap-6 p-6 sm:p-9 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className="space-y-5">
+              {step === 0 ? <div className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4 sm:p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-[family-name:var(--font-display)] text-2xl text-[#F6EFDD]">Today&apos;s flavors</h2><p className="mt-1 text-sm text-[#F2E8D5]/60">Tap as many as you like, set quantity per flavor.</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={toggleAllFlavors} className="rounded-full border px-3 py-1 text-xs font-semibold">{allFlavorsSelected ? "Clear all" : "Select all"}</button><div className="rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-3 py-1 text-xs font-semibold text-[#E3A64B]">Pick one or more</div></div></div>
+                <div className="grid gap-3 sm:grid-cols-2">{flavorOptions.map((option) => { const selected = selectedFlavors.find((item) => item.value === option.value); return <div key={option.value} className={`relative rounded-xl border-2 p-4 transition ${selected ? "border-[#E3A64B] bg-[#E3A64B]/12" : "border-[#3a2c1c] bg-[#241c13]"}`}>
+                  <ProductBadges option={option} />
+                  <button type="button" onClick={() => toggleFlavor(option.value)} className="w-full text-left"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-[family-name:var(--font-display)] text-base text-[#F6EFDD]">{option.label}</div><div className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#E3A64B]">Php {option.price}</div></div>{selected ? <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#E3A64B] text-[#1a140d]"><CheckCircle2 size={15} /></span> : <span className="h-6 w-6 shrink-0 rounded-full border-2 border-dashed border-[#F2E8D5]/25" />}</div></button>
+                  {selected ? <label className="mt-3 block" onClick={(event) => event.stopPropagation()}><span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.25em] text-[#F2E8D5]/45">Qty</span><div className="flex items-stretch gap-2"><div className="grid h-12 flex-1 grid-cols-[44px_minmax(0,1fr)_44px] overflow-hidden rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d]"><button type="button" aria-label={`Decrease ${option.label}`} onClick={() => stepFlavorQuantity(option.value, -1)} className="flex h-full items-center justify-center border-r-2 border-[#3a2c1c] text-[#E3A64B]"><Minus size={16} /></button><input type="text" inputMode="numeric" pattern="[0-9]*" aria-label={`${option.label} quantity`} value={selected.quantity} onChange={(event) => updateFlavorQuantity(option.value, event.target.value)} onFocus={(event) => event.currentTarget.select()} className="h-full min-w-0 bg-transparent px-3 text-center font-[family-name:var(--font-mono)] text-base font-semibold text-[#F6EFDD] outline-none" /><button type="button" aria-label={`Increase ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 1)} className="flex h-full items-center justify-center border-l-2 border-[#3a2c1c] text-[#E3A64B]"><Plus size={16} /></button></div><button type="button" aria-label={`Add 5 ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 5)} className="h-12 shrink-0 rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 font-[family-name:var(--font-mono)] text-xs font-bold text-[#E3A64B]">+5</button></div></label> : null}
+                </div>; })}</div>
+              </div> : null}
+
+              {step === 1 ? <div className="space-y-4"><div className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4 sm:p-5"><div className="mb-4 flex items-center gap-2 font-[family-name:var(--font-display)] text-lg text-[#F6EFDD]"><Truck size={18} className="text-[#E3A64B]" /> Delivery preferences</div><div className="grid gap-4 md:grid-cols-2"><label className="rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] p-4"><span className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[#F2E8D5]/75"><Truck size={14} /> Delivery method</span><select value={form.deliveryMethod} onChange={(event) => { handleChange("deliveryMethod", event.target.value); if (event.target.value !== "maxim") setDeliveryQuote(null); }} className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-3 text-[#F6EFDD] outline-none">{deliveryMethods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label className="rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] p-4"><span className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[#F2E8D5]/75"><Wallet size={14} /> Payment method</span><select value={form.paymentMethod} onChange={(event) => handleChange("paymentMethod", event.target.value)} className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 py-3 text-[#F6EFDD] outline-none">{paymentMethods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div></div><div className="grid gap-4 md:grid-cols-2"><label className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4"><span className="mb-2 block text-sm font-medium text-[#F2E8D5]/75">Delivery date</span><input type="date" value={form.deliveryDate} min={todayDateString} onChange={(event) => handleChange("deliveryDate", event.target.value)} className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none" /></label></div></div> : null}
+
+              {step === 2 ? <div className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4 sm:p-5"><div className="mb-4 flex items-center gap-2 font-[family-name:var(--font-display)] text-lg text-[#F6EFDD]"><Phone size={18} className="text-[#E3A64B]" /> Customer details</div><div className="space-y-3"><input placeholder="Customer name" value={form.customerName} onChange={(event) => handleChange("customerName", event.target.value)} className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35" required /><input placeholder="Contact number" value={form.phoneNumber} onChange={(event) => handleChange("phoneNumber", event.target.value)} className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35" required /><input placeholder="Address" value={form.address} onChange={(event) => handleChange("address", event.target.value)} onBlur={quoteDelivery} className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35" required /><input placeholder="Landmark" value={form.landmark} onChange={(event) => handleChange("landmark", event.target.value)} onBlur={quoteDelivery} className="w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35" required /><textarea placeholder="Optional note" value={form.notes} onChange={(event) => handleChange("notes", event.target.value)} className="min-h-[96px] w-full rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/35" /></div><label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border-2 border-[#3a2c1c] bg-[#241c13] p-3.5"><input type="checkbox" checked={agreedToPolicy} onChange={(event) => setAgreedToPolicy(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[#C0472B]" /><span className="text-sm text-[#F2E8D5]/75">I agree that Empanada Hauz may collect and use my name, contact number, and address to process and deliver this order, as described in the <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-medium text-[#E3A64B] underline underline-offset-2">Privacy Policy</a>.</span></label></div> : null}
             </div>
-            <div className="hidden lg:flex lg:items-end lg:justify-end">
-              <div className="max-w-xs rounded-2xl border border-dashed border-[#F2E8D5]/15 bg-[#1a140d] p-5 text-right">
-                <div className="font-[family-name:var(--font-script)] text-2xl text-[#F2E8D5]/70">fresh from the pan</div>
-                <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.2em] text-[#F2E8D5]/35">packed with care · delivered with love</div>
-              </div>
+
+            <div className="space-y-5"><div className="receipt-ticket relative bg-[#f2e8d5] px-5 pb-6 pt-7 text-[#241c13] shadow-[0_18px_40px_-16px_rgba(0,0,0,0.6)]"><div className="mb-3 flex items-center justify-between border-b-2 border-dashed border-[#241c13]/25 pb-3"><div className="flex items-center gap-2 font-[family-name:var(--font-display)] text-sm font-bold uppercase tracking-[0.15em]"><Ticket size={16} /> Your order</div><span className={`font-[family-name:var(--font-mono)] text-sm font-semibold ${summary.totalQuantity >= 10 ? "text-[#4f6a34]" : "text-[#C0472B]"}`}>{summary.totalQuantity} pcs</span></div><div className="space-y-1.5 font-[family-name:var(--font-mono)] text-sm">{summary.items.length > 0 ? summary.items.map((item) => <div key={item.name} className="flex items-center justify-between gap-2"><span className="truncate">{item.quantity}x {item.name}</span><span className="shrink-0 tabular-nums">{item.subtotal}</span></div>) : <p className="py-2 text-[#241c13]/50">No flavors selected yet.</p>}</div>{form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mt-3 flex items-center justify-between gap-2 border-t-2 border-dashed border-[#241c13]/25 pt-3 font-[family-name:var(--font-mono)] text-sm"><span className="flex items-center gap-1.5 text-[#241c13]/65"><Truck size={14} />{quotingDelivery ? "Estimating delivery…" : "Est. delivery fee"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` (${deliveryQuote.distanceKm.toFixed(1)} km)` : ""}</span><span className="shrink-0 tabular-nums">{quotingDelivery ? "…" : deliveryQuote ? `~Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}<div className="mt-4 flex items-center justify-between border-t-2 border-dashed border-[#241c13]/25 pt-3"><span className="font-[family-name:var(--font-display)] text-base font-bold">TOTAL</span><span className="font-[family-name:var(--font-mono)] text-xl font-bold text-[#C0472B]">Php {summary.total}</span></div>{form.deliveryMethod === "maxim" ? <p className="mt-1.5 text-center text-[11px] text-[#241c13]/45">Total includes the estimated delivery fee; final fee is confirmed by our team.</p> : null}<p className={`mt-3 text-center font-[family-name:var(--font-script)] text-lg ${summary.totalQuantity >= 10 ? "text-[#4f6a34]" : "text-[#C0472B]"}`}>{summary.totalQuantity >= 10 ? "minimum reached, salamat!" : `add ${remaining} more piece${remaining === 1 ? "" : "s"} po`}</p></div>
+              <div className="hidden gap-3 lg:flex"><button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} className="flex items-center gap-2 rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] px-4 py-3 text-sm font-medium text-[#F2E8D5]" disabled={step === 0}><ArrowLeft size={16} /> Back</button>{step < steps.length - 1 ? <button type="button" onClick={() => setStep((current) => current + 1)} disabled={!isStepValid} className="ml-auto flex items-center gap-2 rounded-xl bg-[#C0472B] px-5 py-3 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] disabled:cursor-not-allowed disabled:opacity-50">Continue <ArrowRight size={16} /></button> : <button type="submit" disabled={submitting || !agreedToPolicy} className="ml-auto flex items-center gap-2 rounded-xl bg-[#C0472B] px-5 py-3 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] disabled:cursor-not-allowed disabled:opacity-50">{submitting ? "Placing order..." : "Place order"}</button>}</div>
+              {error ? <p className="rounded-lg border-2 border-[#C0472B]/40 bg-[#C0472B]/10 px-3 py-2 text-sm text-[#f0a894]">{error}</p> : null}
             </div>
-          </div>
+          </form>
         </section>
-
-        <form id="kiosk-order-form" onSubmit={handleSubmit} className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_370px]">
-          <section className="min-w-0 rounded-[26px] border border-[#F2E8D5]/10 bg-[#20180f] p-4 shadow-[0_22px_60px_-36px_rgba(0,0,0,0.8)] sm:p-6">
-            {step === 0 ? (
-              <>
-                <div className="flex flex-col gap-4 border-b border-[#F2E8D5]/10 pb-5 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.2em] text-[#E3A64B]">Step 1 · shop</p>
-                    <h2 className="mt-1.5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-[#F6EFDD] sm:text-3xl">Choose your flavors</h2>
-                    <p className="mt-1 text-sm text-[#F2E8D5]/50">Tap a flavor to add it. Then adjust your quantity.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="relative block min-w-0 flex-1 sm:w-56 sm:flex-none">
-                      <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#F2E8D5]/35" />
-                      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search flavors" className="w-full rounded-xl border border-[#F2E8D5]/10 bg-[#17110b] py-2.5 pl-9 pr-3 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50" />
-                    </label>
-                    <button type="button" onClick={toggleAllFlavors} className="shrink-0 rounded-xl border border-[#E3A64B]/25 bg-[#E3A64B]/8 px-3 py-2.5 text-xs font-bold text-[#E3A64B] transition hover:bg-[#E3A64B]/12">{allFlavorsSelected ? "Clear" : "Select all"}</button>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {visibleFlavorOptions.length > 0 ? visibleFlavorOptions.map((option) => {
-                    const selected = selectedFlavors.find((item) => item.value === option.value);
-                    const soldOut = option.available === false;
-                    return (
-                      <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-[#E3A64B]/70 bg-[#2a2014] shadow-[0_12px_35px_-22px_rgba(227,166,75,0.9)]" : "border-[#F2E8D5]/8 bg-[#261d13] hover:-translate-y-0.5 hover:border-[#F2E8D5]/15"} ${soldOut ? "opacity-55" : ""}`}>
-                        <ProductBadges option={option} />
-                        <div className="relative aspect-[16/9] overflow-hidden bg-[#17110b]">
-                          {option.imageUrl ? <img src={option.imageUrl} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgba(227,166,75,.18),transparent_60%)]"><span className="font-[family-name:var(--font-script)] text-4xl text-[#E3A64B]/55">EH</span></div>}
-                          <div className="absolute inset-0 bg-gradient-to-t from-[#17110b] via-transparent to-transparent" />
-                          {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-[#17110b]/85 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.16em] text-[#F2E8D5]/65">Sold out</span> : null}
-                          {selected ? <span className="absolute bottom-3 right-3 grid h-8 w-8 place-items-center rounded-full bg-[#E3A64B] text-[#20160d] shadow-lg"><Check size={16} /></span> : null}
-                        </div>
-                        <div className="p-4">
-                          <button type="button" onClick={() => toggleFlavor(option.value)} disabled={soldOut} className="w-full text-left disabled:cursor-not-allowed">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <h3 className="truncate font-[family-name:var(--font-display)] text-lg font-extrabold text-[#F6EFDD]">{option.value}</h3>
-                                {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#F2E8D5]/45">{option.description}</p> : null}
-                                <div className="mt-2 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
-                              </div>
-                            </div>
-                          </button>
-                          {selected ? <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-2 border-t border-[#F2E8D5]/8 pt-3"><div className="grid h-11 grid-cols-[38px_minmax(0,1fr)_38px] overflow-hidden rounded-xl border border-[#F2E8D5]/10 bg-[#17110b]"><button type="button" aria-label={`Decrease ${option.label}`} onClick={() => stepFlavorQuantity(option.value, -1)} className="flex items-center justify-center border-r border-[#F2E8D5]/10 text-[#E3A64B] transition hover:bg-[#E3A64B]/8"><Minus size={15} /></button><input type="text" inputMode="numeric" pattern="[0-9]*" aria-label={`${option.label} quantity`} value={selected.quantity} onChange={(event) => updateFlavorQuantity(option.value, event.target.value)} onFocus={(event) => event.currentTarget.select()} className="h-full min-w-0 bg-transparent text-center font-[family-name:var(--font-mono)] text-sm font-bold text-[#F6EFDD] outline-none" /><button type="button" aria-label={`Increase ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 1)} className="flex items-center justify-center border-l border-[#F2E8D5]/10 text-[#E3A64B] transition hover:bg-[#E3A64B]/8"><Plus size={15} /></button></div><button type="button" aria-label={`Add 5 ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 5)} className="h-11 rounded-xl border border-[#E3A64B]/20 bg-[#E3A64B]/8 px-3 font-[family-name:var(--font-mono)] text-[11px] font-bold text-[#E3A64B]">+5</button></div> : null}
-                        </div>
-                      </article>
-                    );
-                  }) : <div className="col-span-full rounded-2xl border border-dashed border-[#F2E8D5]/10 bg-[#17110b] p-10 text-center"><Search className="mx-auto text-[#F2E8D5]/25" size={25} /><p className="mt-3 font-semibold text-[#F2E8D5]/55">No flavors match “{search}”.</p><button type="button" onClick={() => setSearch("")} className="mt-2 text-xs font-bold text-[#E3A64B]">Clear search</button></div>}
-                </div>
-              </>
-            ) : null}
-
-            {step === 1 ? (
-              <div className="space-y-5">
-                <div>
-                  <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.2em] text-[#E3A64B]">Step 2 · details</p>
-                  <h2 className="mt-1.5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-[#F6EFDD] sm:text-3xl">How should we get it to you?</h2>
-                  <p className="mt-1 text-sm text-[#F2E8D5]/50">Pick your delivery method, payment, and preferred date.</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="rounded-2xl border border-[#F2E8D5]/8 bg-[#261d13] p-4"><span className="mb-2.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#F2E8D5]/55"><Truck size={14} className="text-[#E3A64B]" /> Delivery method</span><select value={form.deliveryMethod} onChange={(event) => { handleChange("deliveryMethod", event.target.value); if (event.target.value !== "maxim") setDeliveryQuote(null); }} className="w-full rounded-xl border border-[#F2E8D5]/10 bg-[#17110b] px-3.5 py-3 text-sm text-[#F6EFDD] outline-none focus:border-[#E3A64B]/50">{deliveryMethods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="rounded-2xl border border-[#F2E8D5]/8 bg-[#261d13] p-4"><span className="mb-2.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#F2E8D5]/55"><Wallet size={14} className="text-[#E3A64B]" /> Payment</span><select value={form.paymentMethod} onChange={(event) => handleChange("paymentMethod", event.target.value)} className="w-full rounded-xl border border-[#F2E8D5]/10 bg-[#17110b] px-3.5 py-3 text-sm text-[#F6EFDD] outline-none focus:border-[#E3A64B]/50">{paymentMethods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="rounded-2xl border border-[#F2E8D5]/8 bg-[#261d13] p-4 sm:col-span-2"><span className="mb-2.5 block text-xs font-bold uppercase tracking-[0.14em] text-[#F2E8D5]/55">Preferred date</span><input type="date" value={form.deliveryDate} min={todayDateString} onChange={(event) => handleChange("deliveryDate", event.target.value)} className="w-full rounded-xl border border-[#F2E8D5]/10 bg-[#17110b] px-3.5 py-3 text-sm text-[#F6EFDD] outline-none focus:border-[#E3A64B]/50" /></label>
-                </div>
-              </div>
-            ) : null}
-
-            {step === 2 ? (
-              <div className="space-y-5">
-                <div>
-                  <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.2em] text-[#E3A64B]">Step 3 · review</p>
-                  <h2 className="mt-1.5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-[#F6EFDD] sm:text-3xl">Almost there.</h2>
-                  <p className="mt-1 text-sm text-[#F2E8D5]/50">Add your contact and delivery details, then place your order.</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input placeholder="Full name" value={form.customerName} onChange={(event) => handleChange("customerName", event.target.value)} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50" required />
-                  <input placeholder="Contact number" value={form.phoneNumber} onChange={(event) => handleChange("phoneNumber", event.target.value)} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50" required />
-                  <input placeholder="Complete address" value={form.address} onChange={(event) => handleChange("address", event.target.value)} onBlur={quoteDelivery} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50 sm:col-span-2" required />
-                  <input placeholder="Landmark / nearby place" value={form.landmark} onChange={(event) => handleChange("landmark", event.target.value)} onBlur={quoteDelivery} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50 sm:col-span-2" required />
-                  <textarea placeholder="Optional note for us" value={form.notes} onChange={(event) => handleChange("notes", event.target.value)} className="min-h-[110px] rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50 sm:col-span-2" />
-                </div>
-                <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#F2E8D5]/8 bg-[#261d13] p-4"><input type="checkbox" checked={agreedToPolicy} onChange={(event) => setAgreedToPolicy(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[#C0472B]" /><span className="text-sm leading-6 text-[#F2E8D5]/65">I agree that Empanada Hauz may collect and use my name, contact number, and address to process and deliver this order, as described in the <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#E3A64B] underline underline-offset-2">Privacy Policy</a>.</span></label>
-              </div>
-            ) : null}
-
-            {error ? <p className="mt-5 rounded-xl border border-[#C0472B]/30 bg-[#C0472B]/10 px-4 py-3 text-sm text-[#f0a894]">{error}</p> : null}
-          </section>
-
-          <aside className="lg:sticky lg:top-[88px]">
-            <div className="overflow-hidden rounded-[26px] border border-[#F2E8D5]/10 bg-[#F3EBDD] text-[#241c13] shadow-[0_24px_70px_-30px_rgba(0,0,0,0.85)]">
-              <div className="border-b border-dashed border-[#241c13]/15 px-5 py-5 sm:px-6">
-                <div className="flex items-center justify-between"><div className="flex items-center gap-2 font-[family-name:var(--font-display)] text-sm font-extrabold uppercase tracking-[0.16em]"><ShoppingBag size={17} /> Your bag</div><span className="rounded-full bg-[#241c13]/7 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11px] font-bold text-[#241c13]/65">{summary.totalQuantity} pcs</span></div>
-                <p className="mt-1.5 text-xs text-[#241c13]/45">Your selections update live.</p>
-              </div>
-              <div className="max-h-[360px] overflow-auto px-5 py-4 sm:px-6">
-                {summary.items.length > 0 ? summary.items.map((item) => <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#241c13]/7 py-3 first:pt-0 last:border-b-0"><div className="min-w-0"><div className="truncate text-sm font-bold">{item.name}</div><div className="mt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#241c13]/45">{item.quantity} × Php {item.price}</div></div><div className="shrink-0 font-[family-name:var(--font-mono)] text-sm font-bold">Php {item.subtotal}</div></div>) : <div className="py-10 text-center"><ShoppingBag className="mx-auto text-[#241c13]/20" size={28} /><p className="mt-3 text-sm font-semibold text-[#241c13]/45">Your bag is empty.</p><p className="mt-1 text-xs text-[#241c13]/35">Pick a flavor to get started.</p></div>}
-              </div>
-              <div className="border-t border-dashed border-[#241c13]/15 px-5 py-5 sm:px-6">
-                {form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mb-3 flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-1.5 text-[#241c13]/55"><Truck size={14} /> {quotingDelivery ? "Estimating delivery…" : "Est. delivery"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km` : ""}</span><span className="font-[family-name:var(--font-mono)] font-bold">{quotingDelivery ? "…" : deliveryQuote ? `Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}
-                <div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#241c13]/45">Total</div><div className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold">Php {summary.total}</div></div><div className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${summary.totalQuantity >= 10 ? "bg-[#7A9B4E]/15 text-[#4f6a34]" : "bg-[#C0472B]/10 text-[#a53b25]"}`}>{summary.totalQuantity >= 10 ? "Minimum reached" : `${remaining} pcs to go`}</div></div>
-                {form.deliveryMethod === "maxim" ? <p className="mt-2 text-[10px] leading-4 text-[#241c13]/40">Delivery total uses an estimate until our team confirms the final fare.</p> : null}
-                <div className="mt-5 grid gap-2.5 lg:flex lg:flex-col"><div className="flex gap-2.5"><button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#241c13]/12 bg-[#241c13]/4 text-[#241c13] disabled:cursor-not-allowed disabled:opacity-25"><ArrowLeft size={17} /></button>{step < steps.length - 1 ? <button type="button" onClick={() => setStep((current) => current + 1)} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">Continue <ArrowRight size={16} /></button> : <button type="submit" disabled={submitting || !agreedToPolicy} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>}</div></div>
-              </div>
-            </div>
-          </aside>
-        </form>
-
-        <p className="py-4 text-center font-[family-name:var(--font-script)] text-lg text-[#F2E8D5]/35">made fresh daily by Empanada Hauz</p>
+        <p className="pb-2 text-center font-[family-name:var(--font-script)] text-lg text-[#F2E8D5]/45">made fresh daily by Empanada Hauz</p>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#F2E8D5]/10 bg-[#17110b]/96 px-3 pb-[env(safe-area-inset-bottom)] pt-2.5 shadow-[0_-18px_35px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:hidden">
-        <div className="mx-auto flex max-w-7xl items-center gap-2.5">
-          <div className="min-w-0 flex-1"><div className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.16em] text-[#F2E8D5]/35">Your bag</div><div className="truncate font-[family-name:var(--font-display)] text-base font-extrabold text-[#F6EFDD]">{summary.totalQuantity} pcs · Php {summary.total}</div></div>
-          <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} aria-label="Back" disabled={step === 0} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-[#F2E8D5]/10 bg-[#241c13] text-[#F2E8D5] disabled:opacity-25"><ArrowLeft size={17} /></button>
-          {step < steps.length - 1 ? <button type="button" onClick={() => setStep((current) => current + 1)} disabled={!isStepValid} className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-35">Continue <ArrowRight size={16} /></button> : <button type="submit" form="kiosk-order-form" disabled={submitting || !agreedToPolicy} className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-35">{submitting ? "Placing…" : "Place order"}</button>}
-        </div>
-        {step === 0 && summary.totalQuantity < 10 ? <p className="mx-auto mt-1.5 max-w-7xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">add {remaining} more piece{remaining === 1 ? "" : "s"} po</p> : null}
-        {step === 2 && !agreedToPolicy ? <p className="mx-auto mt-1.5 max-w-7xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">please agree to the Privacy Policy to continue</p> : null}
-      </div>
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-[#3a2c1c] bg-[#1c150e]/97 px-3 pb-[env(safe-area-inset-bottom)] pt-2.5 shadow-[0_-12px_30px_-10px_rgba(0,0,0,0.6)] backdrop-blur lg:hidden"><div className="mx-auto flex max-w-6xl items-center gap-2.5"><button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} aria-label="Back" disabled={step === 0} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-[#3a2c1c] bg-[#241c13] text-[#F2E8D5] disabled:cursor-not-allowed disabled:opacity-35"><ArrowLeft size={18} /></button><div className="min-w-0 flex-1 leading-tight"><div className="font-[family-name:var(--font-mono)] text-[11px] text-[#F2E8D5]/55">{summary.totalQuantity} pcs</div><div className="truncate font-[family-name:var(--font-display)] text-base font-bold text-[#F6EFDD]">Php {summary.total}</div></div>{step < steps.length - 1 ? <button type="button" onClick={() => setStep((current) => current + 1)} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] disabled:cursor-not-allowed disabled:opacity-50">Continue <ArrowRight size={16} /></button> : <button type="submit" form="kiosk-order-form" disabled={submitting || !agreedToPolicy} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-bold uppercase tracking-wide text-[#F6EFDD] disabled:cursor-not-allowed disabled:opacity-50">{submitting ? "Placing..." : "Place order"}</button>}</div>{step === 0 && summary.totalQuantity < 10 ? <p className="mx-auto mt-1.5 max-w-6xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">add {remaining} more piece{remaining === 1 ? "" : "s"} to reach the 10 pc minimum</p> : null}{step === 2 && !agreedToPolicy ? <p className="mx-auto mt-1.5 max-w-6xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">please agree to the Privacy Policy to continue</p> : null}</div>
 
-      <style jsx global>{`.kiosk-board{background:radial-gradient(circle at 10% 0%,rgba(227,166,75,.08),transparent 28rem),radial-gradient(circle at 100% 55%,rgba(47,143,122,.06),transparent 26rem),linear-gradient(160deg,#17110b 0%,#1c150e 55%,#17110b 100%)} .jeepney-stripe{background:repeating-linear-gradient(45deg,#c0472b 0px,#c0472b 12px,#f0b429 12px,#f0b429 24px,#2f8f7a 24px,#2f8f7a 36px,#f2e8d5 36px,#f2e8d5 48px)} .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
+      <style jsx global>{`.kiosk-board{background:radial-gradient(circle at 12% 0%,rgba(227,166,75,.10),transparent 32rem),linear-gradient(160deg,#17110b 0%,#1c150e 55%,#17110b 100%)} .chalk-texture{background-image:radial-gradient(rgba(242,232,213,.05) 1px,transparent 1.4px),radial-gradient(rgba(242,232,213,.035) 1px,transparent 1.4px);background-size:3px 3px,7px 7px;background-position:0 0,2px 3px;mix-blend-mode:overlay}.jeepney-stripe{background:repeating-linear-gradient(45deg,#c0472b 0px,#c0472b 14px,#f0b429 14px,#f0b429 28px,#2f8f7a 28px,#2f8f7a 42px,#f2e8d5 42px,#f2e8d5 56px)} .receipt-ticket{border-radius:4px}`}</style>
     </main>
   );
 }
