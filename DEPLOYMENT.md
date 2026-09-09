@@ -28,6 +28,8 @@
 - Set `CORS_ORIGIN` to the deployed frontend URL.
 - Set `NEXT_PUBLIC_API_URL` to the public API URL.
 - Set `NEXT_PUBLIC_SOCKET_URL` to the public Socket.IO namespace URL.
+- Documents and videos are stored outside MongoDB. For Docker Compose, the API mounts the persistent `documents-data` volume at `/data/documents` and sets `DOCUMENTS_STORAGE_PATH=/data/documents`.
+- If deploying without Docker, set `DOCUMENTS_STORAGE_PATH` to a persistent writable directory. Do not point it at an ephemeral container filesystem.
 
 ## Build and run
 
@@ -48,6 +50,7 @@ npm run prisma:seed --workspace @empanada-hauz/api
 - Proxy `/api` to the NestJS service.
 - Proxy Socket.IO upgrades for `/ops`.
 - Proxy all other traffic to the Next.js service.
+- Preserve HTTP `Range` requests for `/documents/:id/content` so browser video playback can seek without downloading the whole file.
 
 ## Hardening backlog
 
