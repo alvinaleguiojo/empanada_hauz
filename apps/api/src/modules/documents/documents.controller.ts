@@ -1,12 +1,20 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { diskStorage } from "multer";
 import type { Request, Response } from "express";
 import { createReadStream, mkdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { DocumentsService, MAX_FILE_SIZE } from "./documents.service";
+
+const { diskStorage } = require("multer") as {
+  diskStorage: (options: {
+    destination: (request: Request, file: { originalname: string }, callback: (error: Error | null, destination: string) => void) => void;
+    filename: (request: Request, file: { originalname: string }, callback: (error: Error | null, filename: string) => void) => void;
+  }) => unknown;
+};
+
+type UploadedDocumentFile = { originalname: string; mimetype: string; size: number; path: string };
 
 const STORAGE_ROOT = process.env.DOCUMENTS_STORAGE_PATH || join(process.cwd(), "apps", "api", "storage", "documents");
 const TEMP_UPLOAD_DIR = join(STORAGE_ROOT, ".tmp");
@@ -35,13 +43,13 @@ export class DocumentsController {
   @Post()
   @UseInterceptors(FileInterceptor("file", {
     storage: diskStorage({
-      destination: (_request, _file, callback) => callback(null, TEMP_UPLOAD_DIR),
-      filename: (_request, file, callback) => callback(null, `${randomUUID()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`),
+      destination: (_request: Request, _file: { originalname: string }, callback: (error: Error | null, destination: string) => void) => callback(null, TEMP_UPLOAD_DIR),
+      filename: (_request: Request, file: { originalname: string }, callback: (error: Error | null, filename: string) => void) => callback(null, `${randomUUID()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`),
     }),
     limits: { fileSize: MAX_FILE_SIZE },
   }))
   async create(
-    @UploadedFile() file: Express.Multer.File | undefined,
+    @UploadedFile() file: UploadedDocumentFile | undefined,
     @Body("folderId") folderId: string | undefined,
     @Body("public") publicFile: string | undefined,
     @Body("source") source: string | undefined,
