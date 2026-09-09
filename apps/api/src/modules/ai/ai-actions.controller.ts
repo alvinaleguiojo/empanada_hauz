@@ -4,16 +4,25 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AdminGuard } from "../ai-instructions/admin.guard";
 import { AiActionConfigPatch } from "./ai-action-config.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
+import { AiModelService } from "./ai-model.service";
 
 type AuthenticatedRequest = Request & { user?: { sub?: string } };
 
 @Controller("ai-actions")
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AiActionsController {
-  constructor(private readonly registry: AiToolRegistryService) {}
+  constructor(private readonly registry: AiToolRegistryService, private readonly aiModel: AiModelService) {}
 
   @Get()
   async list() { return this.registry.listForAdmin(); }
+
+  @Get("model")
+  async getModel() { return this.aiModel.getSettings(); }
+
+  @Patch("model")
+  async updateModel(@Body() body: { provider?: string; model?: string }) {
+    return this.aiModel.setSettings(body.provider ?? "", body.model ?? "");
+  }
 
   @Patch(":name")
   async update(@Param("name") name: string, @Body() body: AiActionConfigPatch, @Req() request: AuthenticatedRequest) {
