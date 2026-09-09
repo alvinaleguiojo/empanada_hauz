@@ -9,6 +9,9 @@ type PublicProduct = {
   name: string;
   price: number;
   available: boolean;
+  tags?: string[];
+  isFeatured?: boolean;
+  isNew?: boolean;
   sortOrder?: number;
 };
 
