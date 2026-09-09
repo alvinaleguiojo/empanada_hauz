@@ -286,6 +286,9 @@ export class AiRuntimeService {
     lastAction?: string;
     tools: AiToolDefinition[];
   }): Promise<Plan> {
+    // Keep the stable instruction prefix separate from mutable runtime state.
+    // This preserves a reusable prompt prefix for OpenAI prompt caching without
+    // changing the application's business rules or tool semantics.
     const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}
 
 You are the semantic intent router for an application.
@@ -321,19 +324,19 @@ Checkout recovery rules:
 
 Use a final conversational response only when no available tool can satisfy the customer's intent.
 
-Never invent missing arguments. Only provide arguments supported by the customer message or conversation state.
+Never invent missing arguments. Only provide arguments supported by the customer message or conversation state.`;
 
-AVAILABLE AI TOOLS:
-${input.tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT SCHEMA: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}
-
-RUNTIME CONTEXT:
-${input.context}`;
+    const dynamic = [
+      `AVAILABLE AI TOOLS:\n${input.tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT SCHEMA: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}`,
+      `RUNTIME CONTEXT:\n${input.context}`
+    ].join("\n\n");
 
     const user = [
       `CONVERSATION:\n${input.messages.join("\n") || "none"}`,
       `CURRENT CUSTOMER MESSAGE:\n${input.message}`,
       input.lastAction ? `LAST TOOL: ${input.lastAction}` : "",
-      input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : ""
+      input.lastToolResult !== undefined ? `LAST TOOL RESULT:\n${JSON.stringify(input.lastToolResult)}` : "",
+      dynamic
     ].filter(Boolean).join("\n\n");
 
     const response = await this.chat({
