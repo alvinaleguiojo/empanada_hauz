@@ -22,7 +22,6 @@ type MongoFindResult<T> = { cursor?: { firstBatch?: T[] } };
 type ProductImage = { _id: string; name: string; imageUrls?: string[]; imageUrl?: string | null; updatedAt?: Date | string };
 type JsonObject = Prisma.InputJsonObject;
 
-after
 @Injectable()
 export class DocumentsService {
   private readonly collection = "documents";
