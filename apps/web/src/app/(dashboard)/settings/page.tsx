@@ -16,13 +16,15 @@ const sections: SettingsSection[] = [
   { href: "/settings/ai-instructions", title: "AI Instructions", description: "Configure runtime instructions, customer-facing AI behavior, and AI actions.", icon: Bot, permission: "ai-instructions.manage" }
 ];
 
-type AiModelSettings = { provider: "ollama" | "gemini"; model: string };
+type AiModelSettings = { provider: "ollama" | "gemini" | "groq"; model: string };
 const aiModelOptions = [
   { value: "ollama:qwen3:4b-instruct", label: "Qwen3 4B Instruct (Ollama)", provider: "ollama" as const, model: "qwen3:4b-instruct" },
   { value: "gemini:gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "gemini" as const, model: "gemini-3.8-flash" },
   { value: "gemini:gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "gemini" as const, model: "gemini-3.7-flash" },
   { value: "gemini:gemini-3.6-flash", label: "Gemini 3.6 Flash", provider: "gemini" as const, model: "gemini-3.6-flash" },
-  { value: "gemini:gemini-3.5-flash", label: "Gemini 3.5 Flash", provider: "gemini" as const, model: "gemini-3.5-flash" }
+  { value: "gemini:gemini-3.5-flash", label: "Gemini 3.5 Flash", provider: "gemini" as const, model: "gemini-3.5-flash" },
+  { value: "groq:openai/gpt-oss-20b", label: "GPT-OSS 20B (Groq)", provider: "groq" as const, model: "openai/gpt-oss-20b" },
+  { value: "groq:openai/gpt-oss-120b", label: "GPT-OSS 120B (Groq)", provider: "groq" as const, model: "openai/gpt-oss-120b" }
 ];
 
 export default function SettingsPage() {
@@ -84,9 +86,9 @@ export default function SettingsPage() {
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-accent/20 bg-accent/[0.06]"><Bot className="h-5 w-5 text-accent" /></div>
             <div className="min-w-0 flex-1">
               <h2 className="text-lg font-semibold">AI Model</h2>
-              <p className="mt-1 text-sm leading-6 text-foreground/55">Choose which model handles AI requests. Gemini requires <code className="rounded bg-white/[0.06] px-1">GEMINI_API_KEY</code> on the API server.</p>
+              <p className="mt-1 text-sm leading-6 text-foreground/55">Choose which model handles AI requests. Gemini requires <code className="rounded bg-white/[0.06] px-1">GEMINI_API_KEY</code>; Groq requires <code className="rounded bg-white/[0.06] px-1">GROQ_API_KEY</code> on the API server.</p>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <label className="min-w-0 flex-1"><span className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-foreground/45">Model</span><select value={aiModelValue} onChange={(event) => setAiModelValue(event.target.value)} disabled={aiModelLoading || aiModelSaving} className="w-full rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm outline-none transition focus:border-accent/50"><option value="ollama:qwen3:4b-instruct">Qwen3 4B Instruct (Ollama)</option><option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash</option><option value="gemini:gemini-3.7-flash">Gemini 3.7 Flash</option><option value="gemini:gemini-3.6-flash">Gemini 3.6 Flash</option><option value="gemini:gemini-3.5-flash">Gemini 3.5 Flash</option></select></label>
+                <label className="min-w-0 flex-1"><span className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-foreground/45">Model</span><select value={aiModelValue} onChange={(event) => setAiModelValue(event.target.value)} disabled={aiModelLoading || aiModelSaving} className="w-full rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm outline-none transition focus:border-accent/50">{aiModelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                 <button type="button" onClick={() => void saveAiModel()} disabled={aiModelLoading || aiModelSaving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground disabled:opacity-50"><Save className="h-4 w-4" />{aiModelSaving ? "Saving…" : "Save model"}</button>
               </div>
               <div className="mt-3 text-xs text-foreground/45">Current: {aiModel ? `${aiModel.provider} / ${aiModel.model}` : aiModelLoading ? "Loading…" : "Unavailable"}</div>
