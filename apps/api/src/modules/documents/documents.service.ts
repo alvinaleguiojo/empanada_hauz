@@ -2,10 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { Prisma } from "@prisma/client";
 import { createReadStream, createWriteStream, promises as fs } from "fs";
 import { Readable } from "stream";
-import { basename, dirname, extname, join, resolve, sep } from "path";
+import { basename, dirname, join, resolve, sep } from "path";
 import { pipeline } from "stream/promises";
 import { randomUUID } from "crypto";
 import { PrismaService } from "../../database/prisma.service";
+import { storageExtension } from "./storage-extension";
+import { getDocumentsStorageRoot } from "./storage-path";
 
 export type DocumentRecord = {
   _id: string; name: string; type: "file" | "folder"; mimeType: string | null; size: number;
@@ -35,7 +37,7 @@ function estimateDataUrlBytes(content: string) {
 export class DocumentsService {
   private readonly collection = "documents";
   private readonly chunksCollection = "document_chunks";
-  private readonly storageRoot = resolve(process.env.DOCUMENTS_STORAGE_PATH || join(process.cwd(), "apps", "api", "storage", "documents"));
+  private readonly storageRoot = resolve(getDocumentsStorageRoot());
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -90,7 +92,7 @@ export class DocumentsService {
     if (file.size > MAX_FILE_SIZE) throw new BadRequestException("Files are limited to 100 MB.");
     await this.ensureStorage();
     const id = randomUUID();
-    const extension = extname(basename(name)).toLowerCase().replace(/[^.a-z0-9_-]/g, "").slice(0, 16);
+    const extension = storageExtension(basename(name), file.mimetype);
     const relativePath = join(new Date().toISOString().slice(0, 7), `${id}${extension}`);
     const absolutePath = resolve(this.storageRoot, relativePath);
     if (!absolutePath.startsWith(`${this.storageRoot}${sep}`)) throw new BadRequestException("Invalid storage path.");
@@ -124,7 +126,7 @@ export class DocumentsService {
     if (expectedSize > MAX_FILE_SIZE) throw new BadRequestException("Files are limited to 100 MB.");
     await this.ensureStorage();
     const id = randomUUID();
-    const extension = extname(basename(name)).toLowerCase().replace(/[^.a-z0-9_-]/g, "").slice(0, 16);
+    const extension = storageExtension(basename(name), input.mimeType);
     const relativePath = join(new Date().toISOString().slice(0, 7), `${id}${extension}`);
     const absolutePath = resolve(this.storageRoot, relativePath);
     const temporaryPath = join(this.storageRoot, ".tmp", `${id}.upload`);
