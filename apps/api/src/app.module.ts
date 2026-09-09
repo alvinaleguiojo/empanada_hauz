@@ -25,11 +25,12 @@ import { RealtimeModule } from "./common/realtime.module";
 import { GoogleMapsModule } from "./modules/google-maps/google-maps.module";
 import { AdminUsersModule } from "./modules/admin-users/admin-users.module";
 import { ProductsModule } from "./modules/products/products.module";
+import { DocumentsModule } from "./modules/documents/documents.module";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, RealtimeModule, HealthModule, AuthModule, AdminUsersModule,
-    ProductsModule, MessengerModule, AiModule, AiInstructionsModule, CustomersModule, OrdersModule, BatchesModule, KitchenModule,
+    ProductsModule, DocumentsModule, MessengerModule, AiModule, AiInstructionsModule, CustomersModule, OrdersModule, BatchesModule, KitchenModule,
     DeliveriesModule, DeliveryNetworkModule, RiderModule, AnalyticsModule, InventoryModule, ExpensesModule, ReferralsModule,
     ReferralChatModule, NotificationsModule, ChatModule, McpModule, GoogleMapsModule
   ]
