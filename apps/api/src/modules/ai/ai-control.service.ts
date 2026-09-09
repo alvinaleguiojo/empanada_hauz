@@ -76,14 +76,14 @@ export class AiControlService {
     };
   }
 
-  async getGlobalModelSettings() {
+  async getGlobalModelSettings(): Promise<{ provider: AiModelProvider; model: string }> {
     const result = (await this.prisma.$runCommandRaw({
       find: this.collection,
       filter: { key: this.globalKey },
       limit: 1
     })) as unknown as MongoFindResult;
     const setting = result.cursor?.firstBatch?.[0];
-    const provider = setting?.provider === "gemini" ? "gemini" : "ollama";
+    const provider: AiModelProvider = setting?.provider === "gemini" ? "gemini" : "ollama";
     const defaultModel = provider === "gemini" ? "gemini-3.8-flash" : "qwen3:4b-instruct";
     return { provider, model: setting?.model?.trim() || defaultModel };
   }
