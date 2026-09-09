@@ -1,44 +1,49 @@
-name: Fix customer create address input
-
+name: Patch public customer catalog badges
 on:
   push:
-    branches:
-      - main
-
+    branches: [main]
 permissions:
   contents: write
-
 jobs:
-  fix:
-    if: github.event.head_commit.message != 'fix: customer create address input'
+  patch:
+    if: github.event.head_commit.message != 'fix: show public product badges'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch customer create page
+      - name: Patch public customer catalog
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           client = Path('apps/web/src/app/customer/page-client.tsx')
           text = client.read_text()
-
-          start = text.index('  // Estimate the delivery fee once the customer has entered an address')
-          end = text.index('  // If the delivery date is today', start)
-          replacement = '''  // Delivery quotes are intentionally not fetched while typing in the customer address.\n  // The address field should remain a plain controlled input with no network\n  // work attached to each keystroke. The quote will be requested only when\n  // the customer has moved past address entry and selected Delivery.\n  useEffect(() => {\n    if (form.deliveryMethod !== "maxim" || !form.address.trim()) {\n      setDeliveryQuote(null);\n      setQuotingDelivery(false);\n      return;\n    }\n\n    let cancelled = false;\n    const timeout = window.setTimeout(() => {\n      setQuotingDelivery(true);\n      const params = new URLSearchParams({ address: form.address.trim() });\n      if (form.landmark.trim()) {\n        params.set("landmark", form.landmark.trim());\n      }\n      apiFetch<{ distanceKm: number | null; estimatedFare: number }>(`/orders/delivery-quote?${params.toString()}`)\n        .then((quote) => {\n          if (!cancelled) setDeliveryQuote(quote);\n        })\n        .catch(() => {\n          if (!cancelled) setDeliveryQuote(null);\n        })\n        .finally(() => {\n          if (!cancelled) setQuotingDelivery(false);\n        });\n    }, 1000);\n\n    return () => {\n      cancelled = true;\n      window.clearTimeout(timeout);\n    };\n  }, [form.deliveryMethod, form.address, form.landmark]);\n\n'''
-          text = text[:start] + replacement + text[end:]
-
+          helper = '''\nfunction ProductBadges({ item }: { item: (typeof MENU_ITEMS)[number] }) {\n  const tags = Array.isArray(item.tags) ? item.tags.filter(Boolean) : [];\n  if (!item.isFeatured && !item.isNew && tags.length === 0) return null;\n  const formatTag = (tag: string) => tag.replace(/[-_]+/g, " ").trim().replace(/\\b\\w/g, (char) => char.toUpperCase());\n  return (\n    <span className="ml-2 inline-flex flex-wrap items-center gap-1 align-middle">\n      {item.isFeatured ? <span className="rounded-full border border-[#E3A64B]/45 bg-[#E3A64B]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#E3A64B]">Featured</span> : null}\n      {item.isNew ? <span className="rounded-full border border-[#7A9B4E]/45 bg-[#7A9B4E]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#c9dba6]">New</span> : null}\n      {tags.map((tag) => <span key={`${item.value}-${tag}`} className="rounded-full border border-[#F2E8D5]/20 bg-[#F2E8D5]/8 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#F2E8D5]/75">{formatTag(tag)}</span>)}\n    </span>\n  );\n}\n'''
+          if 'function ProductBadges(' not in text:
+              marker = 'export default function CustomerKioskPage() {'
+              if marker not in text: raise SystemExit('CustomerKioskPage marker not found')
+              text = text.replace(marker, helper + '\n' + marker, 1)
+          match = re.search(r'flavorOptions\.map\(\((?P<var>[A-Za-z_$][\w$]*)\)\s*=>', text)
+          if not match: raise SystemExit('Flavor map not found')
+          var = match.group('var'); start = match.start()
+          label = re.search(r'\{' + re.escape(var) + r'\.(?:label|value)\}', text[start:])
+          if not label: raise SystemExit('Flavor label/value render not found')
+          gs = start + label.start(); ge = start + label.end(); expr = text[gs:ge]
+          text = text[:gs] + expr + f'<ProductBadges item={{{var}}} />' + text[ge:]
           client.write_text(text)
 
           page = Path('apps/web/src/app/customer/page.tsx')
-          page.write_text('''"use client";\n\nimport CustomerKioskPage from "./page-client";\n\nexport default function CustomerPage() {\n  return <CustomerKioskPage />;\n}\n''')
-
+          page_text = page.read_text()
+          page_text = page_text.replace('''  available: boolean;\n  sortOrder?: number;\n''', '''  available: boolean;\n  tags?: string[];\n  isFeatured?: boolean;\n  isNew?: boolean;\n  sortOrder?: number;\n''', 1)
+          page.write_text(page_text)
       - name: Verify and commit
         run: |
-          grep -n "plain controlled input" apps/web/src/app/customer/page-client.tsx
-          grep -n "return <CustomerKioskPage />" apps/web/src/app/customer/page.tsx
+          grep -n "function ProductBadges" apps/web/src/app/customer/page-client.tsx
+          grep -n "ProductBadges item" apps/web/src/app/customer/page-client.tsx
+          grep -n "tags?: string\[\]" apps/web/src/app/customer/page.tsx
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apps/web/src/app/customer/page-client.tsx apps/web/src/app/customer/page.tsx
           git rm .github/workflows/fix-customer-create-address.yml
-          git commit -m "fix: customer create address input"
+          git commit -m "fix: show public product badges"
           git push
