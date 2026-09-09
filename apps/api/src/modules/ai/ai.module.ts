@@ -14,6 +14,7 @@ import { AiActionsController } from "./ai-actions.controller";
 import { AiPublicAgentController } from "./ai-public-agent.controller";
 import { AiPublicAgentService } from "./ai-public-agent.service";
 import { AiDateTimeService } from "./ai-datetime.service";
+import { AiModelService } from "./ai-model.service";
 
 @Module({
   imports: [DatabaseModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
@@ -21,13 +22,24 @@ import { AiDateTimeService } from "./ai-datetime.service";
   providers: [
     AiApplicationToolsService,
     AiConversationStateService,
-    AiRuntimeService,
+    {
+      provide: AiRuntimeService,
+      inject: [AiModelService, AiConversationStateService, AiToolRegistryService, AiInstructionsService, ProductsService],
+      useFactory: (
+        aiModel: AiModelService,
+        stateService: AiConversationStateService,
+        toolRegistry: AiToolRegistryService,
+        instructionsService: import("../ai-instructions/ai-instructions.service").AiInstructionsService,
+        productsService: import("../products/products.service").ProductsService
+      ) => aiModel.createRuntime(stateService, toolRegistry, instructionsService, productsService)
+    },
     AiToolRegistryService,
     AiControlService,
     AiActionConfigService,
+    AiModelService,
     AiPublicAgentService,
     AiDateTimeService
   ],
-  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService, AiDateTimeService]
+  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService, AiDateTimeService, AiModelService]
 })
 export class AiModule {}
