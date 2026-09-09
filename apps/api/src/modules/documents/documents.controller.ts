@@ -1,17 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import { BadRequestException } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { diskStorage } from "multer";
 import type { Request, Response } from "express";
+import { createReadStream, mkdirSync } from "fs";
+import { join } from "path";
+import { randomUUID } from "crypto";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
-import { DocumentsService } from "./documents.service";
+import { DocumentsService, MAX_FILE_SIZE } from "./documents.service";
 
-class CreateDocumentDto {
-  name!: string;
-  mimeType!: string;
-  size!: number;
-  dataUrl!: string;
-  folderId?: string | null;
-  public?: boolean;
-  source?: string;
-}
+const TEMP_UPLOAD_DIR = join(process.cwd(), "apps", "api", "storage", "documents", ".tmp");
+mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
 
 class CreateFolderDto { name!: string; folderId?: string | null; }
 
@@ -34,34 +33,34 @@ export class DocumentsController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@Body() dto: CreateDocumentDto, @Req() request: Request) {
+  @UseInterceptors(FileInterceptor("file", {
+    storage: diskStorage({
+      destination: (_request, _file, callback) => callback(null, TEMP_UPLOAD_DIR),
+      filename: (_request, file, callback) => callback(null, `${randomUUID()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`),
+    }),
+    limits: { fileSize: MAX_FILE_SIZE },
+  }))
+  async create(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body("folderId") folderId: string | undefined,
+    @Body("public") publicFile: string | undefined,
+    @Body("source") source: string | undefined,
+    @Req() request: Request,
+  ) {
+    if (!file) throw new BadRequestException("A file is required.");
     const user = request.user as { id?: string } | undefined;
-    return this.documentsService.createFile({ ...dto, uploadedBy: user?.id });
+    return this.documentsService.createFile(file, folderId || null, publicFile === "true", user?.id, source);
   }
 
   @Get(":id/content")
-  async content(@Param("id") id: string, @Res() response: Response) {
-    const document = await this.documentsService.get(id);
-    if (document.type !== "file" || !document.content) {
-      response.status(404).send("File not found");
-      return;
-    }
-    if (!document.public) {
-      response.status(403).send("File is private");
-      return;
-    }
-    this.sendFile(document, response);
+  async content(@Param("id") id: string, @Req() request: Request, @Res() response: Response) {
+    await this.sendDocument(id, request, response, false);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(":id/download")
-  async download(@Param("id") id: string, @Res() response: Response) {
-    const document = await this.documentsService.get(id);
-    if (document.type !== "file" || !document.content) {
-      response.status(404).send("File not found");
-      return;
-    }
-    this.sendFile(document, response);
+  async download(@Param("id") id: string, @Req() request: Request, @Res() response: Response) {
+    await this.sendDocument(id, request, response, true);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -70,15 +69,70 @@ export class DocumentsController {
     return this.documentsService.remove(id);
   }
 
-  private sendFile(document: { content?: string | null; mimeType: string | null; name: string }, response: Response) {
-    const content = document.content ?? "";
-    const comma = content.indexOf(",");
-    const base64 = comma >= 0 ? content.slice(comma + 1) : "";
+  private async sendDocument(id: string, request: Request, response: Response, forceDownload: boolean) {
+    const document = await this.documentsService.get(id);
+    if (document.type !== "file") {
+      response.status(404).send("File not found");
+      return;
+    }
+    if (!forceDownload && !document.public) {
+      response.status(403).send("File is private");
+      return;
+    }
+
+    const filePath = await this.documentsService.getFilesystemPath(document);
+    if (filePath) {
+      await this.sendFilesystemFile(filePath, document, request, response, forceDownload);
+      return;
+    }
+
+    if (!document.content) {
+      response.status(404).send("File content not found");
+      return;
+    }
+    const comma = document.content.indexOf(",");
+    const base64 = comma >= 0 ? document.content.slice(comma + 1) : "";
     const bytes = Buffer.from(base64, "base64");
     response.setHeader("Content-Type", document.mimeType || "application/octet-stream");
     response.setHeader("Content-Length", String(bytes.byteLength));
-    response.setHeader("Content-Disposition", `inline; filename="${document.name.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
-    if (content === document.content && (document as { public?: boolean }).public) response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    response.setHeader("Content-Disposition", `${forceDownload ? "attachment" : "inline"}; filename="${document.name.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
+    if (document.public) response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     response.send(bytes);
+  }
+
+  private async sendFilesystemFile(filePath: string, document: { name: string; mimeType: string | null; public?: boolean }, request: Request, response: Response, forceDownload: boolean) {
+    const { stat } = await import("fs/promises");
+    const fileStat = await stat(filePath);
+    const total = fileStat.size;
+    const range = request.headers.range;
+    const disposition = forceDownload ? "attachment" : "inline";
+
+    response.setHeader("Accept-Ranges", "bytes");
+    response.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+    response.setHeader("Content-Disposition", `${disposition}; filename="${document.name.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
+    if (document.public) response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+
+    if (!range) {
+      response.setHeader("Content-Length", String(total));
+      createReadStream(filePath).pipe(response);
+      return;
+    }
+
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match) {
+      response.status(416).setHeader("Content-Range", `bytes */${total}`).end();
+      return;
+    }
+    const start = match[1] ? Number(match[1]) : Math.max(0, total - Number(match[2] || 0));
+    const end = match[2] ? Number(match[2]) : total - 1;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= total || end >= total) {
+      response.status(416).setHeader("Content-Range", `bytes */${total}`).end();
+      return;
+    }
+
+    response.status(206);
+    response.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
+    response.setHeader("Content-Length", String(end - start + 1));
+    createReadStream(filePath, { start, end }).pipe(response);
   }
 }
