@@ -43,10 +43,11 @@ export async function apiFetch<T>(path: string, options?: RequestInit, token?: s
     }
   }
 
+  const isFormData = typeof FormData !== "undefined" && resolvedOptions?.body instanceof FormData;
   const response = await fetch(`${API_URL}${resolvedPath}`, {
     ...resolvedOptions,
     headers: {
-      "content-type": "application/json",
+      ...(isFormData ? {} : { "content-type": "application/json" }),
       ...(resolvedToken ? { authorization: `Bearer ${resolvedToken}` } : {}),
       ...(resolvedOptions?.headers ?? {})
     },
