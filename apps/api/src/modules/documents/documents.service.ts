@@ -38,7 +38,7 @@ type UploadedFile = {
   path: string;
 };
 
-export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+export const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 function estimateDataUrlBytes(content: string) {
   const comma = content.indexOf(",");
@@ -156,7 +156,7 @@ export class DocumentsService {
     if (!name) throw new BadRequestException("File name is required.");
     if (!file.mimetype || !file.mimetype.includes("/")) throw new BadRequestException("A valid MIME type is required.");
     if (!Number.isFinite(file.size) || file.size < 0) throw new BadRequestException("Invalid file size.");
-    if (file.size > MAX_FILE_SIZE) throw new BadRequestException("Files are limited to 10 MB.");
+    if (file.size > MAX_FILE_SIZE) throw new BadRequestException("Files are limited to 100 MB.");
 
     await this.ensureStorage();
     const id = randomUUID();
@@ -246,10 +246,7 @@ export class DocumentsService {
     if (!item) throw new NotFoundException("Document not found.");
     if (item.type === "folder") return item;
 
-    if (item.storage === "filesystem" && item.storagePath) {
-      return item;
-    }
-
+    if (item.storage === "filesystem" && item.storagePath) return item;
     if (item.content) return { ...item, storage: "legacy" as const };
 
     const chunks = (await this.prisma.$runCommandRaw({
