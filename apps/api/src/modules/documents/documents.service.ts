@@ -24,6 +24,9 @@ type ProductImage = { _id: string; name: string; imageUrls?: string[]; imageUrl?
 type DocumentChunk = { documentId: string; index: number; data: string };
 type JsonObject = Prisma.InputJsonObject;
 
+type AggregateResult<T> = { cursor?: { firstBatch?: T[] } };
+type LegacyImageRef = { _id: string; name: string; imageIndex: number; createdAt: Date | string; updatedAt: Date | string };
+
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const CHUNK_SIZE = 256 * 1024;
 
@@ -78,32 +81,48 @@ export class DocumentsService {
     }));
 
     if (!folderId) {
-      const products = (await this.prisma.$runCommandRaw({
-        find: "products",
-        limit: 500,
-        projection: { _id: 1, name: 1, imageUrls: 1, imageUrl: 1, updatedAt: 1 },
-      })) as unknown as MongoFindResult<ProductImage>;
+      const productFilter = search?.trim()
+        ? { name: { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } }
+        : {};
+      const legacyResult = (await this.prisma.$runCommandRaw({
+        aggregate: "products",
+        pipeline: [
+          { $match: productFilter },
+          {
+            $project: {
+              name: 1,
+              updatedAt: 1,
+              legacyImages: {
+                $cond: [
+                  { $isArray: "$imageUrls" },
+                  "$imageUrls",
+                  { $cond: [{ $ne: ["$imageUrl", null] }, ["$imageUrl"], []] },
+                ],
+              },
+            },
+          },
+          { $unwind: { path: "$legacyImages", includeArrayIndex: "imageIndex" } },
+          { $match: { legacyImages: { $regex: "^data:", $options: "i" } } },
+          { $project: { _id: 1, name: 1, imageIndex: 1, updatedAt: 1 } },
+          { $limit: 1000 },
+        ],
+        cursor: {},
+      })) as unknown as AggregateResult<LegacyImageRef>;
 
-      const legacyFiles = (products.cursor?.firstBatch ?? []).flatMap((product) => {
-        const urls = Array.isArray(product.imageUrls) ? product.imageUrls : product.imageUrl ? [product.imageUrl] : [];
-        return urls.filter((content) => content.startsWith("data:")).map((content, index) => {
-          const id = `product-image:${product._id}:${index}`;
-          return {
-            _id: id,
-            name: `${product.name} · image ${index + 1}`,
-            type: "file" as const,
-            mimeType: content.match(/^data:([^;,]+)/)?.[1] ?? "image/*",
-            size: estimateDataUrlBytes(content),
-            folderId: null,
-            public: true,
-            source: "product-legacy",
-            createdAt: product.updatedAt ?? new Date(),
-            updatedAt: product.updatedAt ?? new Date(),
-            storage: "legacy" as const,
-            url: `/documents/${id}/content`,
-          };
-        }).filter((item) => !search?.trim() || item.name.toLowerCase().includes(search.trim().toLowerCase()));
-      });
+      const legacyFiles = (legacyResult.cursor?.firstBatch ?? []).map((item) => ({
+        _id: `product-image:${item._id}:${Number(item.imageIndex)}`,
+        name: `${item.name} · image ${Number(item.imageIndex) + 1}`,
+        type: "file" as const,
+        mimeType: "image/*",
+        size: 0,
+        folderId: null,
+        public: true,
+        source: "product-legacy",
+        createdAt: item.updatedAt ?? new Date(),
+        updatedAt: item.updatedAt ?? new Date(),
+        storage: "legacy" as const,
+        url: `/documents/product-image:${item._id}:${Number(item.imageIndex)}/content`,
+      }));
 
       return [...stored, ...legacyFiles].sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -116,33 +135,15 @@ export class DocumentsService {
     if (!clean) throw new BadRequestException("Folder name is required.");
     const now = new Date();
     const document: DocumentRecord = {
-      _id: randomUUID(),
-      name: clean,
-      type: "folder",
-      mimeType: null,
-      size: 0,
-      folderId: folderId || null,
-      content: null,
-      public: false,
-      uploadedBy: uploadedBy ?? null,
-      source: "documents",
-      createdAt: now,
-      updatedAt: now,
+      _id: randomUUID(), name: clean, type: "folder", mimeType: null, size: 0,
+      folderId: folderId || null, content: null, public: false, uploadedBy: uploadedBy ?? null,
+      source: "documents", createdAt: now, updatedAt: now,
     };
     await this.prisma.$runCommandRaw({ insert: this.collection, documents: [document] });
     return { ...document, content: undefined };
   }
 
-  async createFile(input: {
-    name: string;
-    mimeType: string;
-    size: number;
-    dataUrl: string;
-    folderId?: string | null;
-    public?: boolean;
-    uploadedBy?: string;
-    source?: string;
-  }) {
+  async createFile(input: { name: string; mimeType: string; size: number; dataUrl: string; folderId?: string | null; public?: boolean; uploadedBy?: string; source?: string }) {
     const name = input.name.trim();
     if (!name) throw new BadRequestException("File name is required.");
     if (!input.mimeType || !input.mimeType.includes("/")) throw new BadRequestException("A valid MIME type is required.");
@@ -154,20 +155,10 @@ export class DocumentsService {
 
     const now = new Date();
     const document: DocumentRecord = {
-      _id: randomUUID(),
-      name,
-      type: "file",
-      mimeType: input.mimeType,
-      size: decodedSize,
-      folderId: input.folderId || null,
-      content: null,
-      public: Boolean(input.public),
-      uploadedBy: input.uploadedBy ?? null,
-      source: input.source ?? "documents",
-      createdAt: now,
-      updatedAt: now,
-      storage: "chunks",
-      url: "",
+      _id: randomUUID(), name, type: "file", mimeType: input.mimeType, size: decodedSize,
+      folderId: input.folderId || null, content: null, public: Boolean(input.public),
+      uploadedBy: input.uploadedBy ?? null, source: input.source ?? "documents",
+      createdAt: now, updatedAt: now, storage: "chunks", url: "",
     };
     document.url = `/documents/${document._id}/content`;
 
@@ -188,15 +179,29 @@ export class DocumentsService {
     if (id.startsWith("product-image:")) {
       const [, productId, indexValue] = id.split(":");
       const index = Number(indexValue);
+      if (!Number.isInteger(index) || index < 0) throw new NotFoundException("Document not found.");
+
       const result = (await this.prisma.$runCommandRaw({
-        find: "products",
-        filter: { _id: productId } as JsonObject,
-        limit: 1,
-        projection: { _id: 1, name: 1, imageUrls: 1, imageUrl: 1, updatedAt: 1 },
-      })) as unknown as MongoFindResult<ProductImage>;
+        aggregate: "products",
+        pipeline: [
+          { $match: { _id: productId } },
+          { $project: {
+              name: 1,
+              updatedAt: 1,
+              selectedImage: {
+                $cond: [
+                  { $isArray: "$imageUrls" },
+                  { $arrayElemAt: ["$imageUrls", index] },
+                  { $cond: [{ $eq: [index, 0] }, "$imageUrl", null] },
+                ],
+              },
+            },
+          },
+        ],
+        cursor: {},
+      })) as unknown as AggregateResult<ProductImage & { selectedImage?: string | null }>;
       const product = result.cursor?.firstBatch?.[0];
-      const urls = Array.isArray(product?.imageUrls) ? product.imageUrls : product?.imageUrl ? [product.imageUrl] : [];
-      const content = urls[index];
+      const content = product?.selectedImage;
       if (!content) throw new NotFoundException("Document not found.");
       return {
         _id: id,
@@ -223,7 +228,6 @@ export class DocumentsService {
     const item = result.cursor?.firstBatch?.[0];
     if (!item) throw new NotFoundException("Document not found.");
     if (item.type === "folder") return item;
-
     if (item.content) return item;
 
     const chunks = (await this.prisma.$runCommandRaw({
