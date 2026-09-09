@@ -3,7 +3,9 @@ import { DeliveryNetworkModule } from "../delivery-network/delivery-network.modu
 import { DatabaseModule } from "../../database/database.module";
 import { McpModule } from "../mcp/mcp.module";
 import { AiInstructionsModule } from "../ai-instructions/ai-instructions.module";
+import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 import { ProductsModule } from "../products/products.module";
+import { ProductsService } from "../products/products.service";
 import { AiApplicationToolsService } from "./ai-application-tools.service";
 import { AiConversationStateService } from "./ai-conversation-state.service";
 import { AiRuntimeService } from "./ai-runtime.service";
@@ -14,6 +16,7 @@ import { AiActionsController } from "./ai-actions.controller";
 import { AiPublicAgentController } from "./ai-public-agent.controller";
 import { AiPublicAgentService } from "./ai-public-agent.service";
 import { AiDateTimeService } from "./ai-datetime.service";
+import { AiModelService } from "./ai-model.service";
 
 @Module({
   imports: [DatabaseModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
@@ -21,13 +24,24 @@ import { AiDateTimeService } from "./ai-datetime.service";
   providers: [
     AiApplicationToolsService,
     AiConversationStateService,
-    AiRuntimeService,
+    {
+      provide: AiRuntimeService,
+      inject: [AiModelService, AiConversationStateService, AiToolRegistryService, AiInstructionsService, ProductsService],
+      useFactory: (
+        aiModel: AiModelService,
+        stateService: AiConversationStateService,
+        toolRegistry: AiToolRegistryService,
+        instructionsService: AiInstructionsService,
+        productsService: ProductsService
+      ) => aiModel.createRuntime(stateService, toolRegistry, instructionsService, productsService)
+    },
     AiToolRegistryService,
     AiControlService,
     AiActionConfigService,
+    AiModelService,
     AiPublicAgentService,
     AiDateTimeService
   ],
-  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService, AiDateTimeService]
+  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService, AiDateTimeService, AiModelService]
 })
 export class AiModule {}
