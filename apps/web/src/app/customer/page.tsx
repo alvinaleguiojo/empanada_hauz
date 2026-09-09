@@ -42,25 +42,23 @@ function CustomerKioskGuard() {
     const syncHeaderLogo = () => {
       const header = document.querySelector<HTMLElement>("header");
       const logoWrap = header?.querySelector<HTMLElement>("svg")?.parentElement;
-      if (!logoWrap || logoWrap.dataset.empanadaLogoReady === "true") return;
+      const icon = logoWrap?.querySelector<SVGElement>("svg");
+      if (!logoWrap) return;
 
       logoWrap.dataset.empanadaLogoReady = "true";
-      logoWrap.innerHTML = "";
+      logoWrap.style.width = "40px";
+      logoWrap.style.height = "40px";
+      logoWrap.style.minWidth = "40px";
+      logoWrap.style.minHeight = "40px";
+      logoWrap.style.flexShrink = "0";
       logoWrap.style.backgroundColor = "transparent";
+      logoWrap.style.backgroundImage = 'url("/empanada%20hauz%20logo.jpg")';
+      logoWrap.style.backgroundPosition = "center";
+      logoWrap.style.backgroundRepeat = "no-repeat";
+      logoWrap.style.backgroundSize = "contain";
       logoWrap.style.overflow = "hidden";
 
-      const logo = document.createElement("img");
-      logo.src = "/empanada%20hauz%20logo.jpg";
-      logo.alt = "Empanada Hauz logo";
-      logo.width = 40;
-      logo.height = 40;
-      logo.decoding = "async";
-      logo.style.display = "block";
-      logo.style.width = "100%";
-      logo.style.height = "100%";
-      logo.style.objectFit = "contain";
-      logo.style.borderRadius = "0.75rem";
-      logoWrap.appendChild(logo);
+      if (icon) icon.style.display = "none";
     };
 
     const syncProductCards = () => {
