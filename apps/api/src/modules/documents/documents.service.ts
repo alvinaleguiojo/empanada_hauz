@@ -22,6 +22,7 @@ type MongoFindResult<T> = { cursor?: { firstBatch?: T[] } };
 type ProductImage = { _id: string; name: string; imageUrls?: string[]; imageUrl?: string | null; updatedAt?: Date | string };
 type JsonObject = Prisma.InputJsonObject;
 
+after
 @Injectable()
 export class DocumentsService {
   private readonly collection = "documents";
@@ -29,10 +30,16 @@ export class DocumentsService {
 
   async list(folderId?: string | null, search?: string) {
     const selectedFolderId = folderId || null;
-    const filter: JsonObject = { type: "file", folderId: selectedFolderId };
-    if (search?.trim()) {
-      filter.name = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } as JsonObject;
-    }
+    const filter: JsonObject = search?.trim()
+      ? {
+          type: "file",
+          folderId: selectedFolderId,
+          name: {
+            $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            $options: "i",
+          },
+        }
+      : { type: "file", folderId: selectedFolderId };
     const result = (await this.prisma.$runCommandRaw({ find: this.collection, filter, sort: { name: 1 }, limit: 500 })) as unknown as MongoFindResult<DocumentRecord>;
     const folders = (await this.prisma.$runCommandRaw({ find: this.collection, filter: { type: "folder", folderId: selectedFolderId } as JsonObject, sort: { name: 1 }, limit: 500 })) as unknown as MongoFindResult<DocumentRecord>;
     const stored = [...(folders.cursor?.firstBatch ?? []), ...(result.cursor?.firstBatch ?? [])].map((item) => ({ ...item, content: undefined, url: `/documents/${item._id}/content` }));
