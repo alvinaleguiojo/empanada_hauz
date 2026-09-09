@@ -240,7 +240,7 @@ export class DocumentsService {
       find: this.collection,
       filter: { _id: id } as JsonObject,
       limit: 1,
-      projection: { content: 0 },
+      projection: { storagePath: 0 },
     })) as unknown as MongoFindResult<DocumentRecord>;
     const item = result.cursor?.firstBatch?.[0];
     if (!item) throw new NotFoundException("Document not found.");
