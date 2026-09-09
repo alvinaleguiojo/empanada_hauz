@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
-import { MENU_ITEMS } from "@/lib/menu";
 
 type ManualOrderFormState = {
   customerName: string;
@@ -38,11 +37,19 @@ type CustomerSuggestion = {
   notes?: string | null;
 };
 
-const productOptions = MENU_ITEMS.map((item) => ({
-  label: `${item.label} - Php ${item.price}`,
-  value: item.value,
-  price: item.price
-}));
+type ProductCatalogItem = {
+  name: string;
+  price: number;
+  available: boolean;
+  sortOrder?: number;
+};
+
+type ProductOption = {
+  label: string;
+  value: string;
+  price: number;
+  available: boolean;
+};
 
 export function ManualOrderForm() {
   const router = useRouter();
@@ -50,15 +57,48 @@ export function ManualOrderForm() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ManualOrderFormState>(createInitialFormState);
-  const [lineItems, setLineItems] = useState<OrderLineItem[]>(createInitialLineItems);
+  const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
+  const [catalogProducts, setCatalogProducts] = useState<ProductCatalogItem[]>([]);
   const [customers, setCustomers] = useState<CustomerSuggestion[]>([]);
   const [customersLoaded, setCustomersLoaded] = useState(false);
   const [ownDeliveryQuote, setOwnDeliveryQuote] = useState<{ distanceKm: number | null; estimatedFare: number } | null>(null);
   const [quoting, setQuoting] = useState(false);
 
+  const productOptions = useMemo<ProductOption[]>(() =>
+    catalogProducts
+      .slice()
+      .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || a.name.localeCompare(b.name))
+      .map((product) => ({
+        label: `${product.name} - Php ${Number(product.price)}${product.available ? "" : " — SOLD OUT"}`,
+        value: product.name,
+        price: Number(product.price),
+        available: product.available !== false
+      })),
+    [catalogProducts]
+  );
+
   useEffect(() => {
     setForm((current) => (current.preferredSchedule ? current : { ...current, preferredSchedule: getLocalDateTimeInputValue() }));
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void apiFetch<ProductCatalogItem[]>("/products")
+      .then((result) => {
+        if (!active) return;
+        const products = Array.isArray(result) ? result : [];
+        setCatalogProducts(products);
+        const sortedProducts = products
+          .slice()
+          .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0) || a.name.localeCompare(b.name));
+        setLineItems(sortedProducts.map((product, index) => ({ productName: product.name, quantity: index === 0 ? "20" : "" })));
+      })
+      .catch(() => {
+        if (active) setCatalogProducts([]);
+      });
+    return () => { active = false; };
+  }, [open]);
 
   useEffect(() => {
     if (!open || customersLoaded) {
@@ -177,7 +217,7 @@ export function ManualOrderForm() {
       total: itemSubtotal + deliveryFee,
       unitPrice: quantity > 0 ? itemSubtotal / quantity : 0
     };
-  }, [form.deliveryFee, form.deliveryMethod, lineItems, ownDeliveryQuote]);
+  }, [form.deliveryFee, form.deliveryMethod, lineItems, ownDeliveryQuote, productOptions]);
 
   function updateLineItem(productName: string, quantity: string) {
     const normalized = quantity === "" ? "" : String(Math.max(0, Number(quantity)));
@@ -265,7 +305,7 @@ export function ManualOrderForm() {
           })
         });
         setForm(createInitialFormState({ preferredSchedule: getLocalDateTimeInputValue() }));
-        setLineItems(createInitialLineItems());
+        setLineItems(productOptions.map((product, index) => ({ productName: product.value, quantity: index === 0 ? "20" : "" })));
         setOpen(false);
         router.refresh();
       } catch (err) {
@@ -378,7 +418,7 @@ export function ManualOrderForm() {
                       )}
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">{product?.value}</p>
+                        <p className="truncate text-sm font-semibold">{product?.value}{product && !product.available ? " — SOLD OUT" : ""}</p>
                         <p className="mt-0.5 text-xs text-foreground/45">
                           Php {product?.price ?? 0}{quantity > 0 ? ` - Php ${formatPeso(subtotal)}` : ""}
                         </p>
@@ -386,13 +426,15 @@ export function ManualOrderForm() {
                       <div className="grid grid-cols-[34px_minmax(48px,1fr)_34px] items-center gap-2">
                         <button
                           type="button"
+                          disabled={!product?.available}
                           aria-label={`Decrease ${item.productName}`}
                           onClick={() => stepLineItem(item.productName, -1)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
                         >
                           <Minus size={14} />
                         </button>
                         <Input
+                          disabled={!product?.available}
                           aria-label={`${item.productName} quantity`}
                           className="h-8 px-2 text-center"
                           type="number"
@@ -402,9 +444,10 @@ export function ManualOrderForm() {
                         />
                         <button
                           type="button"
+                          disabled={!product?.available}
                           aria-label={`Increase ${item.productName}`}
                           onClick={() => stepLineItem(item.productName, 1)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground"
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-line/70 text-foreground/70 transition hover:border-accent/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
                         >
                           <Plus size={14} />
                         </button>
@@ -461,13 +504,6 @@ function createInitialFormState(overrides?: Partial<ManualOrderFormState>): Manu
     notes: "",
     ...overrides
   };
-}
-
-function createInitialLineItems(): OrderLineItem[] {
-  return productOptions.map((product, index) => ({
-    productName: product.value,
-    quantity: index === 0 ? "20" : ""
-  }));
 }
 
 function formatPeso(value: number) {
