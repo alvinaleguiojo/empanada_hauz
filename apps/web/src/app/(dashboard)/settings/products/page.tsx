@@ -81,7 +81,7 @@ export default function ProductsSettingsPage() {
       const price = Number(form.price); const sortOrder = Number(form.sortOrder);
       if (!form.name.trim()) throw new Error("Product name is required.");
       if (!Number.isFinite(price) || price < 0) throw new Error("Enter a valid non-negative price.");
-      const imageUrls = form.imageUrls.slice(0, MAX_IMAGES);
+      const imageUrls = [...new Set([form.imageUrl.trim(), ...form.imageUrls].filter(Boolean))].slice(0, MAX_IMAGES);
       const payload = { name: form.name.trim(), description: form.description.trim(), category: form.category.trim() || "empanada", price, available: form.available, aliases: form.aliases.split(",").map((item) => item.trim()).filter(Boolean), imageUrl: imageUrls[0] ?? "", imageUrls, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 100, tags: form.tags.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean), isFeatured: form.isFeatured, isNew: form.isNew };
       if (editingId) { await apiFetch(`/admin/products/${editingId}`, { method: "PATCH", body: JSON.stringify(payload) }); setMessage("Product updated."); }
       else { await apiFetch("/admin/products", { method: "POST", body: JSON.stringify(payload) }); setMessage("Product added."); }
@@ -128,7 +128,7 @@ export default function ProductsSettingsPage() {
             </div>
             <p className="text-xs font-normal text-foreground/40">Upload up to {MAX_IMAGES} images, 2 MB each. The first image is used as the primary image.</p>
           </div>
-          <label className="space-y-2 text-sm font-medium lg:col-span-2"><span>Image URL (optional)</span><Input value={form.imageUrl.startsWith("data:") ? "" : form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value, imageUrls: e.target.value ? [e.target.value, ...form.imageUrls.filter((url) => url !== e.target.value)] : form.imageUrls })} placeholder="https://…" /><span className="block text-xs font-normal text-foreground/40">Use this when the image is hosted elsewhere.</span></label>
+          <label className="space-y-2 text-sm font-medium lg:col-span-2"><span>Image URL (optional)</span><Input value={form.imageUrl.startsWith("data:") ? "" : form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="https://…" /><span className="block text-xs font-normal text-foreground/40">Use this when the image is hosted elsewhere.</span></label>
           <label className="space-y-2 text-sm font-medium lg:col-span-2"><span>AI aliases</span><Input value={form.aliases} onChange={(e) => setForm({ ...form, aliases: e.target.value })} placeholder="ube, ube cheese, ube empanada" /></label>
           <label className="space-y-2 text-sm font-medium lg:col-span-2"><span>Tags</span><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="best-seller, spicy, sweet" /><span className="block text-xs font-normal text-foreground/40">Comma-separated merchandising tags.</span></label>
           <div className="flex flex-wrap items-center gap-5 pt-2 lg:col-span-4">
