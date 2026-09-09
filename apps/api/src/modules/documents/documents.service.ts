@@ -41,7 +41,7 @@ export class DocumentsService {
           type: "file",
           folderId: selectedFolderId,
           name: {
-            $regex: search.trim().replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"),
+            $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
             $options: "i",
           },
         }
