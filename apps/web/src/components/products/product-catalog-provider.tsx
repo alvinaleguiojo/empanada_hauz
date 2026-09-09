@@ -6,8 +6,14 @@ import { replaceMenuItems } from "@/lib/menu";
 
 type Product = {
   name: string;
+  description?: string | null;
+  category?: string;
   price: number;
   available: boolean;
+  tags?: string[];
+  isFeatured?: boolean;
+  isNew?: boolean;
+  imageUrl?: string | null;
   sortOrder?: number;
 };
 
