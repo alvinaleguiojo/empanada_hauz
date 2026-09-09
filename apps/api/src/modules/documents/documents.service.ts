@@ -22,6 +22,13 @@ type MongoFindResult<T> = { cursor?: { firstBatch?: T[] } };
 type ProductImage = { _id: string; name: string; imageUrls?: string[]; imageUrl?: string | null; updatedAt?: Date | string };
 type JsonObject = Prisma.InputJsonObject;
 
+function estimateDataUrlBytes(content: string) {
+  const comma = content.indexOf(",");
+  const base64 = comma >= 0 ? content.slice(comma + 1) : "";
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
 @Injectable()
 export class DocumentsService {
   private readonly collection = "documents";
@@ -34,7 +41,7 @@ export class DocumentsService {
           type: "file",
           folderId: selectedFolderId,
           name: {
-            $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            $regex: search.trim().replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"),
             $options: "i",
           },
         }
@@ -47,19 +54,22 @@ export class DocumentsService {
       const products = (await this.prisma.$runCommandRaw({ find: "products", limit: 500 })) as unknown as MongoFindResult<ProductImage>;
       const legacyFiles = (products.cursor?.firstBatch ?? []).flatMap((product) => {
         const urls = Array.isArray(product.imageUrls) ? product.imageUrls : product.imageUrl ? [product.imageUrl] : [];
-        return urls.filter((content) => content.startsWith("data:")).map((content, index) => ({
-          _id: `product-image:${product._id}:${index}`,
-          name: `${product.name} · image ${index + 1}`,
-          type: "file" as const,
-          mimeType: content.match(/^data:([^;,]+)/)?.[1] ?? "image/*",
-          size: Buffer.from(content.slice(content.indexOf(",") + 1), "base64").byteLength,
-          folderId: null,
-          public: true,
-          source: "product-legacy",
-          createdAt: product.updatedAt ?? new Date(),
-          updatedAt: product.updatedAt ?? new Date(),
-          url: content
-        })).filter((item) => !search?.trim() || item.name.toLowerCase().includes(search.trim().toLowerCase()));
+        return urls.filter((content) => content.startsWith("data:")).map((content, index) => {
+          const id = `product-image:${product._id}:${index}`;
+          return {
+            _id: id,
+            name: `${product.name} · image ${index + 1}`,
+            type: "file" as const,
+            mimeType: content.match(/^data:([^;,]+)/)?.[1] ?? "image/*",
+            size: estimateDataUrlBytes(content),
+            folderId: null,
+            public: true,
+            source: "product-legacy",
+            createdAt: product.updatedAt ?? new Date(),
+            updatedAt: product.updatedAt ?? new Date(),
+            url: `/documents/${id}/content`
+          };
+        }).filter((item) => !search?.trim() || item.name.toLowerCase().includes(search.trim().toLowerCase()));
       });
       return [...stored, ...legacyFiles].sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -101,7 +111,7 @@ export class DocumentsService {
       const urls = Array.isArray(product?.imageUrls) ? product.imageUrls : product?.imageUrl ? [product.imageUrl] : [];
       const content = urls[index];
       if (!content) throw new NotFoundException("Document not found.");
-      return { _id: id, name: `${product?.name ?? "Product"} · image ${index + 1}`, type: "file" as const, mimeType: content.match(/^data:([^;,]+)/)?.[1] ?? "image/*", size: Buffer.from(content.slice(content.indexOf(",") + 1), "base64").byteLength, folderId: null, content, public: true, source: "product-legacy", createdAt: product?.updatedAt ?? new Date(), updatedAt: product?.updatedAt ?? new Date() } as DocumentRecord;
+      return { _id: id, name: `${product?.name ?? "Product"} · image ${index + 1}`, type: "file" as const, mimeType: content.match(/^data:([^;,]+)/)?.[1] ?? "image/*", size: estimateDataUrlBytes(content), folderId: null, content, public: true, source: "product-legacy", createdAt: product?.updatedAt ?? new Date(), updatedAt: product?.updatedAt ?? new Date() } as DocumentRecord;
     }
     const result = (await this.prisma.$runCommandRaw({ find: this.collection, filter: { _id: id } as JsonObject, limit: 1 })) as unknown as MongoFindResult<DocumentRecord>;
     const item = result.cursor?.firstBatch?.[0];
