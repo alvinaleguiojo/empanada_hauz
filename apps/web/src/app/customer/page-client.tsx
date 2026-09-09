@@ -65,6 +65,61 @@ const steps = [
   { title: "Review & submit", subtitle: "Confirm your order" }
 ];
 
+function formatProductTag(tag: string) {
+  return tag
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function ProductBadges({ option }: { option: (typeof MENU_ITEMS)[number] }) {
+  const tags = Array.isArray(option.tags) ? option.tags.filter(Boolean) : [];
+  const bestSellerTags = tags.filter((tag) => {
+    const normalized = tag.trim().toLowerCase();
+    return normalized === "best-seller" || normalized === "bestseller";
+  });
+  const otherTags = tags.filter((tag) => {
+    const normalized = tag.trim().toLowerCase();
+    return normalized !== "best-seller" && normalized !== "bestseller";
+  });
+
+  if (!option.isFeatured && !option.isNew && tags.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-1.5">
+      {option.isFeatured ? (
+        <span className="rounded-full border border-[#E3A64B]/45 bg-[#E3A64B]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#E3A64B]">
+          Featured
+        </span>
+      ) : null}
+      {option.isNew ? (
+        <span className="rounded-full border border-[#7A9B4E]/45 bg-[#7A9B4E]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#c9dba6]">
+          New
+        </span>
+      ) : null}
+      {bestSellerTags.map((tag) => (
+        <span
+          key={`${option.value}-${tag}`}
+          className="inline-flex items-center gap-1 rounded-full border border-[#C0472B]/45 bg-[#C0472B]/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#f1a48e]"
+        >
+          <Flame size={10} />
+          Best seller
+        </span>
+      ))}
+      {otherTags.map((tag) => (
+        <span
+          key={`${option.value}-${tag}`}
+          className="rounded-full border border-[#F2E8D5]/20 bg-[#F2E8D5]/8 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#F2E8D5]/75"
+        >
+          {formatProductTag(tag)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function CustomerKioskPage() {
   const [step, setStep] = useState(0);
   const [selectedFlavors, setSelectedFlavors] = useState<SelectedFlavor[]>([]);
@@ -259,9 +314,8 @@ export default function CustomerKioskPage() {
               {step === 0 ? <div className="rounded-2xl border-2 border-[#3a2c1c] bg-[#1c150e] p-4 sm:p-5">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-[family-name:var(--font-display)] text-2xl text-[#F6EFDD]">Today&apos;s flavors</h2><p className="mt-1 text-sm text-[#F2E8D5]/60">Tap as many as you like, set quantity per flavor.</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={toggleAllFlavors} className="rounded-full border px-3 py-1 text-xs font-semibold">{allFlavorsSelected ? "Clear all" : "Select all"}</button><div className="rounded-full border border-[#E3A64B]/40 bg-[#E3A64B]/10 px-3 py-1 text-xs font-semibold text-[#E3A64B]">Pick one or more</div></div></div>
                 <div className="grid gap-3 sm:grid-cols-2">{flavorOptions.map((option) => { const selected = selectedFlavors.find((item) => item.value === option.value); return <div key={option.value} className={`relative rounded-xl border-2 p-4 transition ${selected ? "border-[#E3A64B] bg-[#E3A64B]/12" : "border-[#3a2c1c] bg-[#241c13]"}`}>
-                  {option.popular ? <span className="absolute -top-2.5 right-3 inline-flex items-center gap-1 rounded-full bg-[#C0472B] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#F6EFDD] shadow"><Flame size={10} /> Best seller</span> : null}
-                  {option.isNew ? <span className="absolute -top-2.5 right-3 inline-flex rounded-full bg-[#7A9B4E] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1a140d] shadow">New</span> : null}
-                  <button type="button" onClick={() => toggleFlavor(option.value)} className="w-full text-left"><div className="flex items-start justify-between gap-3"><div><div className="font-[family-name:var(--font-display)] text-base text-[#F6EFDD]">{option.label}</div><div className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#E3A64B]">Php {option.price}</div></div>{selected ? <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#E3A64B] text-[#1a140d]"><CheckCircle2 size={15} /></span> : <span className="h-6 w-6 shrink-0 rounded-full border-2 border-dashed border-[#F2E8D5]/25" />}</div></button>
+                  <ProductBadges option={option} />
+                  <button type="button" onClick={() => toggleFlavor(option.value)} className="w-full text-left"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-[family-name:var(--font-display)] text-base text-[#F6EFDD]">{option.label}</div><div className="mt-1 font-[family-name:var(--font-mono)] text-sm text-[#E3A64B]">Php {option.price}</div></div>{selected ? <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#E3A64B] text-[#1a140d]"><CheckCircle2 size={15} /></span> : <span className="h-6 w-6 shrink-0 rounded-full border-2 border-dashed border-[#F2E8D5]/25" />}</div></button>
                   {selected ? <label className="mt-3 block" onClick={(event) => event.stopPropagation()}><span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.25em] text-[#F2E8D5]/45">Qty</span><div className="flex items-stretch gap-2"><div className="grid h-12 flex-1 grid-cols-[44px_minmax(0,1fr)_44px] overflow-hidden rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d]"><button type="button" aria-label={`Decrease ${option.label}`} onClick={() => stepFlavorQuantity(option.value, -1)} className="flex h-full items-center justify-center border-r-2 border-[#3a2c1c] text-[#E3A64B]"><Minus size={16} /></button><input type="text" inputMode="numeric" pattern="[0-9]*" aria-label={`${option.label} quantity`} value={selected.quantity} onChange={(event) => updateFlavorQuantity(option.value, event.target.value)} onFocus={(event) => event.currentTarget.select()} className="h-full min-w-0 bg-transparent px-3 text-center font-[family-name:var(--font-mono)] text-base font-semibold text-[#F6EFDD] outline-none" /><button type="button" aria-label={`Increase ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 1)} className="flex h-full items-center justify-center border-l-2 border-[#3a2c1c] text-[#E3A64B]"><Plus size={16} /></button></div><button type="button" aria-label={`Add 5 ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 5)} className="h-12 shrink-0 rounded-lg border-2 border-[#3a2c1c] bg-[#1a140d] px-3 font-[family-name:var(--font-mono)] text-xs font-bold text-[#E3A64B]">+5</button></div></label> : null}
                 </div>; })}</div>
               </div> : null}
