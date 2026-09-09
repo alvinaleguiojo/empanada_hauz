@@ -13,6 +13,9 @@ export type ProductRecord = {
   aliases: string[];
   imageUrl?: string | null;
   sortOrder: number;
+  tags: string[];
+  isFeatured: boolean;
+  isNew: boolean;
   createdAt: Date | string;
   updatedAt: Date | string;
 };
@@ -21,18 +24,18 @@ type MongoFindResult<T> = { cursor?: { firstBatch?: T[] } };
 type MongoWriteResult = { n?: number; deletedCount?: number };
 
 const DEFAULT_PRODUCTS: Array<Omit<ProductRecord, "_id" | "createdAt" | "updatedAt">> = [
-  { name: "Pork Regular", description: "Classic savory pork empanada.", category: "empanada", price: 20, available: true, aliases: ["pork", "regular pork"], imageUrl: null, sortOrder: 10 },
-  { name: "Pork with Egg", description: "Savory pork with egg.", category: "empanada", price: 25, available: true, aliases: ["pork egg", "pork with egg", "pork regular with egg", "pork regular egg"], imageUrl: null, sortOrder: 20 },
-  { name: "Pork Asado", description: "Sweet-savory pork asado filling.", category: "empanada", price: 30, available: true, aliases: ["asado", "pork asado"], imageUrl: null, sortOrder: 30 },
-  { name: "Chicken", description: "Savory chicken empanada.", category: "empanada", price: 20, available: true, aliases: ["chicken empanada"], imageUrl: null, sortOrder: 40 },
-  { name: "Chicken with Egg", description: "Chicken with egg.", category: "empanada", price: 25, available: true, aliases: ["chicken egg", "chicken with egg"], imageUrl: null, sortOrder: 50 },
-  { name: "Ham & Cheese", description: "Ham and melted cheese.", category: "empanada", price: 25, available: true, aliases: ["ham", "ham cheese", "ham and cheese", "ham with cheese"], imageUrl: null, sortOrder: 60 },
-  { name: "Beef", description: "Savory beef empanada.", category: "empanada", price: 35, available: true, aliases: ["beef empanada"], imageUrl: null, sortOrder: 70 },
-  { name: "Beef with Egg", description: "Beef with egg.", category: "empanada", price: 40, available: true, aliases: ["beef egg", "beef with egg"], imageUrl: null, sortOrder: 80 },
-  { name: "Bacon", description: "Bacon-filled empanada.", category: "empanada", price: 35, available: true, aliases: ["bacon empanada"], imageUrl: null, sortOrder: 90 },
-  { name: "Ube with Cheese", description: "Sweet ube with cheese.", category: "empanada", price: 25, available: true, aliases: ["ube", "ube cheese", "ube empanada"], imageUrl: null, sortOrder: 100 },
-  { name: "Choco Flavor", description: "Chocolate-filled empanada.", category: "empanada", price: 30, available: true, aliases: ["choco", "chocolate", "choco empanada"], imageUrl: null, sortOrder: 110 },
-  { name: "Mango Flavor", description: "Sweet mango-filled empanada.", category: "empanada", price: 25, available: true, aliases: ["mango", "mango empanada"], imageUrl: null, sortOrder: 120 }
+  { name: "Pork Regular", description: "Classic savory pork empanada.", category: "empanada", price: 20, available: true, aliases: ["pork", "regular pork"], imageUrl: null, sortOrder: 10, tags: [], isFeatured: false, isNew: false },
+  { name: "Pork with Egg", description: "Savory pork with egg.", category: "empanada", price: 25, available: true, aliases: ["pork egg", "pork with egg", "pork regular with egg", "pork regular egg"], imageUrl: null, sortOrder: 20, tags: [], isFeatured: false, isNew: false },
+  { name: "Pork Asado", description: "Sweet-savory pork asado filling.", category: "empanada", price: 30, available: true, aliases: ["asado", "pork asado"], imageUrl: null, sortOrder: 30, tags: [], isFeatured: false, isNew: false },
+  { name: "Chicken", description: "Savory chicken empanada.", category: "empanada", price: 20, available: true, aliases: ["chicken empanada"], imageUrl: null, sortOrder: 40, tags: [], isFeatured: false, isNew: false },
+  { name: "Chicken with Egg", description: "Chicken with egg.", category: "empanada", price: 25, available: true, aliases: ["chicken egg", "chicken with egg"], imageUrl: null, sortOrder: 50, tags: [], isFeatured: false, isNew: false },
+  { name: "Ham & Cheese", description: "Ham and melted cheese.", category: "empanada", price: 25, available: true, aliases: ["ham", "ham cheese", "ham and cheese", "ham with cheese"], imageUrl: null, sortOrder: 60, tags: [], isFeatured: false, isNew: false },
+  { name: "Beef", description: "Savory beef empanada.", category: "empanada", price: 35, available: true, aliases: ["beef empanada"], imageUrl: null, sortOrder: 70, tags: [], isFeatured: false, isNew: false },
+  { name: "Beef with Egg", description: "Beef with egg.", category: "empanada", price: 40, available: true, aliases: ["beef egg", "beef with egg"], imageUrl: null, sortOrder: 80, tags: [], isFeatured: false, isNew: false },
+  { name: "Bacon", description: "Bacon-filled empanada.", category: "empanada", price: 35, available: true, aliases: ["bacon empanada"], imageUrl: null, sortOrder: 90, tags: [], isFeatured: false, isNew: false },
+  { name: "Ube with Cheese", description: "Sweet ube with cheese.", category: "empanada", price: 25, available: true, aliases: ["ube", "ube cheese", "ube empanada"], imageUrl: null, sortOrder: 100, tags: [], isFeatured: false, isNew: false },
+  { name: "Choco Flavor", description: "Chocolate-filled empanada.", category: "empanada", price: 30, available: true, aliases: ["choco", "chocolate", "choco empanada"], imageUrl: null, sortOrder: 110, tags: [], isFeatured: false, isNew: false },
+  { name: "Mango Flavor", description: "Sweet mango-filled empanada.", category: "empanada", price: 25, available: true, aliases: ["mango", "mango empanada"], imageUrl: null, sortOrder: 120, tags: [], isFeatured: false, isNew: false }
 ];
 
 @Injectable()
@@ -44,9 +47,12 @@ export class ProductsService implements OnModuleInit {
 
   async onModuleInit() {
     const result = (await this.prisma.$runCommandRaw({ find: this.collection, limit: 1 })) as unknown as MongoFindResult<ProductRecord>;
-    if ((result.cursor?.firstBatch ?? []).length > 0) return;
-    const now = new Date();
-    await this.prisma.$runCommandRaw({ insert: this.collection, documents: DEFAULT_PRODUCTS.map((item) => ({ _id: randomUUID(), ...item, createdAt: now, updatedAt: now })) });
+    if ((result.cursor?.firstBatch ?? []).length === 0) {
+      const now = new Date();
+      await this.prisma.$runCommandRaw({ insert: this.collection, documents: DEFAULT_PRODUCTS.map((item) => ({ _id: randomUUID(), ...item, createdAt: now, updatedAt: now })) });
+    } else {
+      await this.backfillMetadataDefaults();
+    }
   }
 
   async list(options: { availableOnly?: boolean } = {}) {
@@ -75,7 +81,7 @@ export class ProductsService implements OnModuleInit {
     return products.find((product) => product.name.toLowerCase() === normalized || product.aliases.some((alias) => alias.toLowerCase() === normalized)) ?? null;
   }
 
-  async create(input: { name: string; description?: string; category?: string; price: number; available?: boolean; aliases?: string[]; imageUrl?: string; sortOrder?: number }) {
+  async create(input: { name: string; description?: string; category?: string; price: number; available?: boolean; aliases?: string[]; imageUrl?: string; sortOrder?: number; tags?: string[]; isFeatured?: boolean; isNew?: boolean }) {
     const name = input.name.trim();
     const price = Number(input.price);
     if (!name) throw new BadRequestException("Product name is required.");
@@ -85,14 +91,16 @@ export class ProductsService implements OnModuleInit {
     const document: ProductRecord = {
       _id: randomUUID(), name, description: input.description?.trim() || null, category: input.category?.trim() || "empanada", price,
       available: input.available ?? true, aliases: this.normalizeAliases(input.aliases), imageUrl: input.imageUrl?.trim() || null,
-      sortOrder: Number.isFinite(Number(input.sortOrder)) ? Number(input.sortOrder) : 100, createdAt: now, updatedAt: now
+      sortOrder: Number.isFinite(Number(input.sortOrder)) ? Number(input.sortOrder) : 100,
+      tags: this.normalizeTags(input.tags), isFeatured: input.isFeatured ?? false, isNew: input.isNew ?? false,
+      createdAt: now, updatedAt: now
     };
     await this.prisma.$runCommandRaw({ insert: this.collection, documents: [document] });
     this.invalidate();
     return document;
   }
 
-  async update(id: string, input: { name?: string; description?: string; category?: string; price?: number; available?: boolean; aliases?: string[]; imageUrl?: string; sortOrder?: number }) {
+  async update(id: string, input: { name?: string; description?: string; category?: string; price?: number; available?: boolean; aliases?: string[]; imageUrl?: string; sortOrder?: number; tags?: string[]; isFeatured?: boolean; isNew?: boolean }) {
     const existing = await this.getById(id);
     if (!existing) throw new NotFoundException("Product not found");
     const $set: Record<string, unknown> = { updatedAt: new Date() };
@@ -113,7 +121,14 @@ export class ProductsService implements OnModuleInit {
     if (input.available !== undefined) $set.available = Boolean(input.available);
     if (input.aliases !== undefined) $set.aliases = this.normalizeAliases(input.aliases);
     if (input.imageUrl !== undefined) $set.imageUrl = input.imageUrl.trim() || null;
-    if (input.sortOrder !== undefined) $set.sortOrder = Number(input.sortOrder);
+    if (input.sortOrder !== undefined) {
+      const sortOrder = Number(input.sortOrder);
+      if (!Number.isFinite(sortOrder)) throw new BadRequestException("Product sort order must be a valid number.");
+      $set.sortOrder = sortOrder;
+    }
+    if (input.tags !== undefined) $set.tags = this.normalizeTags(input.tags);
+    if (input.isFeatured !== undefined) $set.isFeatured = Boolean(input.isFeatured);
+    if (input.isNew !== undefined) $set.isNew = Boolean(input.isNew);
     await this.prisma.$runCommandRaw({ update: this.collection, updates: [{ q: { _id: id }, u: { $set: $set as Prisma.InputJsonObject }, upsert: false, multi: false }] });
     this.invalidate();
     return this.getById(id);
@@ -127,5 +142,19 @@ export class ProductsService implements OnModuleInit {
   }
 
   private normalizeAliases(values?: string[]) { return [...new Set((values ?? []).map((value) => String(value).trim()).filter(Boolean))]; }
+  private normalizeTags(values?: string[]) { return [...new Set((values ?? []).map((value) => String(value).trim().toLowerCase()).filter(Boolean))]; }
+
+  private async backfillMetadataDefaults() {
+    await this.prisma.$runCommandRaw({
+      update: this.collection,
+      updates: [{
+        q: { tags: { $exists: false } },
+        u: { $set: { tags: [], isFeatured: false, isNew: false, updatedAt: new Date() } },
+        upsert: false,
+        multi: true
+      }]
+    });
+  }
+
   private invalidate() { this.cache = null; }
 }

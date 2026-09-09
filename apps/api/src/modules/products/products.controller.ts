@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import { IsBoolean, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from "class-validator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { ProductsService } from "./products.service";
 
@@ -9,9 +9,12 @@ class CreateProductDto {
   @IsOptional() @IsString() category?: string;
   @IsNumber() price!: number;
   @IsOptional() @IsBoolean() available?: boolean;
-  @IsOptional() aliases?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) aliases?: string[];
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsNumber() sortOrder?: number;
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsBoolean() isFeatured?: boolean;
+  @IsOptional() @IsBoolean() isNew?: boolean;
 }
 
 class UpdateProductDto {
@@ -20,9 +23,12 @@ class UpdateProductDto {
   @IsOptional() @IsString() category?: string;
   @IsOptional() @IsNumber() price?: number;
   @IsOptional() @IsBoolean() available?: boolean;
-  @IsOptional() aliases?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) aliases?: string[];
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsNumber() sortOrder?: number;
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsBoolean() isFeatured?: boolean;
+  @IsOptional() @IsBoolean() isNew?: boolean;
 }
 
 @Controller()
