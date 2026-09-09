@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createReadStream, createWriteStream, promises as fs } from "fs";
+import { Readable } from "stream";
 import { basename, dirname, extname, join, resolve, sep } from "path";
 import { pipeline } from "stream/promises";
 import { randomUUID } from "crypto";
@@ -155,19 +156,21 @@ export class DocumentsService {
     const base64 = comma >= 0 ? input.dataUrl.slice(comma + 1) : "";
     if (!base64) throw new BadRequestException("File content is empty.");
     const id = randomUUID();
-    const extension = extname(basename(input.name)).toLowerCase().replace(/[^.a-z0-9_-]/g, "").slice(0, 16);
+    const name = input.name.trim();
+    if (!name) throw new BadRequestException("File name is required.");
+    const extension = extname(basename(name)).toLowerCase().replace(/[^.a-z0-9_-]/g, "").slice(0, 16);
     const relativePath = join(new Date().toISOString().slice(0, 7), `${id}${extension}`);
     const absolutePath = resolve(this.storageRoot, relativePath);
     await this.ensureStorage();
     await fs.mkdir(dirname(absolutePath), { recursive: true });
     const temporaryPath = join(this.storageRoot, ".tmp", `${id}.upload`);
     try {
-      await pipeline(import("stream").then(({ Readable }) => Readable.from(Buffer.from(base64, "base64"))), createWriteStream(temporaryPath, { flags: "wx" }));
+      await pipeline(Readable.from(Buffer.from(base64, "base64")), createWriteStream(temporaryPath, { flags: "wx" }));
       const stat = await fs.stat(temporaryPath);
       if (stat.size > MAX_FILE_SIZE) throw new BadRequestException("Files are limited to 100 MB.");
       await fs.rename(temporaryPath, absolutePath);
       const now = new Date();
-      const document: DocumentRecord = { _id: id, name: input.name.trim(), type: "file", mimeType: input.mimeType, size: stat.size, folderId: input.folderId || null, public: Boolean(input.public), uploadedBy: input.uploadedBy ?? null, source: input.source ?? "documents", createdAt: now, updatedAt: now, storage: "filesystem", storagePath: relativePath, url: `/documents/${id}/content` };
+      const document: DocumentRecord = { _id: id, name, type: "file", mimeType: input.mimeType, size: stat.size, folderId: input.folderId || null, public: Boolean(input.public), uploadedBy: input.uploadedBy ?? null, source: input.source ?? "documents", createdAt: now, updatedAt: now, storage: "filesystem", storagePath: relativePath, url: `/documents/${id}/content` };
       try {
         await this.prisma.$runCommandRaw({ insert: this.collection, documents: [document] });
       } catch (error) {
