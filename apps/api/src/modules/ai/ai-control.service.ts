@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 
-type SettingDocument = { key?: string; customerId?: string; enabled?: boolean };
+export type AiModelProvider = "ollama" | "gemini";
+type SettingDocument = { key?: string; customerId?: string; enabled?: boolean; provider?: AiModelProvider; model?: string };
 type MongoFindResult = { cursor?: { firstBatch?: SettingDocument[] } };
 
 @Injectable()
@@ -73,6 +74,32 @@ export class AiControlService {
       customerOverride,
       effectiveEnabled: customerOverride ?? globalEnabled
     };
+  }
+
+  async getGlobalModelSettings() {
+    const result = (await this.prisma.$runCommandRaw({
+      find: this.collection,
+      filter: { key: this.globalKey },
+      limit: 1
+    })) as unknown as MongoFindResult;
+    const setting = result.cursor?.firstBatch?.[0];
+    const provider = setting?.provider === "gemini" ? "gemini" : "ollama";
+    const defaultModel = provider === "gemini" ? "gemini-3.8-flash" : "qwen3:4b-instruct";
+    return { provider, model: setting?.model?.trim() || defaultModel };
+  }
+
+  async setGlobalModelSettings(provider: AiModelProvider, model: string) {
+    await this.prisma.$runCommandRaw({
+      update: this.collection,
+      updates: [
+        {
+          q: { key: this.globalKey },
+          u: { $set: { key: this.globalKey, provider, model, updatedAt: new Date() } },
+          upsert: true
+        }
+      ]
+    });
+    return this.getGlobalModelSettings();
   }
 
   async getState() {
