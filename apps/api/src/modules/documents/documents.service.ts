@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { randomUUID } from "crypto";
 
@@ -19,6 +20,7 @@ export type DocumentRecord = {
 
 type MongoFindResult<T> = { cursor?: { firstBatch?: T[] } };
 type ProductImage = { _id: string; name: string; imageUrls?: string[]; imageUrl?: string | null; updatedAt?: Date | string };
+type JsonObject = Prisma.InputJsonObject;
 
 @Injectable()
 export class DocumentsService {
@@ -26,10 +28,13 @@ export class DocumentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(folderId?: string | null, search?: string) {
-    const filter: Record<string, unknown> = { type: "file", folderId: folderId || null };
-    if (search?.trim()) filter.name = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+    const selectedFolderId = folderId || null;
+    const filter: JsonObject = { type: "file", folderId: selectedFolderId };
+    if (search?.trim()) {
+      filter.name = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } as JsonObject;
+    }
     const result = (await this.prisma.$runCommandRaw({ find: this.collection, filter, sort: { name: 1 }, limit: 500 })) as unknown as MongoFindResult<DocumentRecord>;
-    const folders = (await this.prisma.$runCommandRaw({ find: this.collection, filter: { type: "folder", folderId: filter.folderId }, sort: { name: 1 }, limit: 500 })) as unknown as MongoFindResult<DocumentRecord>;
+    const folders = (await this.prisma.$runCommandRaw({ find: this.collection, filter: { type: "folder", folderId: selectedFolderId } as JsonObject, sort: { name: 1 }, limit: 500 })) as unknown as MongoFindResult<DocumentRecord>;
     const stored = [...(folders.cursor?.firstBatch ?? []), ...(result.cursor?.firstBatch ?? [])].map((item) => ({ ...item, content: undefined, url: `/documents/${item._id}/content` }));
 
     if (!folderId) {
@@ -85,14 +90,14 @@ export class DocumentsService {
     if (id.startsWith("product-image:")) {
       const [, productId, indexValue] = id.split(":");
       const index = Number(indexValue);
-      const result = (await this.prisma.$runCommandRaw({ find: "products", filter: { _id: productId }, limit: 1 })) as unknown as MongoFindResult<ProductImage>;
+      const result = (await this.prisma.$runCommandRaw({ find: "products", filter: { _id: productId } as JsonObject, limit: 1 })) as unknown as MongoFindResult<ProductImage>;
       const product = result.cursor?.firstBatch?.[0];
       const urls = Array.isArray(product?.imageUrls) ? product.imageUrls : product?.imageUrl ? [product.imageUrl] : [];
       const content = urls[index];
       if (!content) throw new NotFoundException("Document not found.");
       return { _id: id, name: `${product?.name ?? "Product"} · image ${index + 1}`, type: "file" as const, mimeType: content.match(/^data:([^;,]+)/)?.[1] ?? "image/*", size: Buffer.from(content.slice(content.indexOf(",") + 1), "base64").byteLength, folderId: null, content, public: true, source: "product-legacy", createdAt: product?.updatedAt ?? new Date(), updatedAt: product?.updatedAt ?? new Date() } as DocumentRecord;
     }
-    const result = (await this.prisma.$runCommandRaw({ find: this.collection, filter: { _id: id }, limit: 1 })) as unknown as MongoFindResult<DocumentRecord>;
+    const result = (await this.prisma.$runCommandRaw({ find: this.collection, filter: { _id: id } as JsonObject, limit: 1 })) as unknown as MongoFindResult<DocumentRecord>;
     const item = result.cursor?.firstBatch?.[0];
     if (!item) throw new NotFoundException("Document not found.");
     return item;
@@ -100,7 +105,7 @@ export class DocumentsService {
 
   async remove(id: string) {
     if (id.startsWith("product-image:")) throw new BadRequestException("Product images are managed from Settings → Products.");
-    const result = await this.prisma.$runCommandRaw({ delete: this.collection, deletes: [{ q: { _id: id }, limit: 1 }] }) as { deletedCount?: number; n?: number };
+    const result = await this.prisma.$runCommandRaw({ delete: this.collection, deletes: [{ q: { _id: id } as JsonObject, limit: 1 }] }) as { deletedCount?: number; n?: number };
     if ((result.deletedCount ?? result.n ?? 0) === 0) throw new NotFoundException("Document not found.");
     return { ok: true };
   }
