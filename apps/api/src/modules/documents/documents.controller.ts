@@ -1,5 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import type { Request, Response } from "express";
@@ -9,7 +8,8 @@ import { randomUUID } from "crypto";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { DocumentsService, MAX_FILE_SIZE } from "./documents.service";
 
-const TEMP_UPLOAD_DIR = join(process.cwd(), "apps", "api", "storage", "documents", ".tmp");
+const STORAGE_ROOT = process.env.DOCUMENTS_STORAGE_PATH || join(process.cwd(), "apps", "api", "storage", "documents");
+const TEMP_UPLOAD_DIR = join(STORAGE_ROOT, ".tmp");
 mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
 
 class CreateFolderDto { name!: string; folderId?: string | null; }
