@@ -1,16 +1,26 @@
 export type MenuItem = {
   label: string;
   value: string;
+  description?: string | null;
+  category: string;
   price: number;
   available?: boolean;
-  popular?: boolean;
+  tags: string[];
+  isFeatured?: boolean;
   isNew?: boolean;
+  imageUrl?: string | null;
 };
 
 type ProductCatalogItem = {
   name: string;
+  description?: string | null;
+  category?: string;
   price: number;
   available: boolean;
+  tags?: string[];
+  isFeatured?: boolean;
+  isNew?: boolean;
+  imageUrl?: string | null;
   sortOrder?: number;
 };
 
@@ -27,8 +37,14 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
       return {
         label: available ? name : `${name} — SOLD OUT`,
         value: name,
+        description: product.description?.trim() || null,
+        category: product.category?.trim() || "uncategorized",
         price: Number(product.price),
-        available
+        available,
+        tags: Array.isArray(product.tags) ? product.tags : [],
+        isFeatured: product.isFeatured === true,
+        isNew: product.isNew === true,
+        imageUrl: product.imageUrl?.trim() || null
       };
     });
 
