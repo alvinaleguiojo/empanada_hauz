@@ -3,7 +3,9 @@ import { DeliveryNetworkModule } from "../delivery-network/delivery-network.modu
 import { DatabaseModule } from "../../database/database.module";
 import { McpModule } from "../mcp/mcp.module";
 import { AiInstructionsModule } from "../ai-instructions/ai-instructions.module";
+import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 import { ProductsModule } from "../products/products.module";
+import { ProductsService } from "../products/products.service";
 import { AiApplicationToolsService } from "./ai-application-tools.service";
 import { AiConversationStateService } from "./ai-conversation-state.service";
 import { AiRuntimeService } from "./ai-runtime.service";
@@ -29,8 +31,8 @@ import { AiModelService } from "./ai-model.service";
         aiModel: AiModelService,
         stateService: AiConversationStateService,
         toolRegistry: AiToolRegistryService,
-        instructionsService: import("../ai-instructions/ai-instructions.service").AiInstructionsService,
-        productsService: import("../products/products.service").ProductsService
+        instructionsService: AiInstructionsService,
+        productsService: ProductsService
       ) => aiModel.createRuntime(stateService, toolRegistry, instructionsService, productsService)
     },
     AiToolRegistryService,
