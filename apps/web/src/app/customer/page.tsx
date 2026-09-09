@@ -39,6 +39,30 @@ function CustomerKioskGuard() {
   useEffect(() => {
     if (!menuLoaded) return;
 
+    const syncHeaderLogo = () => {
+      const header = document.querySelector<HTMLElement>("header");
+      const logoWrap = header?.querySelector<HTMLElement>("svg")?.parentElement;
+      if (!logoWrap || logoWrap.dataset.empanadaLogoReady === "true") return;
+
+      logoWrap.dataset.empanadaLogoReady = "true";
+      logoWrap.innerHTML = "";
+      logoWrap.style.backgroundColor = "transparent";
+      logoWrap.style.overflow = "hidden";
+
+      const logo = document.createElement("img");
+      logo.src = "/empanada%20hauz%20logo.jpg";
+      logo.alt = "Empanada Hauz logo";
+      logo.width = 40;
+      logo.height = 40;
+      logo.decoding = "async";
+      logo.style.display = "block";
+      logo.style.width = "100%";
+      logo.style.height = "100%";
+      logo.style.objectFit = "contain";
+      logo.style.borderRadius = "0.75rem";
+      logoWrap.appendChild(logo);
+    };
+
     const syncProductCards = () => {
       const cards = Array.from(document.querySelectorAll<HTMLElement>("article"));
       for (const card of cards) {
@@ -64,6 +88,7 @@ function CustomerKioskGuard() {
         button.style.cursor = "not-allowed";
         button.style.opacity = "0.55";
       }
+      syncHeaderLogo();
       syncProductCards();
     };
 
