@@ -8,6 +8,7 @@ export type MenuItem = {
   tags: string[];
   isFeatured?: boolean;
   isNew?: boolean;
+  popular?: boolean;
   imageUrl?: string | null;
 };
 
@@ -34,6 +35,8 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
     .map((product) => {
       const name = product.name.trim();
       const available = product.available !== false;
+      const tags = Array.isArray(product.tags) ? product.tags : [];
+      const isBestSeller = tags.some((tag) => tag.trim().toLowerCase() === "best-seller" || tag.trim().toLowerCase() === "bestseller");
       return {
         label: available ? name : `${name} — SOLD OUT`,
         value: name,
@@ -41,9 +44,10 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
         category: product.category?.trim() || "uncategorized",
         price: Number(product.price),
         available,
-        tags: Array.isArray(product.tags) ? product.tags : [],
+        tags,
         isFeatured: product.isFeatured === true,
         isNew: product.isNew === true,
+        popular: isBestSeller,
         imageUrl: product.imageUrl?.trim() || null
       };
     });
