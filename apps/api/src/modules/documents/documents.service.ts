@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createWriteStream, promises as fs } from "fs";
-import { basename, dirname, extname, join, resolve } from "path";
+import { createReadStream, createWriteStream, promises as fs } from "fs";
+import { basename, dirname, extname, join, resolve, sep } from "path";
 import { pipeline } from "stream/promises";
 import { randomUUID } from "crypto";
 import { PrismaService } from "../../database/prisma.service";
@@ -162,7 +162,8 @@ export class DocumentsService {
     const id = randomUUID();
     const extension = extname(basename(name)).toLowerCase().replace(/[^.a-z0-9_-]/g, "").slice(0, 16);
     const relativePath = join(new Date().toISOString().slice(0, 7), `${id}${extension}`);
-    const absolutePath = join(this.storageRoot, relativePath);
+    const absolutePath = resolve(this.storageRoot, relativePath);
+    if (!absolutePath.startsWith(`${this.storageRoot}${sep}`)) throw new BadRequestException("Invalid storage path.");
     await fs.mkdir(dirname(absolutePath), { recursive: true });
 
     try {
@@ -246,8 +247,6 @@ export class DocumentsService {
     if (item.type === "folder") return item;
 
     if (item.storage === "filesystem" && item.storagePath) {
-      const absolutePath = resolve(this.storageRoot, item.storagePath);
-      if (!absolutePath.startsWith(`${this.storageRoot}${require("path").sep}`)) throw new NotFoundException("Document not found.");
       return item;
     }
 
@@ -268,7 +267,7 @@ export class DocumentsService {
   async getFilesystemPath(item: DocumentRecord) {
     if (item.storage !== "filesystem" || !item.storagePath) return null;
     const absolutePath = resolve(this.storageRoot, item.storagePath);
-    const rootPrefix = `${this.storageRoot}${require("path").sep}`;
+    const rootPrefix = `${this.storageRoot}${sep}`;
     if (!absolutePath.startsWith(rootPrefix)) throw new NotFoundException("Document not found.");
     try {
       await fs.access(absolutePath);
@@ -289,7 +288,8 @@ export class DocumentsService {
 
     if (item.storage === "filesystem" && item.storagePath) {
       const absolutePath = resolve(this.storageRoot, item.storagePath);
-      await fs.unlink(absolutePath).catch(() => undefined);
+      const rootPrefix = `${this.storageRoot}${sep}`;
+      if (absolutePath.startsWith(rootPrefix)) await fs.unlink(absolutePath).catch(() => undefined);
     }
 
     await this.prisma.$runCommandRaw({
