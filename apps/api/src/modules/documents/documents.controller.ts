@@ -50,18 +50,35 @@ export class DocumentsController {
       response.status(403).send("File is private");
       return;
     }
-    const comma = document.content.indexOf(",");
-    const base64 = comma >= 0 ? document.content.slice(comma + 1) : "";
-    response.setHeader("Content-Type", document.mimeType || "application/octet-stream");
-    response.setHeader("Content-Length", String(Buffer.from(base64, "base64").byteLength));
-    response.setHeader("Content-Disposition", `inline; filename="${document.name.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
-    response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    response.send(Buffer.from(base64, "base64"));
+    this.sendFile(document, response);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/download")
+  async download(@Param("id") id: string, @Res() response: Response) {
+    const document = await this.documentsService.get(id);
+    if (document.type !== "file" || !document.content) {
+      response.status(404).send("File not found");
+      return;
+    }
+    this.sendFile(document, response);
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(":id")
   remove(@Param("id") id: string) {
     return this.documentsService.remove(id);
+  }
+
+  private sendFile(document: { content?: string | null; mimeType: string | null; name: string }, response: Response) {
+    const content = document.content ?? "";
+    const comma = content.indexOf(",");
+    const base64 = comma >= 0 ? content.slice(comma + 1) : "";
+    const bytes = Buffer.from(base64, "base64");
+    response.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+    response.setHeader("Content-Length", String(bytes.byteLength));
+    response.setHeader("Content-Disposition", `inline; filename="${document.name.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
+    if (content === document.content && (document as { public?: boolean }).public) response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    response.send(bytes);
   }
 }
