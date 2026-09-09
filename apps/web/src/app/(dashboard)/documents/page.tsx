@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Folder, FolderPlus, Grid2X2, List, MoreVertical, Search, Trash2, Upload, Download } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
@@ -34,6 +34,7 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const searchEffectMounted = useRef(false);
 
   async function load(nextFolderId = folderId, nextSearch = search) {
     setLoading(true);
@@ -44,6 +45,10 @@ export default function DocumentsPage() {
 
   useEffect(() => { void load(null, ""); }, []);
   useEffect(() => {
+    if (!searchEffectMounted.current) {
+      searchEffectMounted.current = true;
+      return;
+    }
     const timer = window.setTimeout(() => { void load(folderId, search); }, 250);
     return () => window.clearTimeout(timer);
   }, [search]);
