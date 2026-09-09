@@ -11,6 +11,7 @@ class CreateProductDto {
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) aliases?: string[];
   @IsOptional() @IsString() imageUrl?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) imageUrls?: string[];
   @IsOptional() @IsNumber() sortOrder?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsBoolean() isFeatured?: boolean;
@@ -25,6 +26,7 @@ class UpdateProductDto {
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) aliases?: string[];
   @IsOptional() @IsString() imageUrl?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) imageUrls?: string[];
   @IsOptional() @IsNumber() sortOrder?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsBoolean() isFeatured?: boolean;
