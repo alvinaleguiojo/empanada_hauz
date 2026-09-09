@@ -80,12 +80,9 @@ export class ProductsController {
       if (!url.startsWith("data:")) return url;
       const match = url.match(/^data:([^;,]+)(?:;base64)?,/);
       const mimeType = match?.[1] ?? "application/octet-stream";
-      const base64 = url.slice(url.indexOf(",") + 1);
-      const size = Buffer.from(base64, "base64").byteLength;
-      const document = await this.documentsService.createFile({
+      const document = await this.documentsService.createFileFromDataUrl({
         name: `${dto.name || "product"} image ${index + 1}`,
         mimeType,
-        size,
         dataUrl: url,
         public: true,
         uploadedBy: user?.id,
