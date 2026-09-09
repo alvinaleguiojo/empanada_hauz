@@ -1,0 +1,1 @@
+Public product badges are verified in the source change.
