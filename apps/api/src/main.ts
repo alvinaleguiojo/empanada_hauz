@@ -13,7 +13,7 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix("api");
-  app.useBodyParser("json", { limit: "15mb" });
+  app.getHttpAdapter().getInstance().use(require("express").json({ limit: "15mb" }));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
