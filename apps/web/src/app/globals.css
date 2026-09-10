@@ -118,91 +118,114 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   background: transparent !important;
 }
 
-/* Empanada Hauz communication dock: rectangular tabs anchored to the page bottom. */
+/* Floating communication controls: stacked, circular, right-aligned. */
+body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
+  left: auto !important;
+  right: 24px !important;
+  bottom: 166px !important;
+}
+
+body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 {
+  left: auto !important;
+  right: 24px !important;
+  bottom: 98px !important;
+}
+
+body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"],
+body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] {
+  width: 56px !important;
+  min-width: 56px !important;
+  height: 56px !important;
+  padding: 0 !important;
+  border-radius: 9999px !important;
+  justify-content: center !important;
+}
+
+body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"] > span:not(.pointer-events-none),
+body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] > span:not(.absolute) {
+  display: none !important;
+}
+
+/* Keep chat panels compact and attached directly above their own circular controls. */
+body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"] {
+  width: min(420px, calc(100vw - 24px)) !important;
+}
+
+body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
+  width: min(640px, calc(100vw - 24px)) !important;
+}
+
+/* Communications / operator control stays the third circular button in the stack. */
 body > button[title="Communications"] {
   right: 24px !important;
-  bottom: 12px !important;
-  width: 154px !important;
-  height: 44px !important;
-  border-radius: 12px !important;
-  padding: 0 14px !important;
-  gap: 8px !important;
+  bottom: 24px !important;
+  width: 56px !important;
+  min-width: 56px !important;
+  height: 56px !important;
+  padding: 0 !important;
+  border-radius: 9999px !important;
   justify-content: center !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  transform: none !important;
 }
 
-body > button[title="Communications"]::after {
-  content: "Communications";
-  display: block;
-  line-height: 1;
-}
-
-/* Remove the call panel's modal scrim so communication stays a dock, not a modal. */
+/* No modal scrim: chat windows behave like docked panels. */
 body > div.fixed.inset-0[class*="z-[95]"] {
   opacity: 0 !important;
   pointer-events: none !important;
 }
 
-/* Keep the operator communication panel attached above its dock tab. */
+/* Keep the operator communication panel attached above its circular control. */
 body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   position: fixed !important;
   left: auto !important;
   top: auto !important;
   right: 24px !important;
-  bottom: 68px !important;
+  bottom: 92px !important;
   transform: none !important;
   width: min(760px, calc(100vw - 48px)) !important;
   max-width: 760px !important;
-  height: min(650px, calc(100dvh - 92px)) !important;
-  max-height: calc(100dvh - 92px) !important;
+  height: min(650px, calc(100dvh - 116px)) !important;
+  max-height: calc(100dvh - 116px) !important;
   border-radius: 16px !important;
   overflow: hidden !important;
 }
 
-/* Messenger and AI keep their own dock slots, offset from one another on desktop. */
 @media (max-width: 640px) {
-  body > button[title="Communications"] {
+  body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
+    left: auto !important;
     right: 12px !important;
-    bottom: 12px !important;
-    width: 48px !important;
-    padding: 0 !important;
-  }
-
-  body > button[title="Communications"]::after {
-    display: none;
+    bottom: 154px !important;
   }
 
   body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 {
-    left: 72px !important;
-    right: auto !important;
+    left: auto !important;
+    right: 12px !important;
+    bottom: 88px !important;
   }
 
-  body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
-    left: 12px !important;
-    right: auto !important;
-  }
-
+  body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"],
   body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"],
-  body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"] {
-    min-width: 48px !important;
+  body > button[title="Communications"] {
     width: 48px !important;
-    padding-left: 0.75rem !important;
-    padding-right: 0.75rem !important;
+    min-width: 48px !important;
+    height: 48px !important;
   }
 
-  body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] > span:not(.absolute),
-  body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"] > span:not(.pointer-events-none) {
-    display: none !important;
+  body > button[title="Communications"] {
+    right: 12px !important;
+    bottom: 20px !important;
+  }
+
+  body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"],
+  body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
+    width: calc(100vw - 24px) !important;
   }
 
   body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
     right: 12px !important;
-    bottom: 68px !important;
+    bottom: 80px !important;
     width: calc(100vw - 24px) !important;
     max-width: none !important;
-    height: calc(100dvh - 84px) !important;
-    max-height: calc(100dvh - 84px) !important;
+    height: calc(100dvh - 96px) !important;
+    max-height: calc(100dvh - 96px) !important;
   }
 }
