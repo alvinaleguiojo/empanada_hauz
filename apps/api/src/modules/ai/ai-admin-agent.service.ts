@@ -27,6 +27,13 @@ export class AiAdminAgentService {
     const message = request.message?.trim();
     if (!message) throw new BadRequestException("A message is required.");
 
+    const directOrderSearch = extractDirectOrderSearch(message);
+    if (directOrderSearch) {
+      const orders = await this.analyticsTools.searchOrders(directOrderSearch, undefined, undefined, 20);
+      if (orders.length === 0) return { reply: `No order found for "${directOrderSearch}".`, snapshotAt: new Date().toISOString() };
+      return { reply: formatOrderSearchReply(directOrderSearch, orders), snapshotAt: new Date().toISOString(), data: orders };
+    }
+
     const directCustomerSearch = extractDirectCustomerSearch(message);
     if (directCustomerSearch) {
       const customers = await this.analyticsTools.searchCustomers(directCustomerSearch, 10);
@@ -111,7 +118,7 @@ TOOL USE:
     return [
       { type: "function", function: { name: "get_order_metrics", description: "Count and summarize orders for today, this week, or this month.", parameters: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false } } },
       { type: "function", function: { name: "search_customers", description: "Find administrator customer records by name, phone number, or Messenger identifier.", parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false } } },
-      { type: "function", function: { name: "search_orders", description: "Find orders by order number, customer name, phone number, location, date, or status.", parameters: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false } } }
+      { type: "function", function: { name: "search_orders", description: "Find orders by order number, customer name, phone number, location, date, or status.", parameters: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, required: [], additionalProperties: false } } }
     ];
   }
 
@@ -191,6 +198,23 @@ async function executePendingWrite(name: string, pendingArgs: Record<string, unk
   const applicationNames = new Set(["create_order", "update_order", "cancel_order"]);
   if (applicationNames.has(name)) return applicationTools.execute(name as AiApplicationToolName, args);
   return registry.execute(name, args, { customerId: "admin", channel: "admin" });
+}
+
+function extractDirectOrderSearch(message: string) {
+  const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)\s+(?:['’]s\s+)?orders?\s*\??$/i);
+  if (match) {
+    const query = match[1].trim();
+    if (query && !/^orders?\b/i.test(query)) return query;
+  }
+
+  const alternate = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+orders?\s+(?:for\s+)?(.+?)\s*\??$/i);
+  const query = alternate?.[1]?.trim();
+  return query || null;
+}
+
+function formatOrderSearchReply(query: string, orders: Array<{ orderNumber: string; status: string; quantity: number; totalAmount: unknown; customer?: { name: string; phoneNumber?: string | null } | null }>) {
+  const lines = orders.map((order, index) => `${index + 1}. ${order.orderNumber} — ${order.customer?.name ?? "Unknown customer"}${order.customer?.phoneNumber ? ` · ${order.customer.phoneNumber}` : ""} · ${order.status} · ${order.quantity} pcs · ₱${Number(order.totalAmount).toLocaleString("en-PH")}`);
+  return `Order matches for "${query}":\n${lines.join("\n")}`;
 }
 
 function extractDirectCustomerSearch(message: string) {
