@@ -34,7 +34,7 @@ export class AiAdminAnalyticsToolsService {
     const normalized = query.trim();
     if (!normalized) return [];
     const take = clampLimit(limit, 10, 25);
-    return this.prisma.customer.findMany({
+    const exact = await this.prisma.customer.findMany({
       where: {
         OR: [
           { name: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
@@ -42,20 +42,42 @@ export class AiAdminAnalyticsToolsService {
           { messengerPsid: { contains: normalized, mode: Prisma.QueryMode.insensitive } }
         ]
       },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        defaultAddress: true,
-        totalOrders: true,
-        repeatCustomerCount: true,
-        totalSpent: true,
-        lastOrderDate: true,
-        isVip: true
-      },
+      select: customerSearchSelect,
       orderBy: [{ isVip: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
       take
     });
+
+    if (exact.length > 0 || normalized.length < 3) {
+      return exact.map((customer) => ({ ...customer, matchType: "exact" as const }));
+    }
+
+    // Names are free-form and administrators commonly make a one-character
+    // typo. MongoDB's contains query cannot express edit-distance matching,
+    // so only on an exact miss do we compare a bounded candidate set locally.
+    const candidates = await this.prisma.customer.findMany({
+      select: customerSearchSelect,
+      orderBy: [{ totalOrders: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
+      take: 500
+    });
+    const target = normalizeForMatch(normalized);
+    const fuzzy = candidates
+      .map((customer) => {
+        const candidate = normalizeForMatch(customer.name);
+        return { customer, distance: levenshteinDistance(target, candidate) };
+      })
+      .filter(({ customer, distance }) => {
+        const candidate = normalizeForMatch(customer.name);
+        const threshold = candidate.length <= 5 || target.length <= 5 ? 1 : 2;
+        return distance <= threshold && distance < Math.max(target.length, candidate.length);
+      })
+      .sort((a, b) => a.distance - b.distance || b.customer.totalOrders - a.customer.totalOrders || Number(b.customer.totalSpent) - Number(a.customer.totalSpent))
+      .slice(0, take);
+
+    return fuzzy.map(({ customer, distance }) => ({
+      ...customer,
+      matchType: "fuzzy" as const,
+      matchDistance: distance
+    }));
   }
 
   async searchOrders(query?: string, date?: string, status?: string, limit = 20) {
@@ -106,6 +128,41 @@ export class AiAdminAnalyticsToolsService {
       totalAmount: Number(order.totalAmount)
     }));
   }
+}
+
+const customerSearchSelect = {
+  id: true,
+  name: true,
+  phoneNumber: true,
+  defaultAddress: true,
+  totalOrders: true,
+  repeatCustomerCount: true,
+  totalSpent: true,
+  lastOrderDate: true,
+  isVip: true
+} satisfies Prisma.CustomerSelect;
+
+function normalizeForMatch(value: string) {
+  return value.toLocaleLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+}
+
+function levenshteinDistance(a: string, b: string) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length];
 }
 
 function clampLimit(value: number, fallback: number, maximum: number) {
