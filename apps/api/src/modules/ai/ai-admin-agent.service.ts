@@ -4,7 +4,7 @@ import { AiAdminModelService } from "./ai-admin-model.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 
 interface AdminAgentRequest { message: string; history?: Array<{ role: "user" | "assistant"; content: string }> }
-interface AdminToolCall { name: string; arguments: Record<string, unknown> }
+interface AdminToolCall { name: string; arguments: Record<string, unknown>; parseError?: string }
 
 @Injectable()
 export class AiAdminAgentService {
@@ -78,6 +78,7 @@ TOOL USE:
 
       for (const call of toolCalls) {
         try {
+          if (call.parseError) throw new BadRequestException(call.parseError);
           const result = await this.executeTool(call.name, call.arguments);
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
         } catch (error) {
@@ -136,17 +137,18 @@ TOOL USE:
     return calls.flatMap((call, index) => {
       const name = call.function?.name?.trim();
       if (!name) return [];
+      const id = call.id || `admin-tool-${index}`;
       if (call.function?.arguments && typeof call.function.arguments !== "string") {
-        return [{ id: call.id || `admin-tool-${index}`, name, arguments: call.function.arguments }];
+        return [{ id, name, arguments: call.function.arguments }];
       }
       try {
         const parsed = JSON.parse(call.function?.arguments || "{}");
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          return [{ id: call.id || `admin-tool-${index}`, name, arguments: {}, parseError: true } as AdminToolCall & { id: string }];
+          return [{ id, name, arguments: {}, parseError: "Tool arguments must be a JSON object." }];
         }
-        return [{ id: call.id || `admin-tool-${index}`, name, arguments: parsed as Record<string, unknown> }];
+        return [{ id, name, arguments: parsed as Record<string, unknown> }];
       } catch {
-        return [{ id: call.id || `admin-tool-${index}`, name, arguments: {}, parseError: true } as AdminToolCall & { id: string }];
+        return [{ id, name, arguments: {}, parseError: "The model returned invalid JSON tool arguments." }];
       }
     });
   }
