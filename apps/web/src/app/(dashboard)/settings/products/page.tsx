@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
+import { API_URL } from "@/lib/config";
 
 type Product = { _id: string; name: string; description?: string | null; category: string; price: number; available: boolean; aliases: string[]; imageUrl?: string | null; imageUrls?: string[]; sortOrder: number; tags: string[]; isFeatured: boolean; isNew: boolean; updatedAt: string };
 type ProductForm = { name: string; description: string; category: string; price: string; available: boolean; aliases: string; imageUrl: string; imageUrls: string[]; sortOrder: string; tags: string; isFeatured: boolean; isNew: boolean };
@@ -15,6 +16,13 @@ type ProductForm = { name: string; description: string; category: string; price:
 const emptyForm: ProductForm = { name: "", description: "", category: "empanada", price: "", available: true, aliases: "", imageUrl: "", imageUrls: [], sortOrder: "100", tags: "", isFeatured: false, isNew: false };
 const MAX_IMAGES = 8;
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
+
+function resolveImageUrl(url?: string | null) {
+  const value = url?.trim();
+  if (!value) return "";
+  if (value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://")) return value;
+  return `${API_URL}${value.startsWith("/") ? value : `/${value}`}`;
+}
 
 export default function ProductsSettingsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -123,7 +131,7 @@ export default function ProductsSettingsPage() {
           <div className="space-y-2 text-sm font-medium lg:col-span-2">
             <span className="block">Product images</span>
             <div className="flex flex-wrap gap-3">
-              {form.imageUrls.map((src, index) => <div key={`${src.slice(0, 24)}-${index}`} className="group relative h-24 w-24 overflow-hidden rounded-lg border border-white/[0.1] bg-white/[0.03]"><img src={src} alt={`Product image ${index + 1}`} className="h-full w-full object-cover" /><button type="button" onClick={() => removeImage(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white opacity-0 transition group-hover:opacity-100" aria-label={`Remove image ${index + 1}`}><X className="h-3.5 w-3.5" /></button>{index === 0 ? <span className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 text-center text-[10px]">Primary</span> : null}</div>)}
+              {form.imageUrls.map((src, index) => <div key={`${src.slice(0, 24)}-${index}`} className="group relative h-24 w-24 overflow-hidden rounded-lg border border-white/[0.1] bg-white/[0.03]"><img src={resolveImageUrl(src)} alt={`Product image ${index + 1}`} className="h-full w-full object-cover" /><button type="button" onClick={() => removeImage(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white opacity-0 transition group-hover:opacity-100" aria-label={`Remove image ${index + 1}`}><X className="h-3.5 w-3.5" /></button>{index === 0 ? <span className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 text-center text-[10px]">Primary</span> : null}</div>)}
               {form.imageUrls.length < MAX_IMAGES ? <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-white/[0.15] bg-white/[0.02] text-xs text-foreground/50 transition hover:bg-white/[0.05]"><ImagePlus className="h-5 w-5" /><span>Add image</span><input type="file" accept="image/*" multiple className="sr-only" onChange={addImages} /></label> : null}
             </div>
             <p className="text-xs font-normal text-foreground/40">Upload up to {MAX_IMAGES} images, 2 MB each. The first image is used as the primary image.</p>
@@ -143,7 +151,7 @@ export default function ProductsSettingsPage() {
       <Card className="overflow-hidden">
         <div className="border-b border-white/[0.07] px-5 py-4"><h2 className="font-semibold">Product catalog</h2></div>
         {loading ? <div className="p-6 text-sm text-foreground/50">Loading products…</div> : products.length === 0 ? <div className="p-8 text-center text-sm text-foreground/50">No products found.</div> : <div className="divide-y divide-white/[0.06]">{products.map((product) => <div key={product._id} className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 flex-1 items-start gap-3"><div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-white/[0.04]">{(product.imageUrls?.[0] ?? product.imageUrl) ? <img src={product.imageUrls?.[0] ?? product.imageUrl ?? ""} alt={product.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{product.name}</span><Badge>{product.available ? "Available" : "Unavailable"}</Badge>{product.isFeatured ? <Badge>Featured</Badge> : null}{product.isNew ? <Badge>New</Badge> : null}{product.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div><p className="mt-1 text-sm text-foreground/50">₱{Number(product.price).toFixed(2)} · {product.category}{product.description ? ` · ${product.description}` : ""}</p>{product.aliases.length ? <p className="mt-1 text-xs text-foreground/40">AI aliases: {product.aliases.join(", ")}</p> : null}</div></div>
+          <div className="flex min-w-0 flex-1 items-start gap-3"><div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-white/[0.04]">{(product.imageUrls?.[0] ?? product.imageUrl) ? <img src={resolveImageUrl(product.imageUrls?.[0] ?? product.imageUrl)} alt={product.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{product.name}</span><Badge>{product.available ? "Available" : "Unavailable"}</Badge>{product.isFeatured ? <Badge>Featured</Badge> : null}{product.isNew ? <Badge>New</Badge> : null}{product.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div><p className="mt-1 text-sm text-foreground/50">₱{Number(product.price).toFixed(2)} · {product.category}{product.description ? ` · ${product.description}` : ""}</p>{product.aliases.length ? <p className="mt-1 text-xs text-foreground/40">AI aliases: {product.aliases.join(", ")}</p> : null}</div></div>
           <div className="flex flex-wrap items-center gap-2"><Button variant="ghost" size="sm" onClick={() => void toggleAvailability(product)}>{product.available ? <><XCircle className="h-4 w-4" /> Mark unavailable</> : <><CheckCircle2 className="h-4 w-4" /> Mark available</>}</Button><Button variant="ghost" size="sm" onClick={() => edit(product)}><Pencil className="h-4 w-4" /> Edit</Button><Button variant="danger" size="sm" onClick={() => void remove(product)}><Trash2 className="h-4 w-4" /> Delete</Button></div>
         </div>)}</div>}
       </Card>
