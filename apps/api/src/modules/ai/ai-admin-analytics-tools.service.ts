@@ -34,6 +34,7 @@ export class AiAdminAnalyticsToolsService {
     const normalized = query.trim();
     if (!normalized) return [];
     const take = clampLimit(limit, 10, 25);
+    const target = normalizeForMatch(normalized);
 
     const exact = await this.prisma.customer.findMany({
       where: {
@@ -45,7 +46,7 @@ export class AiAdminAnalyticsToolsService {
       },
       select: customerSearchSelect,
       orderBy: [{ isVip: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
-      take
+      take: Math.max(take * 3, 25)
     });
 
     // The Orders board gets customer identity from Order.customer. Prefer those
@@ -69,26 +70,24 @@ export class AiAdminAnalyticsToolsService {
       const seen = new Set<string>();
       const relatedExact = orderCustomers
         .map((entry) => entry.customer)
-        .filter((customer) => customer && !seen.has(customer.id) && seen.add(customer.id))
-        .slice(0, take);
+        .filter((customer) => customer && !seen.has(customer.id) && seen.add(customer.id));
 
       if (relatedExact.length > 0) {
-        return this.withActualCustomerOrderStats(relatedExact, "order_relation");
+        return this.rankAndEnrichCustomers(relatedExact, target, take, "order_relation");
       }
     }
 
     if (exact.length > 0 || normalized.length < 3) {
-      return this.withActualCustomerOrderStats(exact, "exact");
+      return this.rankAndEnrichCustomers(exact, target, take, "exact");
     }
 
-    // Names are free-form and administrators commonly make a one-character
-    // typo. Compare a bounded customer set locally only after exact paths miss.
+    // Names are free-form and administrators commonly make a one-character typo.
+    // Compare a bounded customer set locally only after exact paths miss.
     const candidates = await this.prisma.customer.findMany({
       select: customerSearchSelect,
       orderBy: [{ totalOrders: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
       take: 500
     });
-    const target = normalizeForMatch(normalized);
     const fuzzy = candidates
       .map((customer) => {
         const candidate = normalizeForMatch(customer.name);
@@ -102,11 +101,34 @@ export class AiAdminAnalyticsToolsService {
       .sort((a, b) => a.distance - b.distance || b.customer.totalOrders - a.customer.totalOrders || Number(b.customer.totalSpent) - Number(a.customer.totalSpent))
       .slice(0, take);
 
-    const fuzzyCustomers = await this.withActualCustomerOrderStats(fuzzy.map(({ customer }) => customer), "fuzzy");
-    return fuzzyCustomers.map((customer, index) => ({
+    const fuzzyCustomers = await this.rankAndEnrichCustomers(fuzzy.map(({ customer }) => customer), target, take, "fuzzy");
+    const distanceById = new Map(fuzzy.map(({ customer, distance }) => [customer.id, distance]));
+    return fuzzyCustomers.map((customer) => ({
       ...customer,
-      matchDistance: fuzzy[index]?.distance
+      matchDistance: distanceById.get(customer.id)
     }));
+  }
+
+  private async rankAndEnrichCustomers<T extends { id: string; name: string; totalOrders: number; totalSpent: unknown }>(
+    customers: T[],
+    target: string,
+    take: number,
+    matchType: "exact" | "order_relation" | "fuzzy"
+  ) {
+    const ranked = customers
+      .map((customer) => ({
+        customer,
+        relevance: customerNameRelevance(target, normalizeForMatch(customer.name))
+      }))
+      .sort((a, b) => b.relevance - a.relevance || a.customer.name.localeCompare(b.customer.name))
+      .slice(0, take)
+      .map(({ customer }) => customer);
+
+    const enriched = await this.withActualCustomerOrderStats(ranked, matchType);
+    return enriched.sort((a, b) => {
+      const relevanceDiff = customerNameRelevance(target, normalizeForMatch(b.name)) - customerNameRelevance(target, normalizeForMatch(a.name));
+      return relevanceDiff || b.totalOrders - a.totalOrders || Number(b.totalSpent) - Number(a.totalSpent) || a.name.localeCompare(b.name);
+    });
   }
 
   private async withActualCustomerOrderStats<T extends { id: string; name: string; totalOrders: number; totalSpent: unknown }>(
@@ -130,14 +152,12 @@ export class AiAdminAnalyticsToolsService {
       stats.set(order.customerId, current);
     }
 
-    return customers
-      .map((customer) => ({
-        ...customer,
-        totalOrders: stats.get(customer.id)?.totalOrders ?? 0,
-        totalSpent: stats.get(customer.id)?.totalSpent ?? 0,
-        matchType
-      }))
-      .sort((a, b) => b.totalOrders - a.totalOrders || Number(b.totalSpent) - Number(a.totalSpent) || a.name.localeCompare(b.name));
+    return customers.map((customer) => ({
+      ...customer,
+      totalOrders: stats.get(customer.id)?.totalOrders ?? 0,
+      totalSpent: stats.get(customer.id)?.totalSpent ?? 0,
+      matchType
+    }));
   }
 
   async searchOrders(query?: string, date?: string, status?: string, limit = 20) {
@@ -204,6 +224,15 @@ const customerSearchSelect = {
 
 function normalizeForMatch(value: string) {
   return value.toLocaleLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+}
+
+function customerNameRelevance(target: string, candidate: string) {
+  if (!target || !candidate) return 0;
+  if (candidate === target) return 100;
+  if (candidate.startsWith(target)) return 90;
+  if (candidate.split(/(?=[a-z])/).includes(target)) return 85;
+  if (candidate.includes(target)) return 70;
+  return 0;
 }
 
 function levenshteinDistance(a: string, b: string) {
