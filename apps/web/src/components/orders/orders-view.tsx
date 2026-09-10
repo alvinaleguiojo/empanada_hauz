@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutGrid, List, Search } from "lucide-react";
+import { LayoutGrid, List, Pencil, Search } from "lucide-react";
 import { OrdersBoard } from "@/components/orders/orders-board";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,36 @@ const statusLabels = Object.fromEntries(
   statusOptions.map((status) => [status, status.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase())])
 );
 
+const statusTone: Record<string, string> = {
+  inquiry: "bg-white/[0.08] text-foreground/75",
+  awaiting_confirmation: "bg-amber-500/15 text-amber-200",
+  confirmed: "bg-sky-500/15 text-sky-200",
+  queued: "bg-violet-500/15 text-violet-200",
+  preparing: "bg-fuchsia-500/15 text-fuchsia-200",
+  frying: "bg-orange-500/15 text-orange-200",
+  packed: "bg-cyan-500/15 text-cyan-200",
+  ready_for_pickup: "bg-teal-500/15 text-teal-200",
+  ready_for_booking: "bg-lime-500/15 text-lime-200",
+  booked: "bg-emerald-500/15 text-emerald-200",
+  completed: "bg-green-500/15 text-green-200",
+  cancelled: "bg-rose-500/15 text-rose-200"
+};
+
+const statusDot: Record<string, string> = {
+  inquiry: "bg-white/40",
+  awaiting_confirmation: "bg-amber-400",
+  confirmed: "bg-sky-400",
+  queued: "bg-violet-400",
+  preparing: "bg-fuchsia-400",
+  frying: "bg-orange-400",
+  packed: "bg-cyan-400",
+  ready_for_pickup: "bg-teal-400",
+  ready_for_booking: "bg-lime-400",
+  booked: "bg-emerald-400",
+  completed: "bg-green-400",
+  cancelled: "bg-rose-400"
+};
+
 const statusFilterOptions = [
   { label: "All Statuses", value: "all" },
   ...statusOptions.map((status) => ({ label: statusLabels[status], value: status }))
@@ -30,6 +60,12 @@ const deliveryLabels: Record<string, string> = {
 
 export function OrdersView({ orders }: { orders: Array<any> }) {
   const [view, setView] = useState<"kanban" | "list">("kanban");
+  const [editOrderId, setEditOrderId] = useState<string | null>(null);
+
+  function openOrderForEdit(orderId: string) {
+    setEditOrderId(orderId);
+    setView("kanban");
+  }
 
   return (
     <div className="space-y-4">
@@ -43,7 +79,7 @@ export function OrdersView({ orders }: { orders: Array<any> }) {
             type="button"
             variant="ghost"
             aria-pressed={view === "kanban"}
-            onClick={() => setView("kanban")}
+            onClick={() => { setEditOrderId(null); setView("kanban"); }}
             className={cn("h-9 gap-2 px-4 font-semibold", view === "kanban" && "bg-accent text-white hover:bg-accent/90")}
           >
             <LayoutGrid size={16} />
@@ -62,12 +98,16 @@ export function OrdersView({ orders }: { orders: Array<any> }) {
         </div>
       </div>
 
-      {view === "kanban" ? <OrdersBoard orders={orders} /> : <OrdersList orders={orders} />}
+      {view === "kanban" ? (
+        <OrdersBoard orders={orders} initialSelectedId={editOrderId} initialDetailOpen={Boolean(editOrderId)} />
+      ) : (
+        <OrdersList orders={orders} onEdit={openOrderForEdit} />
+      )}
     </div>
   );
 }
 
-function OrdersList({ orders }: { orders: Array<any> }) {
+function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (orderId: string) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
 
@@ -101,7 +141,7 @@ function OrdersList({ orders }: { orders: Array<any> }) {
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-line/80 bg-panel/70">
-        <table className="w-full min-w-[760px] text-left text-sm">
+        <table className="w-full min-w-[920px] text-left text-sm">
           <thead className="border-b border-line/80 bg-black/[0.08] text-[10px] uppercase tracking-[0.16em] text-foreground/40">
             <tr>
               <th className="px-4 py-3">Order</th>
@@ -110,11 +150,12 @@ function OrdersList({ orders }: { orders: Array<any> }) {
               <th className="px-4 py-3">Delivery</th>
               <th className="px-4 py-3">Total</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3 text-right">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line/60">
             {filtered.map((order) => (
-              <tr key={order.id} className="hover:bg-white/[0.025]">
+              <tr key={order.id} className="transition hover:bg-white/[0.025]">
                 <td className="whitespace-nowrap px-4 py-4 font-semibold">{order.orderNumber ?? order.id}</td>
                 <td className="px-4 py-4">
                   <div className="font-medium">{order.customer?.name ?? "Unknown customer"}</div>
@@ -124,7 +165,18 @@ function OrdersList({ orders }: { orders: Array<any> }) {
                 <td className="px-4 py-4 text-foreground/65">{deliveryLabels[order.deliveryMethod] ?? order.deliveryMethod ?? "—"}</td>
                 <td className="whitespace-nowrap px-4 py-4 font-semibold">Php {String(order.totalAmount ?? 0)}</td>
                 <td className="whitespace-nowrap px-4 py-4">
-                  <span className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">{statusLabels[order.status] ?? order.status ?? "Unknown"}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={cn("h-2 w-2 shrink-0 rounded-full", statusDot[order.status] ?? "bg-foreground/30")} />
+                    <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", statusTone[order.status] ?? "bg-white/[0.08] text-foreground/70")}>
+                      {statusLabels[order.status] ?? order.status ?? "Unknown"}
+                    </span>
+                  </div>
+                </td>
+                <td className="whitespace-nowrap px-4 py-4 text-right">
+                  <Button type="button" variant="secondary" className="h-9 gap-2 px-3" onClick={() => onEdit(order.id)}>
+                    <Pencil size={14} />
+                    Edit
+                  </Button>
                 </td>
               </tr>
             ))}
