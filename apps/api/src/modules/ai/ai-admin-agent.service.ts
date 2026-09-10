@@ -19,13 +19,14 @@ export class AiAdminAgentService {
     if (!message) throw new BadRequestException("A message is required.");
 
     const registryTools = await this.registry.getTools();
-    const tools = [
-      ...registryTools.filter((tool) => !tool.requiresCustomerContext).map((tool) => ({
+    const registryToolMap = new Map(registryTools.map((tool) => [tool.name, tool]));
+    const tools = registryTools
+      .filter((tool) => !tool.requiresCustomerContext && tool.name !== "get_current_datetime" && tool.name !== "delete_order")
+      .map((tool) => ({
         type: "function",
         function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
-      })),
-      ...this.applicationToolDefinitions()
-    ];
+      }));
+    tools.push(...this.applicationToolDefinitions());
 
     const system = `You are the private Empanada Hauz Admin AI Agent. You assist an authenticated administrator, not a customer.
 
@@ -59,6 +60,7 @@ TOOL USE:
       ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })),
       { role: "user", content: message }
     ];
+    const executedWrites = new Set<string>();
 
     for (let step = 0; step < 6; step += 1) {
       const response = await this.aiModel.chat(messages, tools);
@@ -79,7 +81,7 @@ TOOL USE:
       for (const call of toolCalls) {
         try {
           if (call.parseError) throw new BadRequestException(call.parseError);
-          const result = await this.executeTool(call.name, call.arguments);
+          const result = await this.executeTool(call.name, call.arguments, message, registryToolMap, executedWrites);
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : "Tool execution failed.";
@@ -99,23 +101,40 @@ TOOL USE:
       ["check_order_status", "Read the current status of a customer's order.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }],
       ["create_order", "Create an order. Requires explicit administrator confirmation and complete order data.", { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false }],
       ["update_order", "Update an existing order only after explicit administrator confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }],
-      ["cancel_order", "Cancel a queued customer order only after explicit administrator confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }],
-      ["delete_order", "Delete order is intentionally rejected by the application. Prefer cancellation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }]
+      ["cancel_order", "Cancel a queued customer order only after explicit administrator confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }]
     ];
     return definitions.map(([name, description, parameters]) => ({ type: "function", function: { name, description, parameters } }));
   }
 
-  private async executeTool(name: string, args: Record<string, unknown>) {
-    const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order", "delete_order"]);
+  private async executeTool(
+    name: string,
+    args: Record<string, unknown>,
+    currentMessage: string,
+    registryToolMap: Map<string, any>,
+    executedWrites: Set<string>
+  ) {
+    const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order"]);
     if (applicationNames.has(name)) {
-      const write = ["create_order", "update_order", "cancel_order", "delete_order"].includes(name);
-      if (write && args.confirmed !== true) throw new BadRequestException("Explicit administrator confirmation is required before this write action.");
+      const write = ["create_order", "update_order", "cancel_order"].includes(name);
+      if (write) {
+        if (!isExplicitConfirmation(currentMessage)) throw new BadRequestException("Explicit administrator confirmation is required in the current message before this write action.");
+        if (args.confirmed !== true) throw new BadRequestException("Explicit administrator confirmation is required before this write action.");
+        const fingerprint = `${name}:${stableArguments(args)}`;
+        if (executedWrites.has(fingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
+        executedWrites.add(fingerprint);
+      }
       return this.applicationTools.execute(name as AiApplicationToolName, args);
     }
 
-    const tool = (await this.registry.getTools()).find((item) => item.name === name);
+    const tool = registryToolMap.get(name);
     if (!tool) throw new BadRequestException(`Unknown admin tool: ${name}`);
-    if (tool.risk === "write" && args.confirmed !== true) throw new BadRequestException("Explicit administrator confirmation is required before this write action.");
+    if (tool.risk === "write") {
+      if (!isExplicitConfirmation(currentMessage)) throw new BadRequestException("Explicit administrator confirmation is required in the current message before this write action.");
+      if (args.confirmed !== true) throw new BadRequestException("Explicit administrator confirmation is required before this write action.");
+      const fingerprint = `${name}:${stableArguments(args)}`;
+      if (executedWrites.has(fingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
+      executedWrites.add(fingerprint);
+    }
     return this.registry.execute(name, args, { customerId: "admin", channel: "admin" });
   }
 
@@ -143,11 +162,7 @@ TOOL USE:
       }
       try {
         const rawArguments = call.function?.arguments ?? "{}";
-
-const parsed =
-  typeof rawArguments === "string"
-    ? JSON.parse(rawArguments || "{}")
-    : rawArguments;
+        const parsed = typeof rawArguments === "string" ? JSON.parse(rawArguments || "{}") : rawArguments;
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
           return [{ id, name, arguments: {}, parseError: "Tool arguments must be a JSON object." }];
         }
@@ -157,4 +172,21 @@ const parsed =
       }
     });
   }
+}
+
+function isExplicitConfirmation(message: string) {
+  return /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|approve|approved|go ahead|do it|proceed|please do|please proceed)([.!\s]|$)/i.test(message.trim());
+}
+
+function stableArguments(args: Record<string, unknown>) {
+  return JSON.stringify(sortObject(args));
+}
+
+function sortObject(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortObject);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value as Record<string, unknown>).sort().reduce<Record<string, unknown>>((result, key) => {
+    result[key] = sortObject((value as Record<string, unknown>)[key]);
+    return result;
+  }, {});
 }
