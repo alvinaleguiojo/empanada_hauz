@@ -82,11 +82,12 @@ export function FloatingOperatorChat() {
     communicationsButton.click();
 
     window.setTimeout(() => {
-      const callButton = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => {
-          const label = button.textContent?.trim();
-          return label === (type === "audio" ? "Audio" : "Video");
-        },
+      const callPanel = document.querySelector<HTMLElement>('body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"]');
+      if (!callPanel) return;
+
+      const wantedLabel = type === "audio" ? "Audio" : "Video";
+      const callButton = Array.from(callPanel.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent?.trim() === wantedLabel,
       );
       callButton?.click();
     }, 120);
