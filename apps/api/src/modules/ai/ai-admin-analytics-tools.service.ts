@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 
 @Injectable()
@@ -28,6 +29,103 @@ export class AiAdminAnalyticsToolsService {
       revenue: completed.reduce((sum, order) => sum + Number(order.totalAmount), 0)
     };
   }
+
+  async searchCustomers(query: string, limit = 10) {
+    const normalized = query.trim();
+    if (!normalized) return [];
+    const take = clampLimit(limit, 10, 25);
+    return this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { name: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+          { phoneNumber: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+          { messengerPsid: { contains: normalized, mode: Prisma.QueryMode.insensitive } }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        defaultAddress: true,
+        totalOrders: true,
+        repeatCustomerCount: true,
+        totalSpent: true,
+        lastOrderDate: true,
+        isVip: true
+      },
+      orderBy: [{ isVip: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
+      take
+    });
+  }
+
+  async searchOrders(query?: string, date?: string, status?: string, limit = 20) {
+    const take = clampLimit(limit, 20, 50);
+    const search = query?.trim();
+    const dateFilter = date ? parseManilaDate(date) : undefined;
+    const statusFilter = isOrderStatus(status) ? status : undefined;
+    const filters: Prisma.OrderWhereInput[] = [];
+
+    if (dateFilter) filters.push(orderBusinessDateWhere(dateFilter.start, dateFilter.end));
+    if (statusFilter) filters.push({ status: statusFilter });
+    if (search) {
+      filters.push({
+        OR: [
+          { orderNumber: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          { location: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          { address: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          { notes: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          { customer: { name: { contains: search, mode: Prisma.QueryMode.insensitive } } },
+          { customer: { phoneNumber: { contains: search, mode: Prisma.QueryMode.insensitive } } }
+        ]
+      });
+    }
+
+    const where = filters.length === 0 ? undefined : filters.length === 1 ? filters[0] : { AND: filters };
+    const orders = await this.prisma.order.findMany({
+      where,
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        quantity: true,
+        totalAmount: true,
+        deliveryMethod: true,
+        paymentMethod: true,
+        location: true,
+        address: true,
+        preferredSchedule: true,
+        createdAt: true,
+        customer: { select: { id: true, name: true, phoneNumber: true } }
+      },
+      orderBy: { createdAt: "desc" },
+      take
+    });
+
+    return orders.map((order) => ({
+      ...order,
+      totalAmount: Number(order.totalAmount)
+    }));
+  }
+}
+
+function clampLimit(value: number, fallback: number, maximum: number) {
+  const parsed = Math.trunc(Number(value));
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), maximum) : fallback;
+}
+
+function isOrderStatus(value?: string): value is string {
+  return [
+    "inquiry", "awaiting_confirmation", "confirmed", "queued", "preparing", "frying",
+    "packed", "ready_for_pickup", "ready_for_booking", "booked", "completed", "cancelled"
+  ].includes(value ?? "");
+}
+
+function parseManilaDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const start = new Date(`${value}T00:00:00+08:00`);
+  if (Number.isNaN(start.getTime())) return undefined;
+  const end = addDays(start, 1);
+  return { start, end };
 }
 
 function orderBusinessDateWhere(start: Date, end: Date) {
