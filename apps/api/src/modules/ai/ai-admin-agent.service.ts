@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AiApplicationToolsService, AiApplicationToolName } from "./ai-application-tools.service";
 import { AiAdminModelService } from "./ai-admin-model.service";
+import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 
 interface AdminAgentRequest { message: string; history?: Array<{ role: "user" | "assistant"; content: string }> }
@@ -10,6 +11,7 @@ interface AdminToolCall { name: string; arguments: Record<string, unknown>; pars
 export class AiAdminAgentService {
   constructor(
     private readonly applicationTools: AiApplicationToolsService,
+    private readonly analyticsTools: AiAdminAnalyticsToolsService,
     private readonly registry: AiToolRegistryService,
     private readonly aiModel: AiAdminModelService
   ) {}
@@ -27,6 +29,20 @@ export class AiAdminAgentService {
         function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
       }));
     tools.push(...this.applicationToolDefinitions());
+    tools.push({
+      type: "function",
+      function: {
+        name: "get_order_metrics",
+        description: "Count and summarize orders for today, this week, or this month. Use this for order counts, completed orders, active orders, cancelled orders, pieces sold, and revenue.",
+        parameters: {
+          type: "object",
+          properties: {
+            range: { type: "string", enum: ["today", "week", "month"] }
+          },
+          additionalProperties: false
+        }
+      }
+    });
 
     const system = `You are the private Empanada Hauz Admin AI Agent. You assist an authenticated administrator, not a customer.
 
@@ -113,6 +129,11 @@ TOOL USE:
     registryToolMap: Map<string, any>,
     executedWrites: Set<string>
   ) {
+    if (name === "get_order_metrics") {
+      const range = args.range === "week" || args.range === "month" ? args.range : "today";
+      return this.analyticsTools.getOrderMetrics(range);
+    }
+
     const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order"]);
     if (applicationNames.has(name)) {
       const write = ["create_order", "update_order", "cancel_order"].includes(name);
