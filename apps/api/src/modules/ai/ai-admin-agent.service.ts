@@ -30,9 +30,7 @@ export class AiAdminAgentService {
     const directCustomerSearch = extractDirectCustomerSearch(message);
     if (directCustomerSearch) {
       const customers = await this.analyticsTools.searchCustomers(directCustomerSearch, 10);
-      if (customers.length === 0) {
-        return { reply: `No customer record found for \"${directCustomerSearch}\".`, snapshotAt: new Date().toISOString() };
-      }
+      if (customers.length === 0) return { reply: `No customer record found for "${directCustomerSearch}".`, snapshotAt: new Date().toISOString() };
       return { reply: formatCustomerSearchReply(directCustomerSearch, customers), snapshotAt: new Date().toISOString(), data: customers };
     }
 
@@ -128,17 +126,17 @@ TOOL USE:
     const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order"]);
     if (applicationNames.has(name)) {
       const write = ["create_order", "update_order", "cancel_order"].includes(name);
-      if (write) return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites, () => this.applicationTools.execute(name as AiApplicationToolName, args));
+      if (write) return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites);
       return this.applicationTools.execute(name as AiApplicationToolName, args);
     }
 
     const tool = registryToolMap.get(name);
     if (!tool) throw new BadRequestException(`Unknown admin tool: ${name}`);
-    if (tool.risk === "write") return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites, () => this.registry.execute(name, args, { customerId: "admin", channel: "admin" }));
+    if (tool.risk === "write") return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites);
     return this.registry.execute(name, args, { customerId: "admin", channel: "admin" });
   }
 
-  private async executeConfirmedWrite(name: string, args: Record<string, unknown>, currentMessage: string, adminId: string, conversationId: string, executedWrites: Set<string>, execute: () => Promise<unknown>) {
+  private async executeConfirmedWrite(name: string, args: Record<string, unknown>, currentMessage: string, adminId: string, conversationId: string, executedWrites: Set<string>) {
     const persistedArgs = stripConfirmation(args);
     const fingerprint = `${name}:${stableArguments(persistedArgs)}`;
     const explicit = isExplicitConfirmation(currentMessage);
@@ -149,21 +147,17 @@ TOOL USE:
       throw new BadRequestException("This action requires confirmation. Ask the administrator to confirm this exact action before executing it.");
     }
 
-    if (!pending || pending.action !== name) {
-      throw new BadRequestException("No matching pending admin action is available for this confirmation. Please repeat the requested action and then confirm it.");
-    }
-
-    const pendingArgs = pending.arguments ?? {};
-    if (pending.fingerprint !== `${name}:${stableArguments(pendingArgs)}`) {
+    if (!pending || pending.action !== name) throw new BadRequestException("No matching pending admin action is available for this confirmation. Please repeat the requested action and then confirm it.");
+    if (pending.fingerprint !== `${name}:${stableArguments(pending.arguments)}`) {
       await this.actionState.clear(adminId, conversationId);
       throw new BadRequestException("The pending admin action is invalid. Please repeat the action.");
     }
 
-    const executionFingerprint = `${name}:${stableArguments(pendingArgs)}`;
+    const executionFingerprint = `${name}:${stableArguments(pending.arguments)}`;
     if (executedWrites.has(executionFingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
     executedWrites.add(executionFingerprint);
 
-    const result = await executeWithPendingArguments(name, pendingArgs, execute, this.applicationTools, this.registry);
+    const result = await executePendingWrite(name, pending.arguments, this.applicationTools, this.registry);
     await this.actionState.clear(adminId, conversationId);
     return result;
   }
@@ -192,7 +186,7 @@ TOOL USE:
   }
 }
 
-async function executeWithPendingArguments(name: string, pendingArgs: Record<string, unknown>, originalExecute: () => Promise<unknown>, applicationTools: AiApplicationToolsService, registry: AiToolRegistryService) {
+async function executePendingWrite(name: string, pendingArgs: Record<string, unknown>, applicationTools: AiApplicationToolsService, registry: AiToolRegistryService) {
   const args = { ...pendingArgs, confirmed: true };
   const applicationNames = new Set(["create_order", "update_order", "cancel_order"]);
   if (applicationNames.has(name)) return applicationTools.execute(name as AiApplicationToolName, args);
