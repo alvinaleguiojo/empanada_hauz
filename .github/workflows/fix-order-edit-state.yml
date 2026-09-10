@@ -77,3 +77,5 @@ jobs:
           git add apps/web/src/components/orders/orders-board.tsx .github/workflows/fix-order-edit-state.yml
           git commit -m "fix: preserve order edit state during catalog load"
           git push origin main
+
+# temporary patch runner
