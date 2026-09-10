@@ -109,7 +109,7 @@ export class AiAdminAnalyticsToolsService {
     }));
   }
 
-  private async withActualCustomerOrderStats<T extends { id: string; totalOrders: number; totalSpent: unknown }>(
+  private async withActualCustomerOrderStats<T extends { id: string; name: string; totalOrders: number; totalSpent: unknown }>(
     customers: T[],
     matchType: "exact" | "order_relation" | "fuzzy"
   ) {
