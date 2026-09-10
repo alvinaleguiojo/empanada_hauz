@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AdminGuard } from "../ai-instructions/admin.guard";
@@ -22,6 +22,11 @@ export class AiActionsController {
   @Patch("model")
   async updateModel(@Body() body: { provider?: string; model?: string }) {
     return this.aiModel.setSettings(body.provider ?? "", body.model ?? "");
+  }
+
+  @Post("generate-product")
+  async generateProduct(@Body() body: { prompt?: string; existingProducts?: Array<{ name: string; category: string }> }) {
+    return this.aiModel.generateProduct(body.prompt ?? "", body.existingProducts ?? []);
   }
 
   @Patch(":name")
