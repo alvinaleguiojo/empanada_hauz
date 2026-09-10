@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { OrderStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 
 @Injectable()
@@ -62,11 +62,11 @@ export class AiAdminAnalyticsToolsService {
     const take = clampLimit(limit, 20, 50);
     const search = query?.trim();
     const dateFilter = date ? parseManilaDate(date) : undefined;
-    const statusFilter = isOrderStatus(status) ? status : undefined;
+    const statusFilter = isOrderStatus(status);
     const filters: Prisma.OrderWhereInput[] = [];
 
     if (dateFilter) filters.push(orderBusinessDateWhere(dateFilter.start, dateFilter.end));
-    if (statusFilter) filters.push({ status: statusFilter });
+    if (statusFilter) filters.push({ status: status as OrderStatus });
     if (search) {
       filters.push({
         OR: [
