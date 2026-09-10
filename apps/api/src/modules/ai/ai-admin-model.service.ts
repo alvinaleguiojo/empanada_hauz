@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { GatewayTimeoutException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiControlService } from "./ai-control.service";
 
@@ -32,15 +32,21 @@ export class AiAdminModelService {
 
   private async chatOllama(body: Record<string, unknown>) {
     const baseUrl = (this.config.get<string>("OLLAMA_BASE_URL") ?? "http://localhost:11434").replace(/\/$/, "");
-    const timeoutMs = Number(this.config.get<string>("OLLAMA_TIMEOUT_MS", "120000"));
+    const timeoutMs = Number(this.config.get<string>("OLLAMA_TIMEOUT_MS", "300000"));
+    const effectiveTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs >= 1000 ? timeoutMs : 300000;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Number.isFinite(timeoutMs) && timeoutMs >= 1000 ? timeoutMs : 120000);
+    const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs);
     try {
       const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
       const text = await response.text();
       if (!response.ok) throw new Error(`Ollama admin agent request failed: ${response.status} ${text}`);
       const parsed = JSON.parse(text) as { choices?: Array<{ message?: unknown }> };
       return parsed.choices?.[0]?.message ?? { content: "" };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new GatewayTimeoutException(`Ollama did not respond within ${Math.round(effectiveTimeoutMs / 1000)} seconds. Check that the selected model is running and responsive, or increase OLLAMA_TIMEOUT_MS.`);
+      }
+      throw error;
     } finally { clearTimeout(timeout); }
   }
 
