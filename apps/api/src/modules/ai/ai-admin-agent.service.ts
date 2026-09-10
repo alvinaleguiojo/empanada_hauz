@@ -2,9 +2,15 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { AiApplicationToolsService, AiApplicationToolName } from "./ai-application-tools.service";
 import { AiAdminModelService } from "./ai-admin-model.service";
 import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service";
+import { AiAdminActionStateService } from "./ai-admin-action-state.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 
-interface AdminAgentRequest { message: string; history?: Array<{ role: "user" | "assistant"; content: string }> }
+interface AdminAgentRequest {
+  message: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  adminId: string;
+  conversationId: string;
+}
 interface AdminToolCall { name: string; arguments: Record<string, unknown>; parseError?: string }
 
 @Injectable()
@@ -12,6 +18,7 @@ export class AiAdminAgentService {
   constructor(
     private readonly applicationTools: AiApplicationToolsService,
     private readonly analyticsTools: AiAdminAnalyticsToolsService,
+    private readonly actionState: AiAdminActionStateService,
     private readonly registry: AiToolRegistryService,
     private readonly aiModel: AiAdminModelService
   ) {}
@@ -24,7 +31,7 @@ export class AiAdminAgentService {
     if (directCustomerSearch) {
       const customers = await this.analyticsTools.searchCustomers(directCustomerSearch, 10);
       if (customers.length === 0) {
-        return { reply: `No customer record found for "${directCustomerSearch}".`, snapshotAt: new Date().toISOString() };
+        return { reply: `No customer record found for \"${directCustomerSearch}\".`, snapshotAt: new Date().toISOString() };
       }
       return { reply: formatCustomerSearchReply(directCustomerSearch, customers), snapshotAt: new Date().toISOString(), data: customers };
     }
@@ -50,7 +57,8 @@ GROUNDING RULES:
 
 WRITE SAFETY:
 - Read actions may execute normally.
-- Consequential or destructive actions require explicit administrator confirmation in the current request.
+- Consequential or destructive actions require explicit administrator confirmation.
+- A confirmation may be a follow-up message in the same admin conversation when there is a matching pending action.
 - Never manufacture confirmed=true.
 - Never treat an implied request as confirmation.
 - Execute a confirmed write only once.
@@ -59,7 +67,7 @@ WRITE SAFETY:
 TOOL USE:
 - Prefer the narrowest relevant tool.
 - Use search_customers before customer-specific order tools when the administrator gives a customer name or phone instead of an internal customerId.
-- Use search_orders for order lookup by order number, customer name, phone, date, or status.
+- Use search_orders for order lookup.
 - Use multiple tools when a request requires multiple verified facts.
 - Treat tool errors as facts about what the application could not do, not as permission to guess.
 - Keep the final response concise and operationally useful.`;
@@ -77,7 +85,7 @@ TOOL USE:
       for (const call of toolCalls) {
         try {
           if (call.parseError) throw new BadRequestException(call.parseError);
-          const result = await this.executeTool(call.name, call.arguments, message, registryToolMap, executedWrites);
+          const result = await this.executeTool(call.name, call.arguments, message, request.adminId, request.conversationId, registryToolMap, executedWrites);
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : "Tool execution failed.";
@@ -90,26 +98,26 @@ TOOL USE:
 
   private applicationToolDefinitions() {
     const definitions: Array<[AiApplicationToolName, string, Record<string, unknown>]> = [
-      ["get_current_datetime", "Get the current Manila date and time. Use this for today, tomorrow, and relative dates.", { type: "object", properties: {}, additionalProperties: false }],
+      ["get_current_datetime", "Get the current Manila date and time.", { type: "object", properties: {}, additionalProperties: false }],
       ["get_order_summary", "Read an order by customerId and order number or id.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }],
       ["get_my_orders", "Read recent orders for a customer.", { type: "object", properties: { customerId: { type: "string" }, limit: { type: "number" } }, required: ["customerId"], additionalProperties: false }],
       ["check_order_status", "Read the current status of a customer's order.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }],
-      ["create_order", "Create an order. Requires explicit administrator confirmation and complete order data.", { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false }],
-      ["update_order", "Update an existing order only after explicit administrator confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }],
-      ["cancel_order", "Cancel a queued customer order only after explicit administrator confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }]
+      ["create_order", "Create an order. Requires confirmation.", { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false }],
+      ["update_order", "Update an existing order only after confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }],
+      ["cancel_order", "Cancel a queued customer order only after confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }]
     ];
     return definitions.map(([name, description, parameters]) => ({ type: "function", function: { name, description, parameters } }));
   }
 
   private adminReadToolDefinitions() {
     return [
-      { type: "function", function: { name: "get_order_metrics", description: "Count and summarize orders for today, this week, or this month. Use this for order counts, completed orders, active orders, cancelled orders, pieces sold, and revenue.", parameters: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false } } },
-      { type: "function", function: { name: "search_customers", description: "Find administrator customer records by name, phone number, or Messenger identifier. Use this before customer-specific order tools when the administrator does not provide an internal customerId.", parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false } } },
-      { type: "function", function: { name: "search_orders", description: "Find orders by order number, customer name, phone number, location, date, or status. Use this for natural administrator requests such as 'find John's order', 'show today's queued orders', or 'find EH-1042'.", parameters: { type: "object", properties: { query: { type: "string" }, date: { type: "string", description: "Business date in YYYY-MM-DD format." }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false } } }
+      { type: "function", function: { name: "get_order_metrics", description: "Count and summarize orders for today, this week, or this month.", parameters: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false } } },
+      { type: "function", function: { name: "search_customers", description: "Find administrator customer records by name, phone number, or Messenger identifier.", parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false } } },
+      { type: "function", function: { name: "search_orders", description: "Find orders by order number, customer name, phone number, location, date, or status.", parameters: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false } } }
     ];
   }
 
-  private async executeTool(name: string, args: Record<string, unknown>, currentMessage: string, registryToolMap: Map<string, any>, executedWrites: Set<string>) {
+  private async executeTool(name: string, args: Record<string, unknown>, currentMessage: string, adminId: string, conversationId: string, registryToolMap: Map<string, any>, executedWrites: Set<string>) {
     if (name === "get_order_metrics") {
       const range = args.range === "week" || args.range === "month" ? args.range : "today";
       return this.analyticsTools.getOrderMetrics(range);
@@ -120,26 +128,44 @@ TOOL USE:
     const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order"]);
     if (applicationNames.has(name)) {
       const write = ["create_order", "update_order", "cancel_order"].includes(name);
-      if (write) {
-        if (!isExplicitConfirmation(currentMessage)) throw new BadRequestException("Explicit administrator confirmation is required in the current message before this write action.");
-        if (args.confirmed !== true) throw new BadRequestException("Explicit administrator confirmation is required before this write action.");
-        const fingerprint = `${name}:${stableArguments(args)}`;
-        if (executedWrites.has(fingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
-        executedWrites.add(fingerprint);
-      }
+      if (write) return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites, () => this.applicationTools.execute(name as AiApplicationToolName, args));
       return this.applicationTools.execute(name as AiApplicationToolName, args);
     }
 
     const tool = registryToolMap.get(name);
     if (!tool) throw new BadRequestException(`Unknown admin tool: ${name}`);
-    if (tool.risk === "write") {
-      if (!isExplicitConfirmation(currentMessage)) throw new BadRequestException("Explicit administrator confirmation is required in the current message before this write action.");
-      if (args.confirmed !== true) throw new BadRequestException("Explicit administrator confirmation is required before this write action.");
-      const fingerprint = `${name}:${stableArguments(args)}`;
-      if (executedWrites.has(fingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
-      executedWrites.add(fingerprint);
-    }
+    if (tool.risk === "write") return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites, () => this.registry.execute(name, args, { customerId: "admin", channel: "admin" }));
     return this.registry.execute(name, args, { customerId: "admin", channel: "admin" });
+  }
+
+  private async executeConfirmedWrite(name: string, args: Record<string, unknown>, currentMessage: string, adminId: string, conversationId: string, executedWrites: Set<string>, execute: () => Promise<unknown>) {
+    const persistedArgs = stripConfirmation(args);
+    const fingerprint = `${name}:${stableArguments(persistedArgs)}`;
+    const explicit = isExplicitConfirmation(currentMessage);
+    const pending = await this.actionState.get(adminId, conversationId);
+
+    if (!explicit) {
+      await this.actionState.save(adminId, conversationId, name, persistedArgs, fingerprint);
+      throw new BadRequestException("This action requires confirmation. Ask the administrator to confirm this exact action before executing it.");
+    }
+
+    if (!pending || pending.action !== name) {
+      throw new BadRequestException("No matching pending admin action is available for this confirmation. Please repeat the requested action and then confirm it.");
+    }
+
+    const pendingArgs = pending.arguments ?? {};
+    if (pending.fingerprint !== `${name}:${stableArguments(pendingArgs)}`) {
+      await this.actionState.clear(adminId, conversationId);
+      throw new BadRequestException("The pending admin action is invalid. Please repeat the action.");
+    }
+
+    const executionFingerprint = `${name}:${stableArguments(pendingArgs)}`;
+    if (executedWrites.has(executionFingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
+    executedWrites.add(executionFingerprint);
+
+    const result = await executeWithPendingArguments(name, pendingArgs, execute, this.applicationTools, this.registry);
+    await this.actionState.clear(adminId, conversationId);
+    return result;
   }
 
   private readContent(response: unknown) {
@@ -166,6 +192,13 @@ TOOL USE:
   }
 }
 
+async function executeWithPendingArguments(name: string, pendingArgs: Record<string, unknown>, originalExecute: () => Promise<unknown>, applicationTools: AiApplicationToolsService, registry: AiToolRegistryService) {
+  const args = { ...pendingArgs, confirmed: true };
+  const applicationNames = new Set(["create_order", "update_order", "cancel_order"]);
+  if (applicationNames.has(name)) return applicationTools.execute(name as AiApplicationToolName, args);
+  return registry.execute(name, args, { customerId: "admin", channel: "admin" });
+}
+
 function extractDirectCustomerSearch(message: string) {
   const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)\s*\??$/i);
   if (!match) return null;
@@ -181,6 +214,12 @@ function formatCustomerSearchReply(query: string, customers: Array<{ name: strin
 
 function isExplicitConfirmation(message: string) {
   return /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|approve|approved|go ahead|do it|proceed|please do|please proceed)([.!\s]|$)/i.test(message.trim());
+}
+
+function stripConfirmation(args: Record<string, unknown>) {
+  const copy = { ...args };
+  delete copy.confirmed;
+  return copy;
 }
 
 function stableArguments(args: Record<string, unknown>) {
