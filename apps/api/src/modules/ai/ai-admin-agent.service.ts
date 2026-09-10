@@ -28,15 +28,7 @@ export class AiAdminAgentService {
       ...registryTools.filter((tool) => !tool.requiresCustomerContext).map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })),
       ...this.applicationToolDefinitions()
     ];
-    const system = `You are the private Empanada Hauz Admin AI Agent. You assist an authenticated administrator, not a customer. You have access to live business data and approved application tools. Be concise but operationally useful. Never invent business facts when a tool or snapshot can provide them.
-
-You may analyze sales, orders, customers, products, inventory, production, expenses, deliveries, riders, referrals, analytics, conversations, and system activity from the supplied live snapshot. Use tools when the user asks for current or precise information or wants an action performed.
-
-WRITE SAFETY: Reading is automatic. For destructive or consequential actions (create/update/cancel orders, changing products, inventory, expenses, users, delivery state, or other writes), explain what will happen and require the admin to explicitly confirm in the same request before executing. Never treat an implied request as confirmation. If a tool itself requires confirmation, pass confirmed=true only after explicit confirmation.
-
-CUSTOMER OPERATIONS: When using customer-specific order tools, the customerId must come from the admin's request or live data; never guess an identity.
-
-Business snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map((tool) => `${tool.function.name}: ${tool.function.description}`).join("\n")}`;
+    const system = `You are the private Empanada Hauz Admin AI Agent. You assist an authenticated administrator, not a customer. You have access to live business data and approved application tools. Be concise but operationally useful. Never invent business facts when a tool or snapshot can provide them.\n\nYou may analyze sales, orders, customers, products, inventory, production, expenses, deliveries, riders, referrals, analytics, conversations, and system activity from the supplied live snapshot. Use tools when the user asks for current or precise information or wants an action performed.\n\nWRITE SAFETY: Reading is automatic. For destructive or consequential actions (create/update/cancel orders, changing products, inventory, expenses, users, delivery state, or other writes), explain what will happen and require the admin to explicitly confirm in the same request before executing. Never treat an implied request as confirmation. If a tool itself requires confirmation, pass confirmed=true only after explicit confirmation.\n\nCUSTOMER OPERATIONS: When using customer-specific order tools, the customerId must come from the admin's request or live data; never guess an identity.\n\nBusiness snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map((tool) => `${tool.function.name}: ${tool.function.description}`).join("\n")}`;
     const messages: Array<Record<string, unknown>> = [
       { role: "system", content: system },
       ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })),
@@ -95,7 +87,14 @@ Business snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map
   }
 
   private readToolCalls(response: unknown): Array<AdminToolCall & { id: string }> {
-    const value = response as { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }>; message?: { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> }; choices?: Array<{ message?: { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> }> };
+    type ToolCallShape = { id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } };
+    type ResponseShape = {
+      tool_calls?: ToolCallShape[];
+      message?: { tool_calls?: ToolCallShape[] };
+      choices?: Array<{ message?: { tool_calls?: ToolCallShape[] } }>;
+    };
+
+    const value = response as ResponseShape;
     const calls = value?.tool_calls ?? value?.message?.tool_calls ?? value?.choices?.[0]?.message?.tool_calls ?? [];
     return calls.flatMap((call, index) => {
       const name = call.function?.name?.trim();
