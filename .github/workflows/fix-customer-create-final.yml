@@ -1,4 +1,4 @@
-name: Order editor state fix
+name: Final customer create fix
 
 on:
   push:
@@ -10,29 +10,31 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'fix: preserve order editor line items'
+    if: github.event.head_commit.message != 'fix: customer create final patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch order editor
+      - name: Patch customer page
         shell: python
         run: |
           from pathlib import Path
-          p = Path('apps/web/src/components/orders/orders-board.tsx')
+          p = Path('apps/web/src/app/customer/page-client.tsx')
           text = p.read_text()
-          old = '''  useEffect(() => {\n    if (\n      !selectedOrder ||\n      productOptions.length === 0\n    ) {\n      return;\n    }\n\n    setLineItems((current) => {\n      const hasAllCatalogProducts =\n        productOptions.every((product) =>\n          current.some(\n            (item) =>\n              item.productName.toLowerCase() ===\n              product.value.toLowerCase(),\n          ),\n        );\n\n      return hasAllCatalogProducts\n        ? current\n        : createEditableLineItems(\n            selectedOrder,\n            productOptions,\n          );\n    });\n  }, [productOptions, selectedOrder?.id]);'''
-          new = '''  useEffect(() => {\n    if (\n      !selectedOrder ||\n      productOptions.length === 0\n    ) {\n      return;\n    }\n\n    setLineItems((current) => {\n      if (current.length > 0) {\n        return current;\n      }\n\n      return createEditableLineItems(\n        selectedOrder,\n        productOptions,\n      );\n    });\n  }, [productOptions, selectedOrder?.id]);'''
-          if old not in text:
-              raise SystemExit('target order editor effect not found; refusing to modify file')
-          p.write_text(text.replace(old, new, 1))
+          text = text.replace('  useState(() => {', '  useEffect(() => {', 1)
+          text = text.replace('sm:px-6]} ', 'sm:px-6} ', 1)
+          p.write_text(text)
+          page = Path('apps/web/src/app/customer/page.tsx')
+          page.write_text('"use client";\n\nimport CustomerKioskPage from "./page-client";\n\nexport default CustomerKioskPage;\n')
       - name: Verify
         run: |
-          grep -n -A18 -B2 'setLineItems((current)' apps/web/src/components/orders/orders-board.tsx
-      - name: Commit fix and remove workflow
+          grep -n 'useEffect(() => {' apps/web/src/app/customer/page-client.tsx | head -5
+          grep -n 'Php {summary.total}' apps/web/src/app/customer/page-client.tsx
+          grep -n 'onBlur={quoteDelivery}' apps/web/src/app/customer/page-client.tsx
+      - name: Commit and remove workflow
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/web/src/components/orders/orders-board.tsx
+          git add apps/web/src/app/customer/page-client.tsx apps/web/src/app/customer/page.tsx
           git rm .github/workflows/fix-customer-create-final.yml
-          git commit -m "fix: preserve order editor line items"
+          git commit -m "fix: customer create final patch"
           git push
