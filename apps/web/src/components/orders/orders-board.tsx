@@ -47,7 +47,9 @@ const deliveryBadgeTone: Record<string, string> = { pickup: "bg-white/[0.08] tex
 const scheduleFormatter = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
 const noteTimeFormatter = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function OrdersBoard({ orders }: { orders: Array<any> }) {
+type OrdersBoardProps = { orders: Array<any>; openOrderId?: string | null; openInEdit?: boolean };
+
+export function OrdersBoard({ orders, openOrderId = null, openInEdit = false }: OrdersBoardProps) {
   const [items, setItems] = useState(orders);
   const [selectedId, setSelectedId] = useState<string | null>(orders[0]?.id ?? null);
   const [selectedStatus, setSelectedStatus] = useState<string>(orders[0]?.status ?? "queued");
@@ -67,6 +69,7 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   const [exportPending, startExportTransition] = useTransition();
   const [exportResult, setExportResult] = useState<{ name: string; webViewLink?: string } | null>(null);
   const lastSelectedOrderIdRef = useRef<string | null>(null);
+  const lastExternalOpenIdRef = useRef<string | null>(null);
   const latestRefreshIdRef = useRef(0);
   const selectedDateRef = useRef(selectedDate);
   const searchRef = useRef(search);
@@ -134,6 +137,16 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
 
   const selectedOrder = useMemo(() => filteredItems.find((item) => item.id === selectedId) ?? filteredItems[0] ?? null, [filteredItems, selectedId]);
   useEffect(() => { if (selectedOrder?.id !== selectedId) setSelectedId(selectedOrder?.id ?? null); }, [selectedId, selectedOrder]);
+  useEffect(() => {
+    if (!openInEdit || !openOrderId || lastExternalOpenIdRef.current === openOrderId) return;
+    const target = items.find((item) => item.id === openOrderId);
+    if (!target) return;
+    lastExternalOpenIdRef.current = openOrderId;
+    setSelectedId(target.id);
+    setSelectedStatus(target.status);
+    setDetailOpen(true);
+    setEditMode(true);
+  }, [items, openInEdit, openOrderId]);
 
   useEffect(() => {
     if (!selectedOrder) return;
@@ -163,7 +176,6 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   useEffect(() => {
     if (!selectedOrder || productOptions.length === 0) return;
     setLineItems((current) => {
-      const catalogNames = new Set(productOptions.map((product) => product.value.toLowerCase()));
       const hasAllCatalogProducts = productOptions.every((product) => current.some((item) => item.productName.toLowerCase() === product.value.toLowerCase()));
       return hasAllCatalogProducts ? current : createEditableLineItems(selectedOrder, productOptions);
     });
@@ -269,11 +281,10 @@ function formatSchedule(value?: string | null) { return value ? scheduleFormatte
 function formatRider(order: any) { return [order?.delivery?.riderName, order?.delivery?.riderPlate].filter(Boolean).join(" - ") || "No rider details"; }
 function isMaximOrderView(order: any) { return order?.deliveryMethod === "maxim" || Boolean(order?.delivery) || order?.status === "ready_for_booking" || order?.status === "booked"; }
 function formatPeso(value: number) { return Number.isInteger(value) ? String(value) : value.toFixed(2); }
-function formatExportDate(value?: string | null) { return value ? scheduleFormatter.format(new Date(value)) : ""; }
+function escapeXml(value: string) { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
 function createXlsxBlob(sheetName: string, rows: Array<Array<unknown>>) { const files = new Map<string, string>([["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n  <Default Extension="xml" ContentType="application/xml"/>\n  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>\n  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>\n  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>\n</Types>`], ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>\n</Relationships>`], ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n  <sheets><sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/></sheets>\n</workbook>`], ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>\n  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n</Relationships>`], ["xl/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\n  <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>\n  <fills count="1"><fill><patternFill patternType="none"/></fill></fills>\n  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>\n  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>\n  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>\n</styleSheet>`], ["xl/worksheets/sheet1.xml", createWorksheetXml(rows)]]); return new Blob([createZip(files)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); }
 function createWorksheetXml(rows: Array<Array<unknown>>) { const body = rows.map((row, rowIndex) => { const rowNumber = rowIndex + 1; const cells = row.map((value, columnIndex) => { const reference = `${columnName(columnIndex)}${rowNumber}`; return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(String(value ?? ""))}</t></is></c>`; }).join(""); return `<row r="${rowNumber}">${cells}</row>`; }).join(""); return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\n  <sheetData>${body}</sheetData>\n</worksheet>`; }
 function createZip(files: Map<string, string>) { const encoder = new TextEncoder(); const localParts: Uint8Array[] = []; const centralParts: Uint8Array[] = []; let offset = 0; for (const [name, content] of files) { const nameBytes = encoder.encode(name); const contentBytes = encoder.encode(content); const crc = crc32(contentBytes); const localHeader = createZipHeader(0x04034b50, nameBytes, contentBytes, crc, offset); const centralHeader = createZipHeader(0x02014b50, nameBytes, contentBytes, crc, offset); localParts.push(localHeader, contentBytes); centralParts.push(centralHeader); offset += localHeader.length + contentBytes.length; } const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0); const end = new Uint8Array(22); const view = new DataView(end.buffer); view.setUint32(0, 0x06054b50, true); view.setUint16(8, files.size, true); view.setUint16(10, files.size, true); view.setUint32(12, centralSize, true); view.setUint32(16, offset, true); const parts = [...localParts, ...centralParts, end]; const zipBytes = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0)); let cursor = 0; for (const part of parts) { zipBytes.set(part, cursor); cursor += part.length; } return zipBytes.buffer.slice(0); }
 function createZipHeader(signature: number, nameBytes: Uint8Array, contentBytes: Uint8Array, crc: number, localOffset: number) { const isCentral = signature === 0x02014b50; const header = new Uint8Array(isCentral ? 46 + nameBytes.length : 30 + nameBytes.length); const view = new DataView(header.buffer); view.setUint32(0, signature, true); if (isCentral) { view.setUint16(4, 20, true); view.setUint16(6, 20, true); view.setUint32(16, crc, true); view.setUint32(20, contentBytes.length, true); view.setUint32(24, contentBytes.length, true); view.setUint16(28, nameBytes.length, true); view.setUint32(42, localOffset, true); header.set(nameBytes, 46); } else { view.setUint16(4, 20, true); view.setUint32(14, crc, true); view.setUint32(18, contentBytes.length, true); view.setUint32(22, contentBytes.length, true); view.setUint16(26, nameBytes.length, true); header.set(nameBytes, 30); } return header; }
 function crc32(bytes: Uint8Array) { let crc = 0xffffffff; for (const byte of bytes) { crc ^= byte; for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); } return (crc ^ 0xffffffff) >>> 0; }
 function columnName(index: number) { let name = ""; let value = index + 1; while (value > 0) { const remainder = (value - 1) % 26; name = String.fromCharCode(65 + remainder) + name; value = Math.floor((value - 1) / 26); } return name; }
-function escapeXml(value: string) { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
