@@ -34,6 +34,7 @@ export class AiAdminAnalyticsToolsService {
     const normalized = query.trim();
     if (!normalized) return [];
     const take = clampLimit(limit, 10, 25);
+
     const exact = await this.prisma.customer.findMany({
       where: {
         OR: [
@@ -51,9 +52,37 @@ export class AiAdminAnalyticsToolsService {
       return exact.map((customer) => ({ ...customer, matchType: "exact" as const }));
     }
 
+    // Orders are the same source used by the Orders board. Search their
+    // customer relation as a second exact path so an otherwise valid customer
+    // is not missed because of customer-table indexing/ranking differences.
+    const orderCustomers = await this.prisma.order.findMany({
+      where: {
+        customer: {
+          OR: [
+            { name: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+            { phoneNumber: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+            { messengerPsid: { contains: normalized, mode: Prisma.QueryMode.insensitive } }
+          ]
+        }
+      },
+      select: { customer: { select: customerSearchSelect } },
+      orderBy: { createdAt: "desc" },
+      take: Math.max(take * 5, 50)
+    });
+
+    const seen = new Set<string>();
+    const relatedExact = orderCustomers
+      .map((entry) => entry.customer)
+      .filter((customer) => customer && !seen.has(customer.id) && seen.add(customer.id))
+      .slice(0, take);
+
+    if (relatedExact.length > 0) {
+      return relatedExact.map((customer) => ({ ...customer, matchType: "order_relation" as const }));
+    }
+
     // Names are free-form and administrators commonly make a one-character
-    // typo. MongoDB's contains query cannot express edit-distance matching,
-    // so only on an exact miss do we compare a bounded candidate set locally.
+    // typo. Compare a bounded customer set locally only after both exact paths
+    // miss; the fallback remains deterministic and bounded.
     const candidates = await this.prisma.customer.findMany({
       select: customerSearchSelect,
       orderBy: [{ totalOrders: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
