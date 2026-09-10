@@ -118,7 +118,7 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   background: transparent !important;
 }
 
-/* Floating communication controls: stacked, circular, right-aligned. */
+/* Right-side floating chat launcher: three circular controls stacked like a chat rail. */
 body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
   left: auto !important;
   right: 24px !important;
@@ -146,16 +146,20 @@ body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] > span:not
   display: none !important;
 }
 
-/* Keep chat panels compact and attached directly above their own circular controls. */
+/* Chat-sized panels: compact, anchored immediately above their launcher. */
 body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"] {
-  width: min(420px, calc(100vw - 24px)) !important;
+  width: min(390px, calc(100vw - 24px)) !important;
+  height: min(570px, calc(100dvh - 212px)) !important;
+  max-height: min(570px, calc(100dvh - 212px)) !important;
 }
 
 body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
-  width: min(640px, calc(100vw - 24px)) !important;
+  width: min(520px, calc(100vw - 24px)) !important;
+  height: min(590px, calc(100dvh - 142px)) !important;
+  max-height: min(590px, calc(100dvh - 142px)) !important;
 }
 
-/* Communications / operator control stays the third circular button in the stack. */
+/* Communications / operator control remains the bottom circular button. */
 body > button[title="Communications"] {
   right: 24px !important;
   bottom: 24px !important;
@@ -167,13 +171,12 @@ body > button[title="Communications"] {
   justify-content: center !important;
 }
 
-/* No modal scrim: chat windows behave like docked panels. */
+/* No modal scrim: communication windows behave like docked chat panels. */
 body > div.fixed.inset-0[class*="z-[95]"] {
   opacity: 0 !important;
   pointer-events: none !important;
 }
 
-/* Keep the operator communication panel attached above its circular control. */
 body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   position: fixed !important;
   left: auto !important;
@@ -181,10 +184,10 @@ body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   right: 24px !important;
   bottom: 92px !important;
   transform: none !important;
-  width: min(760px, calc(100vw - 48px)) !important;
-  max-width: 760px !important;
-  height: min(650px, calc(100dvh - 116px)) !important;
-  max-height: calc(100dvh - 116px) !important;
+  width: min(440px, calc(100vw - 48px)) !important;
+  max-width: 440px !important;
+  height: min(560px, calc(100dvh - 116px)) !important;
+  max-height: min(560px, calc(100dvh - 116px)) !important;
   border-radius: 16px !important;
   overflow: hidden !important;
 }
@@ -218,6 +221,8 @@ body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"],
   body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
     width: calc(100vw - 24px) !important;
+    height: min(560px, calc(100dvh - 196px)) !important;
+    max-height: min(560px, calc(100dvh - 196px)) !important;
   }
 
   body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
