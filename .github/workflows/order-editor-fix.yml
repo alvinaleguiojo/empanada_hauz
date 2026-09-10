@@ -1,0 +1,38 @@
+name: Order editor fix
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch order editor state
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('apps/web/src/components/orders/orders-board.tsx')
+          text = path.read_text()
+          old = '''    setLineItems((current) => {\n      const hasAllCatalogProducts =\n        productOptions.every((product) =>\n          current.some(\n            (item) =>\n              item.productName.toLowerCase() ===\n              product.value.toLowerCase(),\n          ),\n        );\n\n      return hasAllCatalogProducts\n        ? current\n        : createEditableLineItems(\n            selectedOrder,\n            productOptions,\n          );\n    });'''
+          new = '''    setLineItems((current) => {\n      if (current.length > 0) {\n        return current;\n      }\n\n      return createEditableLineItems(\n        selectedOrder,\n        productOptions,\n      );\n    });'''
+          if old not in text:
+              raise SystemExit('Expected order editor state block not found')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Commit and clean up
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/components/orders/orders-board.tsx
+          git rm .github/workflows/order-editor-fix.yml
+          git commit -m "fix: preserve edited order line items when catalog loads"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
