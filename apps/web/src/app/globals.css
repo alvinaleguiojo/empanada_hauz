@@ -118,6 +118,19 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   background: transparent !important;
 }
 
+/* Floating portals form one right-side rail. Higher layers must remain clickable above lower panels. */
+body > div.fixed.inset-0[class*="z-[10000]"] {
+  z-index: 10001 !important;
+}
+
+body > div.fixed.inset-0[class*="z-[9999]"] {
+  z-index: 9999 !important;
+}
+
+body > div.fixed.inset-0[class*="z-[9998]"] {
+  z-index: 10002 !important;
+}
+
 /* Right-side floating launchers: circular controls stacked like a chat rail. */
 body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
   left: auto !important;
@@ -159,9 +172,8 @@ body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="
   z-index: 2 !important;
 }
 
-/* Messenger panel is also independently anchored to the viewport bottom. */
-body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"],
-body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div {
+/* Messenger panel is independently anchored; only the actual panel is targeted so the launcher container is untouched. */
+body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
   position: fixed !important;
   right: 92px !important;
   bottom: 0 !important;
@@ -174,7 +186,7 @@ body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div {
   z-index: 2 !important;
 }
 
-/* Dedicated operator chat panel sits above its circular launcher. */
+/* Dedicated operator chat panel sits above Messenger so its controls remain clickable. */
 .floating-operator-chat-panel {
   position: fixed !important;
   right: 92px !important;
@@ -183,7 +195,7 @@ body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div {
   width: min(360px, calc(100vw - 104px)) !important;
   max-width: 360px !important;
   border-radius: 16px 16px 0 0 !important;
-  z-index: 9999 !important;
+  z-index: 10003 !important;
 }
 
 /* The legacy communications button is kept as the bridge to the existing WebRTC engine. */
@@ -191,10 +203,11 @@ body > button[title="Communications"] {
   display: none !important;
 }
 
-/* Actual calls use the original modal-style call window with backdrop. */
+/* Actual calls must sit above every floating chat layer. */
 body > div.fixed.inset-0[class*="z-[95]"] {
   opacity: 1 !important;
   pointer-events: auto !important;
+  z-index: 10990 !important;
 }
 
 body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
@@ -211,6 +224,7 @@ body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   border-radius: 16px !important;
   overflow: hidden !important;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.72) !important;
+  z-index: 10991 !important;
 }
 
 @media (max-width: 640px) {
@@ -234,8 +248,7 @@ body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   }
 
   body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"],
-  body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"],
-  body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div {
+  body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
     right: 60px !important;
     bottom: 0 !important;
     left: auto !important;
