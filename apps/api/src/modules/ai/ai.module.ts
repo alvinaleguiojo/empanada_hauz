@@ -21,6 +21,7 @@ import { AiAdminAgentController } from "./ai-admin-agent.controller";
 import { AiAdminAgentService } from "./ai-admin-agent.service";
 import { AiAdminModelService } from "./ai-admin-model.service";
 import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service";
+import { AiAdminActionStateService } from "./ai-admin-action-state.service";
 
 @Module({
   imports: [DatabaseModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
@@ -45,6 +46,7 @@ import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service
     AiModelService,
     AiAdminModelService,
     AiAdminAnalyticsToolsService,
+    AiAdminActionStateService,
     AiAdminAgentService,
     AiPublicAgentService,
     AiDateTimeService
