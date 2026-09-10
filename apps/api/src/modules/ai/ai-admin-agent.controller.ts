@@ -12,7 +12,13 @@ export class AiAdminAgentController {
   constructor(private readonly agent: AiAdminAgentService) {}
 
   @Post("chat")
-  async chat(@Body() body: { message?: string; history?: Array<{ role: "user" | "assistant"; content: string }> }, @Req() request: AuthenticatedRequest) {
-    return this.agent.process({ message: body.message ?? "", history: body.history });
+  async chat(
+    @Body() body: { message?: string; conversationId?: string; history?: Array<{ role: "user" | "assistant"; content: string }> },
+    @Req() request: AuthenticatedRequest
+  ) {
+    const adminId = request.user?.sub?.trim();
+    if (!adminId) throw new Error("Authenticated admin identity is required.");
+    const conversationId = body.conversationId?.trim() || `admin:${adminId}`;
+    return this.agent.process({ message: body.message ?? "", history: body.history, adminId, conversationId });
   }
 }
