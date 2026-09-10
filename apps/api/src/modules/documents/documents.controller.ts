@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { createReadStream, mkdirSync } from "fs";
@@ -21,6 +21,7 @@ const TEMP_UPLOAD_DIR = join(STORAGE_ROOT, ".tmp");
 mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
 
 class CreateFolderDto { name!: string; folderId?: string | null; }
+class RenameDocumentDto { name!: string; }
 
 @Controller("documents")
 export class DocumentsController {
@@ -58,6 +59,12 @@ export class DocumentsController {
     if (!file) throw new BadRequestException("A file is required.");
     const user = request.user as { id?: string } | undefined;
     return this.documentsService.createFile(file, folderId || null, publicFile === "true", user?.id, source);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id")
+  rename(@Param("id") id: string, @Body() dto: RenameDocumentDto) {
+    return this.documentsService.renameFile(id, dto.name);
   }
 
   @Get(":id/content")
