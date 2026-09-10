@@ -152,6 +152,27 @@ export class DocumentsService {
     }
   }
 
+  async renameFile(id: string, requestedName: string) {
+    if (id.startsWith("product-image:")) throw new BadRequestException("Product images are managed from Settings → Products.");
+    const clean = requestedName.trim();
+    if (!clean) throw new BadRequestException("File name is required.");
+    if (clean.length > 255) throw new BadRequestException("File name must be 255 characters or fewer.");
+    if (/[\\/]/.test(clean) || clean === "." || clean === "..") throw new BadRequestException("File name contains invalid characters.");
+    if (/[\u0000-\u001f\u007f]/.test(clean)) throw new BadRequestException("File name contains invalid characters.");
+
+    const item = await this.get(id);
+    if (item.type !== "file") throw new BadRequestException("Only files can be renamed.");
+    if (item.name === clean) return { ...item, content: undefined, storagePath: undefined };
+
+    const now = new Date();
+    const result = await this.prisma.$runCommandRaw({
+      update: this.collection,
+      updates: [{ q: { _id: id, type: "file" } as JsonObject, u: { $set: { name: clean, updatedAt: now } }, multi: false }],
+    }) as { modifiedCount?: number; n?: number };
+    if ((result.modifiedCount ?? result.n ?? 0) === 0) throw new NotFoundException("Document not found.");
+    return { ...item, name: clean, updatedAt: now, content: undefined, storagePath: undefined };
+  }
+
   async get(id: string) {
     if (id.startsWith("product-image:")) {
       const [, productId, indexValue] = id.split(":");
