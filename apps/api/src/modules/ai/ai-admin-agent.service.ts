@@ -118,7 +118,7 @@ TOOL USE:
     return [
       { type: "function", function: { name: "get_order_metrics", description: "Count and summarize orders for today, this week, or this month.", parameters: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false } } },
       { type: "function", function: { name: "search_customers", description: "Find administrator customer records by name, phone number, or Messenger identifier.", parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false } } },
-      { type: "function", function: { name: "search_orders", description: "Find orders by order number, customer name, phone number, location, date, or status.", parameters: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, required: [], additionalProperties: false } } }
+      { type: "function", function: { name: "search_orders", description: "Find orders by order number, customer name, phone number, location, date, or status.", parameters: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false } } }
     ];
   }
 
@@ -201,7 +201,7 @@ async function executePendingWrite(name: string, pendingArgs: Record<string, unk
 }
 
 function extractDirectOrderSearch(message: string) {
-  const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)\s+(?:['’]s\s+)?orders?\s*\??$/i);
+  const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)(?:['’]s)?\s+orders?\s*\??$/i);
   if (match) {
     const query = match[1].trim();
     if (query && !/^orders?\b/i.test(query)) return query;
