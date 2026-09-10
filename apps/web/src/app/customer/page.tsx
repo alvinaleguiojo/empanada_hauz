@@ -92,6 +92,8 @@ function CustomerKioskGuard() {
 
     const handleClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable=\"true\"]")) return;
+
       const button = target?.closest<HTMLButtonElement>("button");
       const card = target?.closest<HTMLElement>("article");
 
