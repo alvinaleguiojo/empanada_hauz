@@ -29,20 +29,7 @@ export class AiAdminAgentService {
         function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
       }));
     tools.push(...this.applicationToolDefinitions());
-    tools.push({
-      type: "function",
-      function: {
-        name: "get_order_metrics",
-        description: "Count and summarize orders for today, this week, or this month. Use this for order counts, completed orders, active orders, cancelled orders, pieces sold, and revenue.",
-        parameters: {
-          type: "object",
-          properties: {
-            range: { type: "string", enum: ["today", "week", "month"] }
-          },
-          additionalProperties: false
-        }
-      }
-    });
+    tools.push(...this.adminReadToolDefinitions());
 
     const system = `You are the private Empanada Hauz Admin AI Agent. You assist an authenticated administrator, not a customer.
 
@@ -55,7 +42,7 @@ GROUNDING RULES:
 - For current or precise information, call the relevant tool before answering.
 - Never claim that records were found or that none were found unless a tool actually returned that result.
 - If the available tools cannot retrieve the requested information, say so clearly.
-- Never guess customerId, order id, or order number. Use an identifier explicitly provided by the administrator or returned by a tool.
+- Never guess customerId, order id, or order number. Use an identifier explicitly provided by the administrator or returned by a search tool.
 
 WRITE SAFETY:
 - Read actions may execute normally.
@@ -67,6 +54,8 @@ WRITE SAFETY:
 
 TOOL USE:
 - Prefer the narrowest relevant tool.
+- Use search_customers before customer-specific order tools when the administrator gives a customer name or phone instead of an internal customerId.
+- Use search_orders for order lookup by order number, customer name, phone, date, or status.
 - Use multiple tools when a request requires multiple verified facts.
 - Treat tool errors as facts about what the application could not do, not as permission to guess.
 - Keep the final response concise and operationally useful.`;
@@ -122,16 +111,59 @@ TOOL USE:
     return definitions.map(([name, description, parameters]) => ({ type: "function", function: { name, description, parameters } }));
   }
 
-  private async executeTool(
-    name: string,
-    args: Record<string, unknown>,
-    currentMessage: string,
-    registryToolMap: Map<string, any>,
-    executedWrites: Set<string>
-  ) {
+  private adminReadToolDefinitions() {
+    return [
+      {
+        type: "function",
+        function: {
+          name: "get_order_metrics",
+          description: "Count and summarize orders for today, this week, or this month. Use this for order counts, completed orders, active orders, cancelled orders, pieces sold, and revenue.",
+          parameters: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "search_customers",
+          description: "Find administrator customer records by name, phone number, or Messenger identifier. Use this before customer-specific order tools when the administrator does not provide an internal customerId.",
+          parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "search_orders",
+          description: "Find orders by order number, customer name, phone number, location, date, or status. Use this for natural administrator requests such as 'find John's order', 'show today's queued orders', or 'find EH-1042'.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+              date: { type: "string", description: "Business date in YYYY-MM-DD format." },
+              status: { type: "string" },
+              limit: { type: "number" }
+            },
+            additionalProperties: false
+          }
+        }
+      }
+    ];
+  }
+
+  private async executeTool(name: string, args: Record<string, unknown>, currentMessage: string, registryToolMap: Map<string, any>, executedWrites: Set<string>) {
     if (name === "get_order_metrics") {
       const range = args.range === "week" || args.range === "month" ? args.range : "today";
       return this.analyticsTools.getOrderMetrics(range);
+    }
+    if (name === "search_customers") {
+      return this.analyticsTools.searchCustomers(String(args.query ?? ""), Number(args.limit ?? 10));
+    }
+    if (name === "search_orders") {
+      return this.analyticsTools.searchOrders(
+        typeof args.query === "string" ? args.query : undefined,
+        typeof args.date === "string" ? args.date : undefined,
+        typeof args.status === "string" ? args.status : undefined,
+        Number(args.limit ?? 20)
+      );
     }
 
     const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order"]);
