@@ -52,7 +52,7 @@ export function FloatingAiAgent() {
 
   const content = (
     <div className="pointer-events-none fixed inset-0 z-[10000]">
-      <div className="pointer-events-auto fixed bottom-[12.5rem] right-4 flex flex-col items-end sm:right-6">
+      <div className="pointer-events-auto fixed bottom-[10.25rem] right-4 flex flex-col items-end sm:right-6">
         {open ? (
           <div className="mb-3 flex h-[min(620px,calc(100dvh-150px))] w-[min(420px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-accent/20 bg-background shadow-[0_28px_90px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.04]">
             <header className="flex shrink-0 items-center gap-3 border-b border-white/[0.08] px-4 py-3.5">
