@@ -76,16 +76,7 @@ export function FloatingOperatorChat() {
   }
 
   function openCall(type: "audio" | "video") {
-    const communicationsButton = document.querySelector<HTMLButtonElement>('body > button[title="Communications"]');
-    if (!communicationsButton) return;
-
-    communicationsButton.click();
-    window.setTimeout(() => {
-      const callButton = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent?.trim() === (type === "audio" ? "Audio" : "Video"),
-      );
-      callButton?.click();
-    }, 80);
+    window.dispatchEvent(new CustomEvent("empanada:start-voice-call", { detail: { type } }));
   }
 
   const content = (
