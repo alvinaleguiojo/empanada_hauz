@@ -50,10 +50,10 @@ export function FloatingAiAgent() {
   }
 
   return (
-    <div className="pointer-events-none fixed bottom-5 right-24 z-[10000] sm:right-28">
-      <div className="pointer-events-auto flex flex-col items-end gap-3">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[10000]">
+      <div className="pointer-events-auto fixed bottom-24 right-4 sm:right-6">
         {open ? (
-          <div className="flex h-[min(620px,calc(100dvh-110px))] w-[min(420px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-accent/20 bg-background shadow-[0_28px_90px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.04]">
+          <div className="mb-3 flex h-[min(620px,calc(100dvh-110px))] w-[min(420px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-accent/20 bg-background shadow-[0_28px_90px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.04]">
             <header className="flex shrink-0 items-center gap-3 border-b border-white/[0.08] px-4 py-3.5">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-accent"><Bot size={20} /></div>
               <div className="min-w-0 flex-1">
@@ -106,10 +106,12 @@ export function FloatingAiAgent() {
           </div>
         ) : null}
 
-        <button type="button" onClick={() => setOpen((value) => !value)} className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-white/[0.16] bg-accent text-black shadow-[0_16px_40px_rgba(0,0,0,0.4)] transition hover:scale-105 hover:brightness-110" aria-label="Open Admin AI Agent" title="Admin AI Agent">
-          <Bot size={23} />
-          <span className="pointer-events-none absolute right-full mr-3 whitespace-nowrap rounded-lg bg-black/85 px-2.5 py-1.5 text-[10px] font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100">AI Chat</span>
-        </button>
+        <div className="flex justify-end">
+          <button type="button" onClick={() => setOpen((value) => !value)} className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-white/[0.16] bg-accent text-black shadow-[0_16px_40px_rgba(0,0,0,0.4)] transition hover:scale-105 hover:brightness-110" aria-label="Open Admin AI Agent" title="Admin AI Agent">
+            <Bot size={23} />
+            <span className="pointer-events-none absolute right-full mr-3 whitespace-nowrap rounded-lg bg-black/85 px-2.5 py-1.5 text-[10px] font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100">AI Chat</span>
+          </button>
+        </div>
       </div>
     </div>
   );
