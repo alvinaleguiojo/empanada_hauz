@@ -1,0 +1,1 @@
+Admin AI Agent: protected POST /ai-admin-agent/chat with live business context and approved tools. Admin UI: /settings/ai-agent.
