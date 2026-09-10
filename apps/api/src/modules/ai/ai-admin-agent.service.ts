@@ -27,6 +27,9 @@ export class AiAdminAgentService {
     const message = request.message?.trim();
     if (!message) throw new BadRequestException("A message is required.");
 
+    const pendingConfirmation = await this.executeDirectConfirmation(message, request.adminId, request.conversationId);
+    if (pendingConfirmation) return pendingConfirmation;
+
     const directOrderSearch = extractDirectOrderSearch(message);
     if (directOrderSearch) {
       const orders = await this.analyticsTools.searchOrders(directOrderSearch, undefined, undefined, 20);
@@ -100,6 +103,33 @@ TOOL USE:
       }
     }
     return { reply: "I reached the tool execution limit before completing that request. Please narrow the request and try again.", snapshotAt: new Date().toISOString() };
+  }
+
+  private async executeDirectConfirmation(message: string, adminId: string, conversationId: string) {
+    if (isExplicitRejection(message)) {
+      const pending = await this.actionState.get(adminId, conversationId);
+      if (!pending) return null;
+      await this.actionState.clear(adminId, conversationId);
+      return { reply: `Cancelled the pending ${formatPendingAction(pending.action)}.`, snapshotAt: new Date().toISOString() };
+    }
+
+    if (!isExplicitConfirmation(message)) return null;
+    const pending = await this.actionState.get(adminId, conversationId);
+    if (!pending) return null;
+
+    const expectedFingerprint = `${pending.action}:${stableArguments(pending.arguments)}`;
+    if (pending.fingerprint !== expectedFingerprint) {
+      await this.actionState.clear(adminId, conversationId);
+      throw new BadRequestException("The pending admin action is invalid. Please repeat the action.");
+    }
+
+    const result = await executePendingWrite(pending.action, pending.arguments, this.applicationTools, this.analyticsTools, this.registry);
+    await this.actionState.clear(adminId, conversationId);
+    return {
+      reply: formatConfirmedWriteReply(pending.action, result),
+      snapshotAt: new Date().toISOString(),
+      data: result
+    };
   }
 
   private applicationToolDefinitions() {
@@ -203,6 +233,21 @@ async function executePendingWrite(name: string, pendingArgs: Record<string, unk
   return registry.execute(name, args, { customerId: "admin", channel: "admin" });
 }
 
+function formatConfirmedWriteReply(name: string, result: unknown) {
+  if (name === "update_order" && result && typeof result === "object") {
+    const order = result as { orderNumber?: string; status?: string };
+    if (order.orderNumber && order.status) return `Order ${order.orderNumber} successfully updated to "${order.status}".`;
+  }
+  return `${formatPendingAction(name)} successfully executed.`;
+}
+
+function formatPendingAction(name: string) {
+  if (name === "update_order") return "order update";
+  if (name === "create_order") return "order creation";
+  if (name === "cancel_order") return "order cancellation";
+  return name.replace(/_/g, " ");
+}
+
 function extractDirectOrderSearch(message: string) {
   const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)(?:['’]s)?\s+orders?\s*\??$/i);
   if (match) {
@@ -235,6 +280,10 @@ function formatCustomerSearchReply(query: string, customers: Array<{ name: strin
 
 function isExplicitConfirmation(message: string) {
   return /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|approve|approved|go ahead|do it|proceed|please do|please proceed)([.!\s]|$)/i.test(message.trim());
+}
+
+function isExplicitRejection(message: string) {
+  return /^(no|nope|nah|cancel|stop|don't|do not)([.!\s]|$)/i.test(message.trim());
 }
 
 function stripConfirmation(args: Record<string, unknown>) {
