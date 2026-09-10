@@ -100,7 +100,6 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 
-/* Rider live-position marker: use the transparent PNG supplied in the public folder. */
 .maplibregl-marker {
   width: 56px !important;
   height: 56px !important;
@@ -119,12 +118,12 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   background: transparent !important;
 }
 
-/* Communications should behave like a docked chat panel, not a centered modal. */
-body > div > div.fixed.inset-0[class*="z-[95]"][class*="backdrop-blur"] {
+/* Dock Communications like a chat window above Messenger and Admin AI. */
+body > div.fixed.inset-0[class*="z-[95]"][class*="backdrop-blur"] {
   display: none !important;
 }
 
-body > div > div[style*="translate(-50%, -50%)"][class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
+body > div[style*="translate(-50%, -50%)"][class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   position: fixed !important;
   left: auto !important;
   top: auto !important;
@@ -139,7 +138,7 @@ body > div > div[style*="translate(-50%, -50%)"][class*="max-h-[calc(100vh-3rem)
 }
 
 @media (max-width: 640px) {
-  body > div > div[style*="translate(-50%, -50%)"][class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
+  body > div[style*="translate(-50%, -50%)"][class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
     right: 12px !important;
     bottom: 176px !important;
     width: calc(100vw - 24px) !important;
