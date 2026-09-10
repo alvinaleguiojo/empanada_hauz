@@ -30,14 +30,14 @@ export class AiAdminAgentService {
     const directOrderSearch = extractDirectOrderSearch(message);
     if (directOrderSearch) {
       const orders = await this.analyticsTools.searchOrders(directOrderSearch, undefined, undefined, 20);
-      if (orders.length === 0) return { reply: `No order found for "${directOrderSearch}".`, snapshotAt: new Date().toISOString() };
+      if (orders.length === 0) return { reply: `No order found for \"${directOrderSearch}\".`, snapshotAt: new Date().toISOString() };
       return { reply: formatOrderSearchReply(directOrderSearch, orders), snapshotAt: new Date().toISOString(), data: orders };
     }
 
     const directCustomerSearch = extractDirectCustomerSearch(message);
     if (directCustomerSearch) {
       const customers = await this.analyticsTools.searchCustomers(directCustomerSearch, 10);
-      if (customers.length === 0) return { reply: `No customer record found for "${directCustomerSearch}".`, snapshotAt: new Date().toISOString() };
+      if (customers.length === 0) return { reply: `No customer record found for \"${directCustomerSearch}\".`, snapshotAt: new Date().toISOString() };
       return { reply: formatCustomerSearchReply(directCustomerSearch, customers), snapshotAt: new Date().toISOString(), data: customers };
     }
 
@@ -73,6 +73,7 @@ TOOL USE:
 - Prefer the narrowest relevant tool.
 - Use search_customers before customer-specific order tools when the administrator gives a customer name or phone instead of an internal customerId.
 - Use search_orders for order lookup.
+- For administrator order changes, use update_order with the verified order id or order number; do not require customerId.
 - Use multiple tools when a request requires multiple verified facts.
 - Treat tool errors as facts about what the application could not do, not as permission to guess.
 - Keep the final response concise and operationally useful.`;
@@ -108,7 +109,7 @@ TOOL USE:
       ["get_my_orders", "Read recent orders for a customer.", { type: "object", properties: { customerId: { type: "string" }, limit: { type: "number" } }, required: ["customerId"], additionalProperties: false }],
       ["check_order_status", "Read the current status of a customer's order.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }],
       ["create_order", "Create an order. Requires confirmation.", { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false }],
-      ["update_order", "Update an existing order only after confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }],
+      ["update_order", "Administrator: update an existing order by id or order number. Requires confirmation. customerId is not required.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }],
       ["cancel_order", "Cancel a queued customer order only after confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }]
     ];
     return definitions.map(([name, description, parameters]) => ({ type: "function", function: { name, description, parameters } }));
@@ -130,9 +131,10 @@ TOOL USE:
     if (name === "search_customers") return this.analyticsTools.searchCustomers(String(args.query ?? ""), Number(args.limit ?? 10));
     if (name === "search_orders") return this.analyticsTools.searchOrders(typeof args.query === "string" ? args.query : undefined, typeof args.date === "string" ? args.date : undefined, typeof args.status === "string" ? args.status : undefined, Number(args.limit ?? 20));
 
-    const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order"]);
+    const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "create_order", "cancel_order"]);
+    if (name === "update_order") return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites);
     if (applicationNames.has(name)) {
-      const write = ["create_order", "update_order", "cancel_order"].includes(name);
+      const write = ["create_order", "cancel_order"].includes(name);
       if (write) return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites);
       return this.applicationTools.execute(name as AiApplicationToolName, args);
     }
@@ -164,7 +166,7 @@ TOOL USE:
     if (executedWrites.has(executionFingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
     executedWrites.add(executionFingerprint);
 
-    const result = await executePendingWrite(name, pending.arguments, this.applicationTools, this.registry);
+    const result = await executePendingWrite(name, pending.arguments, this.applicationTools, this.analyticsTools, this.registry);
     await this.actionState.clear(adminId, conversationId);
     return result;
   }
@@ -193,9 +195,10 @@ TOOL USE:
   }
 }
 
-async function executePendingWrite(name: string, pendingArgs: Record<string, unknown>, applicationTools: AiApplicationToolsService, registry: AiToolRegistryService) {
+async function executePendingWrite(name: string, pendingArgs: Record<string, unknown>, applicationTools: AiApplicationToolsService, analyticsTools: AiAdminAnalyticsToolsService, registry: AiToolRegistryService) {
   const args = { ...pendingArgs, confirmed: true };
-  const applicationNames = new Set(["create_order", "update_order", "cancel_order"]);
+  if (name === "update_order") return analyticsTools.updateOrder(pendingArgs);
+  const applicationNames = new Set(["create_order", "cancel_order"]);
   if (applicationNames.has(name)) return applicationTools.execute(name as AiApplicationToolName, args);
   return registry.execute(name, args, { customerId: "admin", channel: "admin" });
 }
@@ -214,7 +217,7 @@ function extractDirectOrderSearch(message: string) {
 
 function formatOrderSearchReply(query: string, orders: Array<{ orderNumber: string; status: string; quantity: number; totalAmount: unknown; customer?: { name: string; phoneNumber?: string | null } | null }>) {
   const lines = orders.map((order, index) => `${index + 1}. ${order.orderNumber} — ${order.customer?.name ?? "Unknown customer"}${order.customer?.phoneNumber ? ` · ${order.customer.phoneNumber}` : ""} · ${order.status} · ${order.quantity} pcs · ₱${Number(order.totalAmount).toLocaleString("en-PH")}`);
-  return `Order matches for "${query}":\n${lines.join("\n")}`;
+  return `Order matches for \"${query}\":\n${lines.join("\n")}`;
 }
 
 function extractDirectCustomerSearch(message: string) {
@@ -227,7 +230,7 @@ function extractDirectCustomerSearch(message: string) {
 
 function formatCustomerSearchReply(query: string, customers: Array<{ name: string; phoneNumber?: string | null; totalOrders: number; totalSpent: unknown; isVip: boolean }>) {
   const lines = customers.map((customer, index) => `${index + 1}. ${customer.name}${customer.phoneNumber ? ` — ${customer.phoneNumber}` : ""} · ${customer.totalOrders} orders · ₱${Number(customer.totalSpent).toLocaleString("en-PH")} spent${customer.isVip ? " · VIP" : ""}`);
-  return `Customer matches for "${query}":\n${lines.join("\n")}`;
+  return `Customer matches for \"${query}\":\n${lines.join("\n")}`;
 }
 
 function isExplicitConfirmation(message: string) {
