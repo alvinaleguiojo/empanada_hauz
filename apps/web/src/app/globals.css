@@ -146,6 +146,34 @@ body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] > span:not
   display: none !important;
 }
 
+/* AI panel is a bottom-docked window, while its circular launcher stays visible. */
+body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"] {
+  position: fixed !important;
+  right: 92px !important;
+  bottom: 0 !important;
+  margin-bottom: 0 !important;
+  width: min(390px, calc(100vw - 116px)) !important;
+  height: min(570px, 78dvh) !important;
+  max-height: min(570px, 78dvh) !important;
+  border-radius: 16px 16px 0 0 !important;
+  z-index: 2 !important;
+}
+
+/* Messenger panel is also independently anchored to the viewport bottom. */
+body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"],
+body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div {
+  position: fixed !important;
+  right: 92px !important;
+  bottom: 0 !important;
+  left: auto !important;
+  margin-bottom: 0 !important;
+  width: min(520px, calc(100vw - 116px)) !important;
+  height: min(590px, 80dvh) !important;
+  max-height: min(590px, 80dvh) !important;
+  border-radius: 16px 16px 0 0 !important;
+  z-index: 2 !important;
+}
+
 /* Dedicated operator chat panel sits above its circular launcher. */
 .floating-operator-chat-panel {
   position: fixed !important;
@@ -203,6 +231,19 @@ body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
     width: 48px !important;
     min-width: 48px !important;
     height: 48px !important;
+  }
+
+  body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"],
+  body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"],
+  body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div {
+    right: 60px !important;
+    bottom: 0 !important;
+    left: auto !important;
+    width: calc(100vw - 72px) !important;
+    max-width: none !important;
+    height: min(560px, 82dvh) !important;
+    max-height: min(560px, 82dvh) !important;
+    border-radius: 16px 16px 0 0 !important;
   }
 
   .floating-operator-chat-panel {
