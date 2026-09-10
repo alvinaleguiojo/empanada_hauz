@@ -13,6 +13,34 @@ export class CustomersService {
     });
   }
 
+  async search(query: string, limit = 10) {
+    const normalized = query.trim();
+    if (!normalized) return [];
+    const safeLimit = Math.min(Math.max(Math.trunc(Number(limit)) || 10, 1), 25);
+    return this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { name: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+          { phoneNumber: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+          { messengerPsid: { contains: normalized, mode: Prisma.QueryMode.insensitive } }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        defaultAddress: true,
+        totalOrders: true,
+        repeatCustomerCount: true,
+        totalSpent: true,
+        lastOrderDate: true,
+        isVip: true
+      },
+      orderBy: [{ isVip: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
+      take: safeLimit
+    });
+  }
+
   async findOrCreateByMessenger(psid: string, name = "Messenger Customer") {
     const existing = await this.prisma.customer.findFirst({
       where: { messengerPsid: psid }
@@ -21,11 +49,6 @@ export class CustomersService {
     const profileName = name?.trim();
 
     if (existing) {
-      // A previous buggy summary request could have created a placeholder
-      // "Messenger Customer" record with the PSID before the real customer
-      // was linked. If Meta now gives us a real name and the PSID record has
-      // no order history, move the PSID to the uniquely matching customer
-      // that actually owns orders.
       if (profileName && profileName !== "Messenger Customer") {
         const namedMatches = await this.prisma.customer.findMany({
           where: {
@@ -83,9 +106,6 @@ export class CustomersService {
       return existing;
     }
 
-    // Messenger PSIDs are not present on older/manual customer records. If
-    // Meta gives us a real profile name, safely attach the PSID to an
-    // existing customer when that name identifies exactly one customer.
     if (profileName && profileName !== "Messenger Customer") {
       const matches = await this.prisma.customer.findMany({
         where: {
