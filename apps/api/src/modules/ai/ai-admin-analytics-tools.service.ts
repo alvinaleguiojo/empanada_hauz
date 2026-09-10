@@ -48,36 +48,39 @@ export class AiAdminAnalyticsToolsService {
       take
     });
 
-    if (exact.length > 0 || normalized.length < 3) {
-      return exact.map((customer) => ({ ...customer, matchType: "exact" as const }));
+    // Orders are the same source used by the Orders board. Search their
+    // customer relation before trusting a customer-table-only match so an
+    // otherwise valid duplicate/stale Customer row cannot hide the customer
+    // record that is actually attached to an order.
+    if (normalized.length >= 3) {
+      const orderCustomers = await this.prisma.order.findMany({
+        where: {
+          customer: {
+            OR: [
+              { name: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+              { phoneNumber: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
+              { messengerPsid: { contains: normalized, mode: Prisma.QueryMode.insensitive } }
+            ]
+          }
+        },
+        select: { customer: { select: customerSearchSelect } },
+        orderBy: { createdAt: "desc" },
+        take: Math.max(take * 5, 50)
+      });
+
+      const seen = new Set<string>();
+      const relatedExact = orderCustomers
+        .map((entry) => entry.customer)
+        .filter((customer) => customer && !seen.has(customer.id) && seen.add(customer.id))
+        .slice(0, take);
+
+      if (relatedExact.length > 0) {
+        return relatedExact.map((customer) => ({ ...customer, matchType: "order_relation" as const }));
+      }
     }
 
-    // Orders are the same source used by the Orders board. Search their
-    // customer relation as a second exact path so an otherwise valid customer
-    // is not missed because of customer-table indexing/ranking differences.
-    const orderCustomers = await this.prisma.order.findMany({
-      where: {
-        customer: {
-          OR: [
-            { name: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
-            { phoneNumber: { contains: normalized, mode: Prisma.QueryMode.insensitive } },
-            { messengerPsid: { contains: normalized, mode: Prisma.QueryMode.insensitive } }
-          ]
-        }
-      },
-      select: { customer: { select: customerSearchSelect } },
-      orderBy: { createdAt: "desc" },
-      take: Math.max(take * 5, 50)
-    });
-
-    const seen = new Set<string>();
-    const relatedExact = orderCustomers
-      .map((entry) => entry.customer)
-      .filter((customer) => customer && !seen.has(customer.id) && seen.add(customer.id))
-      .slice(0, take);
-
-    if (relatedExact.length > 0) {
-      return relatedExact.map((customer) => ({ ...customer, matchType: "order_relation" as const }));
+    if (exact.length > 0 || normalized.length < 3) {
+      return exact.map((customer) => ({ ...customer, matchType: "exact" as const }));
     }
 
     // Names are free-form and administrators commonly make a one-character
