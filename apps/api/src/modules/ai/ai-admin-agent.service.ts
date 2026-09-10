@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 import { ProductsService } from "../products/products.service";
 import { AiApplicationToolsService, AiApplicationToolName } from "./ai-application-tools.service";
-import { AiModelService } from "./ai-model.service";
+import { AiAdminModelService } from "./ai-admin-model.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 
 interface AdminAgentRequest { message: string; history?: Array<{ role: "user" | "assistant"; content: string }> }
@@ -15,7 +15,7 @@ export class AiAdminAgentService {
     private readonly products: ProductsService,
     private readonly applicationTools: AiApplicationToolsService,
     private readonly registry: AiToolRegistryService,
-    private readonly aiModel: AiModelService
+    private readonly aiModel: AiAdminModelService
   ) {}
 
   async process(request: AdminAgentRequest) {
@@ -25,13 +25,9 @@ export class AiAdminAgentService {
     const snapshot = await this.businessSnapshot();
     const registryTools = await this.registry.getTools();
     const tools = [
-      ...registryTools.filter((tool) => !tool.requiresCustomerContext).map((tool) => ({
-        type: "function",
-        function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
-      })),
+      ...registryTools.filter((tool) => !tool.requiresCustomerContext).map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })),
       ...this.applicationToolDefinitions()
     ];
-
     const system = `You are the private Empanada Hauz Admin AI Agent. You assist an authenticated administrator, not a customer. You have access to live business data and approved application tools. Be concise but operationally useful. Never invent business facts when a tool or snapshot can provide them.
 
 You may analyze sales, orders, customers, products, inventory, production, expenses, deliveries, riders, referrals, analytics, conversations, and system activity from the supplied live snapshot. Use tools when the user asks for current or precise information or wants an action performed.
@@ -41,7 +37,6 @@ WRITE SAFETY: Reading is automatic. For destructive or consequential actions (cr
 CUSTOMER OPERATIONS: When using customer-specific order tools, the customerId must come from the admin's request or live data; never guess an identity.
 
 Business snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map((tool) => `${tool.function.name}: ${tool.function.description}`).join("\n")}`;
-
     const messages: Array<Record<string, unknown>> = [
       { role: "system", content: system },
       ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })),
@@ -49,14 +44,11 @@ Business snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map
     ];
 
     for (let step = 0; step < 6; step += 1) {
-      const response = await this.aiModel.chatWithTools(messages, tools);
+      const response = await this.aiModel.chat(messages, tools);
       const toolCalls = this.readToolCalls(response);
       const content = this.readContent(response);
       if (!toolCalls.length) return { reply: content || "I couldn't produce a response.", snapshotAt: new Date().toISOString() };
-
-      if (content) messages.push({ role: "assistant", content, tool_calls: toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
-      else messages.push({ role: "assistant", content: "", tool_calls: toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
-
+      messages.push({ role: "assistant", content: content || "", tool_calls: toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
       for (const call of toolCalls) {
         try {
           const result = await this.executeTool(call.name, call.arguments);
@@ -67,7 +59,6 @@ Business snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map
         }
       }
     }
-
     return { reply: "I reached the tool execution limit before completing that request. Please narrow the request and try again.", snapshotAt: new Date().toISOString() };
   }
 
@@ -99,13 +90,13 @@ Business snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map
   }
 
   private readContent(response: unknown) {
-    const value = response as { message?: { content?: string }; choices?: Array<{ message?: { content?: string } }> };
-    return value?.message?.content?.trim() || value?.choices?.[0]?.message?.content?.trim() || "";
+    const value = response as { content?: string; message?: { content?: string }; choices?: Array<{ message?: { content?: string } }> };
+    return value?.content?.trim() || value?.message?.content?.trim() || value?.choices?.[0]?.message?.content?.trim() || "";
   }
 
   private readToolCalls(response: unknown): Array<AdminToolCall & { id: string }> {
-    const value = response as { message?: { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> }; choices?: Array<{ message?: { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> }> };
-    const calls = value?.message?.tool_calls ?? value?.choices?.[0]?.message?.tool_calls ?? [];
+    const value = response as { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }>; message?: { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> }; choices?: Array<{ message?: { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> }> };
+    const calls = value?.tool_calls ?? value?.message?.tool_calls ?? value?.choices?.[0]?.message?.tool_calls ?? [];
     return calls.flatMap((call, index) => {
       const name = call.function?.name?.trim();
       if (!name) return [];
@@ -129,7 +120,6 @@ Business snapshot:\n${JSON.stringify(snapshot)}\n\nAvailable tools:\n${tools.map
       this.prisma.analyticsSnapshot.findMany({ orderBy: { snapshotDate: "desc" }, take: 90 }),
       this.prisma.conversation.findMany({ orderBy: { updatedAt: "desc" }, take: 100, select: { id: true, customerId: true, channel: true, status: true, lastMessage: true, updatedAt: true } })
     ]);
-
     return { generatedAt: new Date().toISOString(), products, customers, orders, inventory, batches, expenses, deliveries, riders, referrals, analytics, conversations };
   }
 }
