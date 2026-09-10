@@ -1,3 +1,5 @@
+import { API_URL } from "./config";
+
 export type MenuItem = {
   label: string;
   value: string;
@@ -25,6 +27,13 @@ type ProductCatalogItem = {
   sortOrder?: number;
 };
 
+function resolveImageUrl(url?: string | null) {
+  const value = url?.trim();
+  if (!value) return null;
+  if (value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://")) return value;
+  return `${API_URL}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
 /** Runtime menu cache populated exclusively from the backend product catalog. */
 export const MENU_ITEMS: MenuItem[] = [];
 
@@ -48,7 +57,7 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
         isFeatured: product.isFeatured === true,
         isNew: product.isNew === true,
         popular: isBestSeller,
-        imageUrl: product.imageUrl?.trim() || null
+        imageUrl: resolveImageUrl(product.imageUrl)
       };
     });
 
