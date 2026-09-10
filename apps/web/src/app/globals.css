@@ -123,14 +123,12 @@ body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
   left: auto !important;
   right: 24px !important;
   bottom: 166px !important;
-  z-index: 100 !important;
 }
 
 body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 {
   left: auto !important;
   right: 24px !important;
   bottom: 98px !important;
-  z-index: 100 !important;
 }
 
 body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"],
@@ -141,8 +139,6 @@ body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] {
   padding: 0 !important;
   border-radius: 9999px !important;
   justify-content: center !important;
-  position: relative !important;
-  z-index: 120 !important;
 }
 
 body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"] > span:not(.pointer-events-none),
@@ -150,113 +146,81 @@ body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] > span:not
   display: none !important;
 }
 
-/* Docked chat panels: flush with the bottom edge and kept left of the button rail. */
-body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"] {
+/* Dedicated operator chat panel sits above its circular launcher. */
+.floating-operator-chat-panel {
   position: fixed !important;
   right: 92px !important;
   bottom: 0 !important;
-  margin: 0 !important;
-  width: min(390px, calc(100vw - 116px)) !important;
-  height: min(570px, 78dvh) !important;
-  max-height: min(570px, 78dvh) !important;
+  margin-bottom: 0 !important;
+  width: min(360px, calc(100vw - 104px)) !important;
+  max-width: 360px !important;
   border-radius: 16px 16px 0 0 !important;
-  box-shadow: 0 -12px 50px rgba(0, 0, 0, 0.38) !important;
-  z-index: 80 !important;
+  z-index: 9999 !important;
 }
 
-body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
-  position: fixed !important;
-  right: 92px !important;
-  bottom: 0 !important;
-  margin: 0 !important;
-  width: min(520px, calc(100vw - 116px)) !important;
-  height: min(590px, 80dvh) !important;
-  max-height: min(590px, 80dvh) !important;
-  border-radius: 16px 16px 0 0 !important;
-  box-shadow: 0 -12px 50px rgba(0, 0, 0, 0.38) !important;
-  z-index: 80 !important;
-}
-
-/* Communications / operator control remains the bottom circular button. */
+/* The legacy communications button is kept as the bridge to the existing WebRTC engine. */
 body > button[title="Communications"] {
-  right: 24px !important;
-  bottom: 24px !important;
-  width: 56px !important;
-  min-width: 56px !important;
-  height: 56px !important;
-  padding: 0 !important;
-  border-radius: 9999px !important;
-  justify-content: center !important;
-  z-index: 120 !important;
+  display: none !important;
 }
 
-/* No modal scrim: communication windows behave like docked chat panels. */
+/* Actual calls use the original modal-style call window with backdrop. */
 body > div.fixed.inset-0[class*="z-[95]"] {
-  opacity: 0 !important;
-  pointer-events: none !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
 }
 
 body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   position: fixed !important;
-  left: auto !important;
-  top: auto !important;
-  right: 92px !important;
-  bottom: 0 !important;
-  transform: none !important;
-  width: min(440px, calc(100vw - 116px)) !important;
-  max-width: 440px !important;
-  height: min(560px, 76dvh) !important;
-  max-height: min(560px, 76dvh) !important;
-  border-radius: 16px 16px 0 0 !important;
+  left: 50% !important;
+  top: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(640px, calc(100vw - 24px)) !important;
+  max-width: 640px !important;
+  height: auto !important;
+  max-height: calc(100dvh - 24px) !important;
+  border-radius: 16px !important;
   overflow: hidden !important;
-  box-shadow: 0 -12px 50px rgba(0, 0, 0, 0.38) !important;
-  z-index: 80 !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.72) !important;
 }
 
 @media (max-width: 640px) {
   body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
     left: auto !important;
     right: 12px !important;
-    bottom: 136px !important;
+    bottom: 154px !important;
   }
 
   body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 {
     left: auto !important;
     right: 12px !important;
-    bottom: 76px !important;
+    bottom: 88px !important;
   }
 
   body > div.fixed.inset-0[class*="z-[10000]"] button[title="Admin AI Agent"],
-  body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"],
-  body > button[title="Communications"] {
+  body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] {
     width: 48px !important;
     min-width: 48px !important;
     height: 48px !important;
   }
 
-  body > button[title="Communications"] {
-    right: 12px !important;
-    bottom: 20px !important;
-  }
-
-  body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"],
-  body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
-    right: 0 !important;
-    bottom: 0 !important;
-    width: calc(100vw - 60px) !important;
-    max-width: calc(100vw - 60px) !important;
-    height: min(560px, 82dvh) !important;
-    max-height: min(560px, 82dvh) !important;
-    border-radius: 16px 16px 0 0 !important;
+  .floating-operator-chat-panel {
+    right: 72px !important;
+    width: calc(100vw - 84px) !important;
+    max-width: none !important;
   }
 
   body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
-    right: 0 !important;
-    bottom: 0 !important;
-    width: calc(100vw - 60px) !important;
+    right: 12px !important;
+    left: 12px !important;
+    top: 12px !important;
+    bottom: 12px !important;
+    transform: none !important;
+    width: auto !important;
     max-width: none !important;
-    height: 82dvh !important;
-    max-height: 82dvh !important;
-    border-radius: 16px 16px 0 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    border-radius: 16px !important;
   }
 }
