@@ -1,0 +1,79 @@
+name: Fix order edit state
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-order-edit-state.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'fix: preserve order edit state during catalog load'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch order editor state sync
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/src/components/orders/orders-board.tsx')
+          text = path.read_text()
+          old = '''  useEffect(() => {
+    if (
+      !selectedOrder ||
+      productOptions.length === 0
+    ) {
+      return;
+    }
+
+    setLineItems((current) => {
+      const hasAllCatalogProducts =
+        productOptions.every((product) =>
+          current.some(
+            (item) =>
+              item.productName.toLowerCase() ===
+              product.value.toLowerCase(),
+          ),
+        );
+
+      return hasAllCatalogProducts
+        ? current
+        : createEditableLineItems(
+            selectedOrder,
+            productOptions,
+          );
+    });
+  }, [productOptions, selectedOrder?.id]);
+'''
+          new = '''  useEffect(() => {
+    if (
+      !selectedOrder ||
+      productOptions.length === 0
+    ) {
+      return;
+    }
+
+    setLineItems((current) =>
+      current.length > 0
+        ? current
+        : createEditableLineItems(
+            selectedOrder,
+            productOptions,
+          ),
+    );
+  }, [productOptions, selectedOrder?.id]);
+'''
+          if old not in text:
+              raise SystemExit('Expected order editor catalog sync block was not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/components/orders/orders-board.tsx .github/workflows/fix-order-edit-state.yml
+          git commit -m "fix: preserve order edit state during catalog load"
+          git push origin main
