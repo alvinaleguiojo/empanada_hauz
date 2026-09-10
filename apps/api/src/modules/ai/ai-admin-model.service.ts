@@ -2,21 +2,32 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiControlService } from "./ai-control.service";
 
+type ModelSettings = Awaited<ReturnType<AiControlService["getGlobalModelSettings"]>>;
+
 @Injectable()
 export class AiAdminModelService {
   private readonly geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
   private readonly groqBaseUrl = "https://api.groq.com/openai/v1/chat/completions";
   private readonly openAiBaseUrl = "https://api.openai.com/v1/chat/completions";
+  private cachedSettings?: { value: ModelSettings; expiresAt: number };
+  private readonly settingsTtlMs = 30_000;
 
   constructor(private readonly config: ConfigService, private readonly aiControl: AiControlService) {}
 
   async chat(messages: Array<Record<string, unknown>>, tools: Array<Record<string, unknown>>) {
-    const settings = await this.aiControl.getGlobalModelSettings();
+    const settings = await this.getCachedSettings();
     const body = { model: settings.model, messages, tools, tool_choice: "auto" };
     if (settings.provider === "gemini") return this.chatProvider(body, this.geminiBaseUrl, "GEMINI_API_KEY", "Gemini");
     if (settings.provider === "groq") return this.chatProvider(body, this.groqBaseUrl, "GROQ_API_KEY", "Groq");
     if (settings.provider === "openai") return this.chatProvider(body, this.openAiBaseUrl, "OPENAI_API_KEY", "OpenAI");
     return this.chatOllama(body);
+  }
+
+  private async getCachedSettings() {
+    if (this.cachedSettings && this.cachedSettings.expiresAt > Date.now()) return this.cachedSettings.value;
+    const value = await this.aiControl.getGlobalModelSettings();
+    this.cachedSettings = { value, expiresAt: Date.now() + this.settingsTtlMs };
+    return value;
   }
 
   private async chatOllama(body: Record<string, unknown>) {
