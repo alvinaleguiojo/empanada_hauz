@@ -20,14 +20,18 @@ export class AiAdminAgentService {
     const message = request.message?.trim();
     if (!message) throw new BadRequestException("A message is required.");
 
+    const directCustomerSearch = extractDirectCustomerSearch(message);
+    if (directCustomerSearch) {
+      const customers = await this.analyticsTools.searchCustomers(directCustomerSearch, 10);
+      if (customers.length === 0) {
+        return { reply: `No customer record found for "${directCustomerSearch}".`, snapshotAt: new Date().toISOString() };
+      }
+      return { reply: formatCustomerSearchReply(directCustomerSearch, customers), snapshotAt: new Date().toISOString(), data: customers };
+    }
+
     const registryTools = await this.registry.getTools();
     const registryToolMap = new Map(registryTools.map((tool) => [tool.name, tool]));
-    const tools = registryTools
-      .filter((tool) => !tool.requiresCustomerContext && tool.name !== "get_current_datetime" && tool.name !== "delete_order")
-      .map((tool) => ({
-        type: "function",
-        function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
-      }));
+    const tools = registryTools.filter((tool) => !tool.requiresCustomerContext && tool.name !== "get_current_datetime" && tool.name !== "delete_order").map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } }));
     tools.push(...this.applicationToolDefinitions());
     tools.push(...this.adminReadToolDefinitions());
 
@@ -60,11 +64,7 @@ TOOL USE:
 - Treat tool errors as facts about what the application could not do, not as permission to guess.
 - Keep the final response concise and operationally useful.`;
 
-    const messages: Array<Record<string, unknown>> = [
-      { role: "system", content: system },
-      ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })),
-      { role: "user", content: message }
-    ];
+    const messages: Array<Record<string, unknown>> = [{ role: "system", content: system }, ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })), { role: "user", content: message }];
     const executedWrites = new Set<string>();
 
     for (let step = 0; step < 6; step += 1) {
@@ -73,16 +73,7 @@ TOOL USE:
       const content = this.readContent(response);
       if (!toolCalls.length) return { reply: content || "I couldn't produce a response.", snapshotAt: new Date().toISOString() };
 
-      messages.push({
-        role: "assistant",
-        content: content || "",
-        tool_calls: toolCalls.map((call) => ({
-          id: call.id,
-          type: "function",
-          function: { name: call.name, arguments: JSON.stringify(call.arguments) }
-        }))
-      });
-
+      messages.push({ role: "assistant", content: content || "", tool_calls: toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
       for (const call of toolCalls) {
         try {
           if (call.parseError) throw new BadRequestException(call.parseError);
@@ -94,7 +85,6 @@ TOOL USE:
         }
       }
     }
-
     return { reply: "I reached the tool execution limit before completing that request. Please narrow the request and try again.", snapshotAt: new Date().toISOString() };
   }
 
@@ -113,39 +103,9 @@ TOOL USE:
 
   private adminReadToolDefinitions() {
     return [
-      {
-        type: "function",
-        function: {
-          name: "get_order_metrics",
-          description: "Count and summarize orders for today, this week, or this month. Use this for order counts, completed orders, active orders, cancelled orders, pieces sold, and revenue.",
-          parameters: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false }
-        }
-      },
-      {
-        type: "function",
-        function: {
-          name: "search_customers",
-          description: "Find administrator customer records by name, phone number, or Messenger identifier. Use this before customer-specific order tools when the administrator does not provide an internal customerId.",
-          parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false }
-        }
-      },
-      {
-        type: "function",
-        function: {
-          name: "search_orders",
-          description: "Find orders by order number, customer name, phone number, location, date, or status. Use this for natural administrator requests such as 'find John's order', 'show today's queued orders', or 'find EH-1042'.",
-          parameters: {
-            type: "object",
-            properties: {
-              query: { type: "string" },
-              date: { type: "string", description: "Business date in YYYY-MM-DD format." },
-              status: { type: "string" },
-              limit: { type: "number" }
-            },
-            additionalProperties: false
-          }
-        }
-      }
+      { type: "function", function: { name: "get_order_metrics", description: "Count and summarize orders for today, this week, or this month. Use this for order counts, completed orders, active orders, cancelled orders, pieces sold, and revenue.", parameters: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false } } },
+      { type: "function", function: { name: "search_customers", description: "Find administrator customer records by name, phone number, or Messenger identifier. Use this before customer-specific order tools when the administrator does not provide an internal customerId.", parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false } } },
+      { type: "function", function: { name: "search_orders", description: "Find orders by order number, customer name, phone number, location, date, or status. Use this for natural administrator requests such as 'find John's order', 'show today's queued orders', or 'find EH-1042'.", parameters: { type: "object", properties: { query: { type: "string" }, date: { type: "string", description: "Business date in YYYY-MM-DD format." }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false } } }
     ];
   }
 
@@ -154,17 +114,8 @@ TOOL USE:
       const range = args.range === "week" || args.range === "month" ? args.range : "today";
       return this.analyticsTools.getOrderMetrics(range);
     }
-    if (name === "search_customers") {
-      return this.analyticsTools.searchCustomers(String(args.query ?? ""), Number(args.limit ?? 10));
-    }
-    if (name === "search_orders") {
-      return this.analyticsTools.searchOrders(
-        typeof args.query === "string" ? args.query : undefined,
-        typeof args.date === "string" ? args.date : undefined,
-        typeof args.status === "string" ? args.status : undefined,
-        Number(args.limit ?? 20)
-      );
-    }
+    if (name === "search_customers") return this.analyticsTools.searchCustomers(String(args.query ?? ""), Number(args.limit ?? 10));
+    if (name === "search_orders") return this.analyticsTools.searchOrders(typeof args.query === "string" ? args.query : undefined, typeof args.date === "string" ? args.date : undefined, typeof args.status === "string" ? args.status : undefined, Number(args.limit ?? 20));
 
     const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status", "create_order", "update_order", "cancel_order"]);
     if (applicationNames.has(name)) {
@@ -198,33 +149,34 @@ TOOL USE:
 
   private readToolCalls(response: unknown): Array<AdminToolCall & { id: string }> {
     type ToolCallShape = { id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } };
-    type ResponseShape = {
-      tool_calls?: ToolCallShape[];
-      message?: { tool_calls?: ToolCallShape[] };
-      choices?: Array<{ message?: { tool_calls?: ToolCallShape[] } }>;
-    };
-
+    type ResponseShape = { tool_calls?: ToolCallShape[]; message?: { tool_calls?: ToolCallShape[] }; choices?: Array<{ message?: { tool_calls?: ToolCallShape[] } }> };
     const value = response as ResponseShape;
     const calls = value?.tool_calls ?? value?.message?.tool_calls ?? value?.choices?.[0]?.message?.tool_calls ?? [];
     return calls.flatMap((call, index) => {
-      const name = call.function?.name?.trim();
-      if (!name) return [];
+      const name = call.function?.name?.trim(); if (!name) return [];
       const id = call.id || `admin-tool-${index}`;
-      if (call.function?.arguments && typeof call.function.arguments !== "string") {
-        return [{ id, name, arguments: call.function.arguments }];
-      }
+      if (call.function?.arguments && typeof call.function.arguments !== "string") return [{ id, name, arguments: call.function.arguments }];
       try {
         const rawArguments = call.function?.arguments ?? "{}";
         const parsed = typeof rawArguments === "string" ? JSON.parse(rawArguments || "{}") : rawArguments;
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          return [{ id, name, arguments: {}, parseError: "Tool arguments must be a JSON object." }];
-        }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [{ id, name, arguments: {}, parseError: "Tool arguments must be a JSON object." }];
         return [{ id, name, arguments: parsed as Record<string, unknown> }];
-      } catch {
-        return [{ id, name, arguments: {}, parseError: "The model returned invalid JSON tool arguments." }];
-      }
+      } catch { return [{ id, name, arguments: {}, parseError: "The model returned invalid JSON tool arguments." }]; }
     });
   }
+}
+
+function extractDirectCustomerSearch(message: string) {
+  const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)\s*\??$/i);
+  if (!match) return null;
+  const query = match[1].trim();
+  if (!query || /^orders?\b/i.test(query) || /^customers?\b/i.test(query)) return null;
+  return query;
+}
+
+function formatCustomerSearchReply(query: string, customers: Array<{ name: string; phoneNumber?: string | null; totalOrders: number; totalSpent: unknown; isVip: boolean }>) {
+  const lines = customers.map((customer, index) => `${index + 1}. ${customer.name}${customer.phoneNumber ? ` — ${customer.phoneNumber}` : ""} · ${customer.totalOrders} orders · ₱${Number(customer.totalSpent).toLocaleString("en-PH")} spent${customer.isVip ? " · VIP" : ""}`);
+  return `Customer matches for "${query}":\n${lines.join("\n")}`;
 }
 
 function isExplicitConfirmation(message: string) {
