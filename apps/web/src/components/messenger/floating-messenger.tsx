@@ -199,10 +199,10 @@ export function FloatingMessenger() {
   }
 
   const content = (
-    <div className="pointer-events-none fixed bottom-24 right-4 z-[9999] sm:right-6">
-      <div className="pointer-events-auto flex flex-col items-end gap-3">
+    <div className="pointer-events-none fixed inset-0 z-[9999]">
+      <div className="pointer-events-auto fixed bottom-3 left-[164px] flex flex-col items-start sm:left-[172px]">
         {open ? (
-          <div className="flex h-[min(650px,calc(100dvh-180px))] w-[min(640px,calc(100vw-24px))] overflow-hidden rounded-xl border border-line bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+          <div className="mb-2 flex h-[min(650px,calc(100dvh-88px))] w-[min(640px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-line bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
             <aside className="flex w-[220px] shrink-0 flex-col border-r border-line bg-black/[0.02]">
               <div className="border-b border-line px-3 py-3">
                 <div className="flex items-center gap-2">
@@ -286,9 +286,10 @@ export function FloatingMessenger() {
         ) : null}
 
         <div className="flex items-center gap-3 sm:gap-4">
-          <button type="button" onClick={() => setOpen((value) => !value)} className="relative flex h-14 w-14 items-center justify-center rounded-full border border-white/[0.16] bg-accent text-black shadow-[0_16px_40px_rgba(0,0,0,0.4)] transition hover:scale-105 hover:brightness-110" aria-label="Open Messenger" title="Messenger">
-            {open ? <ChevronDown size={20} /> : <MessageCircle size={21} />}
-            {!open && unread > 0 ? <span className="absolute -right-0.5 -top-0.5 flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#0f1726] bg-danger px-1 text-[9px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
+          <button type="button" onClick={() => setOpen((value) => !value)} className="relative inline-flex h-11 min-w-[132px] items-center justify-center gap-2 rounded-xl border border-white/[0.16] bg-accent px-4 text-sm font-semibold text-black shadow-[0_14px_34px_rgba(0,0,0,0.32)] transition hover:-translate-y-0.5 hover:brightness-110" aria-label="Open Messenger" title="Messenger">
+            {open ? <ChevronDown size={18} /> : <MessageCircle size={18} />}
+            <span>Messenger</span>
+            {!open && unread > 0 ? <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border-2 border-[#0f1726] bg-danger px-1 text-[9px] font-bold text-white">{unread > 99 ? "99+" : unread}</span> : null}
           </button>
         </div>
       </div>
