@@ -81,16 +81,26 @@ export function FloatingOperatorChat() {
 
     communicationsButton.click();
 
-    window.setTimeout(() => {
+    const wantedLabel = type === "audio" ? "Audio" : "Video";
+    let attempts = 0;
+    const findAndStartCall = () => {
       const callPanel = document.querySelector<HTMLElement>('body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"]');
-      if (!callPanel) return;
+      const callButton = callPanel
+        ? Array.from(callPanel.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.textContent?.trim() === wantedLabel,
+          )
+        : null;
 
-      const wantedLabel = type === "audio" ? "Audio" : "Video";
-      const callButton = Array.from(callPanel.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent?.trim() === wantedLabel,
-      );
-      callButton?.click();
-    }, 120);
+      if (callButton) {
+        callButton.click();
+        return;
+      }
+
+      attempts += 1;
+      if (attempts < 30) window.setTimeout(findAndStartCall, 50);
+    };
+
+    window.setTimeout(findAndStartCall, 0);
   }
 
   const content = (
