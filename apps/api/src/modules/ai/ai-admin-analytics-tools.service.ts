@@ -48,10 +48,8 @@ export class AiAdminAnalyticsToolsService {
       take
     });
 
-    // Orders are the same source used by the Orders board. Search their
-    // customer relation before trusting a customer-table-only match so an
-    // otherwise valid duplicate/stale Customer row cannot hide the customer
-    // record that is actually attached to an order.
+    // The Orders board gets customer identity from Order.customer. Prefer those
+    // linked records so duplicate/stale customer rows do not hide real order data.
     if (normalized.length >= 3) {
       const orderCustomers = await this.prisma.order.findMany({
         where: {
@@ -75,17 +73,16 @@ export class AiAdminAnalyticsToolsService {
         .slice(0, take);
 
       if (relatedExact.length > 0) {
-        return relatedExact.map((customer) => ({ ...customer, matchType: "order_relation" as const }));
+        return this.withActualCustomerOrderStats(relatedExact, "order_relation");
       }
     }
 
     if (exact.length > 0 || normalized.length < 3) {
-      return exact.map((customer) => ({ ...customer, matchType: "exact" as const }));
+      return this.withActualCustomerOrderStats(exact, "exact");
     }
 
     // Names are free-form and administrators commonly make a one-character
-    // typo. Compare a bounded customer set locally only after both exact paths
-    // miss; the fallback remains deterministic and bounded.
+    // typo. Compare a bounded customer set locally only after exact paths miss.
     const candidates = await this.prisma.customer.findMany({
       select: customerSearchSelect,
       orderBy: [{ totalOrders: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
@@ -105,11 +102,42 @@ export class AiAdminAnalyticsToolsService {
       .sort((a, b) => a.distance - b.distance || b.customer.totalOrders - a.customer.totalOrders || Number(b.customer.totalSpent) - Number(a.customer.totalSpent))
       .slice(0, take);
 
-    return fuzzy.map(({ customer, distance }) => ({
+    const fuzzyCustomers = await this.withActualCustomerOrderStats(fuzzy.map(({ customer }) => customer), "fuzzy");
+    return fuzzyCustomers.map((customer, index) => ({
       ...customer,
-      matchType: "fuzzy" as const,
-      matchDistance: distance
+      matchDistance: fuzzy[index]?.distance
     }));
+  }
+
+  private async withActualCustomerOrderStats<T extends { id: string; totalOrders: number; totalSpent: unknown }>(
+    customers: T[],
+    matchType: "exact" | "order_relation" | "fuzzy"
+  ) {
+    if (customers.length === 0) return [];
+
+    const customerIds = customers.map((customer) => customer.id);
+    const orders = await this.prisma.order.findMany({
+      where: { customerId: { in: customerIds } },
+      select: { customerId: true, totalAmount: true },
+      take: 10000
+    });
+
+    const stats = new Map<string, { totalOrders: number; totalSpent: number }>();
+    for (const order of orders) {
+      const current = stats.get(order.customerId) ?? { totalOrders: 0, totalSpent: 0 };
+      current.totalOrders += 1;
+      current.totalSpent += Number(order.totalAmount) || 0;
+      stats.set(order.customerId, current);
+    }
+
+    return customers
+      .map((customer) => ({
+        ...customer,
+        totalOrders: stats.get(customer.id)?.totalOrders ?? 0,
+        totalSpent: stats.get(customer.id)?.totalSpent ?? 0,
+        matchType
+      }))
+      .sort((a, b) => b.totalOrders - a.totalOrders || Number(b.totalSpent) - Number(a.totalSpent) || a.name.localeCompare(b.name));
   }
 
   async searchOrders(query?: string, date?: string, status?: string, limit = 20) {
