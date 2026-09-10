@@ -1,10 +1,14 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
+import { McpOrdersService } from "../mcp/mcp-orders.service";
 
 @Injectable()
 export class AiAdminAnalyticsToolsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mcpOrdersService: McpOrdersService
+  ) {}
 
   async getOrderMetrics(range: "today" | "week" | "month" = "today") {
     const { start, end } = getManilaRange(range);
@@ -49,8 +53,6 @@ export class AiAdminAnalyticsToolsService {
       take: Math.max(take * 3, 25)
     });
 
-    // The Orders board gets customer identity from Order.customer. Prefer those
-    // linked records so duplicate/stale customer rows do not hide real order data.
     if (normalized.length >= 3) {
       const orderCustomers = await this.prisma.order.findMany({
         where: {
@@ -81,8 +83,6 @@ export class AiAdminAnalyticsToolsService {
       return this.rankAndEnrichCustomers(exact, target, take, "exact");
     }
 
-    // Names are free-form and administrators commonly make a one-character typo.
-    // Compare a bounded customer set locally only after exact paths miss.
     const candidates = await this.prisma.customer.findMany({
       select: customerSearchSelect,
       orderBy: [{ totalOrders: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
@@ -103,61 +103,27 @@ export class AiAdminAnalyticsToolsService {
 
     const fuzzyCustomers = await this.rankAndEnrichCustomers(fuzzy.map(({ customer }) => customer), target, take, "fuzzy");
     const distanceById = new Map(fuzzy.map(({ customer, distance }) => [customer.id, distance]));
-    return fuzzyCustomers.map((customer) => ({
-      ...customer,
-      matchDistance: distanceById.get(customer.id)
-    }));
+    return fuzzyCustomers.map((customer) => ({ ...customer, matchDistance: distanceById.get(customer.id) }));
   }
 
-  private async rankAndEnrichCustomers<T extends { id: string; name: string; totalOrders: number; totalSpent: unknown }>(
-    customers: T[],
-    target: string,
-    take: number,
-    matchType: "exact" | "order_relation" | "fuzzy"
-  ) {
-    const ranked = customers
-      .map((customer) => ({
-        customer,
-        relevance: customerNameRelevance(target, normalizeForMatch(customer.name))
-      }))
-      .sort((a, b) => b.relevance - a.relevance || a.customer.name.localeCompare(b.customer.name))
-      .slice(0, take)
-      .map(({ customer }) => customer);
+  async updateOrder(params: { id?: string; orderNumber?: string; status?: string; notes?: string }) {
+    const id = params.id?.trim() || undefined;
+    const orderNumber = params.orderNumber?.trim() || undefined;
+    if (!id && !orderNumber) throw new BadRequestException("Provide either an order id or order number.");
+    if (!params.status && params.notes === undefined) throw new BadRequestException("Provide an order status or notes change.");
 
-    const enriched = await this.withActualCustomerOrderStats(ranked, matchType);
-    return enriched.sort((a, b) => {
-      const relevanceDiff = customerNameRelevance(target, normalizeForMatch(b.name)) - customerNameRelevance(target, normalizeForMatch(a.name));
-      return relevanceDiff || b.totalOrders - a.totalOrders || Number(b.totalSpent) - Number(a.totalSpent) || a.name.localeCompare(b.name);
-    });
-  }
-
-  private async withActualCustomerOrderStats<T extends { id: string; name: string; totalOrders: number; totalSpent: unknown }>(
-    customers: T[],
-    matchType: "exact" | "order_relation" | "fuzzy"
-  ) {
-    if (customers.length === 0) return [];
-
-    const customerIds = customers.map((customer) => customer.id);
-    const orders = await this.prisma.order.findMany({
-      where: { customerId: { in: customerIds } },
-      select: { customerId: true, totalAmount: true },
-      take: 10000
-    });
-
-    const stats = new Map<string, { totalOrders: number; totalSpent: number }>();
-    for (const order of orders) {
-      const current = stats.get(order.customerId) ?? { totalOrders: 0, totalSpent: 0 };
-      current.totalOrders += 1;
-      current.totalSpent += Number(order.totalAmount) || 0;
-      stats.set(order.customerId, current);
+    let resolvedId = id;
+    if (!resolvedId) {
+      const order = await this.prisma.order.findUnique({ where: { orderNumber }, select: { id: true } });
+      if (!order) throw new BadRequestException(`Order not found: ${orderNumber}`);
+      resolvedId = order.id;
     }
 
-    return customers.map((customer) => ({
-      ...customer,
-      totalOrders: stats.get(customer.id)?.totalOrders ?? 0,
-      totalSpent: stats.get(customer.id)?.totalSpent ?? 0,
-      matchType
-    }));
+    return this.mcpOrdersService.updateOrder({
+      id: resolvedId,
+      ...(params.status ? { status: params.status as OrderStatus } : {}),
+      ...(params.notes !== undefined ? { notes: params.notes } : {})
+    });
   }
 
   async searchOrders(query?: string, date?: string, status?: string, limit = 20) {
@@ -203,10 +169,35 @@ export class AiAdminAnalyticsToolsService {
       take
     });
 
-    return orders.map((order) => ({
-      ...order,
-      totalAmount: Number(order.totalAmount)
-    }));
+    return orders.map((order) => ({ ...order, totalAmount: Number(order.totalAmount) }));
+  }
+
+  private async rankAndEnrichCustomers<T extends { id: string; name: string; totalOrders: number; totalSpent: unknown }>(customers: T[], target: string, take: number, matchType: "exact" | "order_relation" | "fuzzy") {
+    const ranked = customers
+      .map((customer) => ({ customer, relevance: customerNameRelevance(target, normalizeForMatch(customer.name)) }))
+      .sort((a, b) => b.relevance - a.relevance || a.customer.name.localeCompare(b.customer.name))
+      .slice(0, take)
+      .map(({ customer }) => customer);
+
+    const enriched = await this.withActualCustomerOrderStats(ranked, matchType);
+    return enriched.sort((a, b) => {
+      const relevanceDiff = customerNameRelevance(target, normalizeForMatch(b.name)) - customerNameRelevance(target, normalizeForMatch(a.name));
+      return relevanceDiff || b.totalOrders - a.totalOrders || Number(b.totalSpent) - Number(a.totalSpent) || a.name.localeCompare(b.name);
+    });
+  }
+
+  private async withActualCustomerOrderStats<T extends { id: string; name: string; totalOrders: number; totalSpent: unknown }>(customers: T[], matchType: "exact" | "order_relation" | "fuzzy") {
+    if (customers.length === 0) return [];
+    const customerIds = customers.map((customer) => customer.id);
+    const orders = await this.prisma.order.findMany({ where: { customerId: { in: customerIds } }, select: { customerId: true, totalAmount: true }, take: 10000 });
+    const stats = new Map<string, { totalOrders: number; totalSpent: number }>();
+    for (const order of orders) {
+      const current = stats.get(order.customerId) ?? { totalOrders: 0, totalSpent: 0 };
+      current.totalOrders += 1;
+      current.totalSpent += Number(order.totalAmount) || 0;
+      stats.set(order.customerId, current);
+    }
+    return customers.map((customer) => ({ ...customer, totalOrders: stats.get(customer.id)?.totalOrders ?? 0, totalSpent: stats.get(customer.id)?.totalSpent ?? 0, matchType }));
   }
 }
 
@@ -230,7 +221,6 @@ function customerNameRelevance(target: string, candidate: string) {
   if (!target || !candidate) return 0;
   if (candidate === target) return 100;
   if (candidate.startsWith(target)) return 90;
-  if (candidate.split(/(?=[a-z])/).includes(target)) return 85;
   if (candidate.includes(target)) return 70;
   return 0;
 }
@@ -242,13 +232,7 @@ function levenshteinDistance(a: string, b: string) {
   let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
   for (let i = 1; i <= a.length; i += 1) {
     const current = [i];
-    for (let j = 1; j <= b.length; j += 1) {
-      current[j] = Math.min(
-        current[j - 1] + 1,
-        previous[j] + 1,
-        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-      );
-    }
+    for (let j = 1; j <= b.length; j += 1) current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     previous = current;
   }
   return previous[b.length];
@@ -260,56 +244,30 @@ function clampLimit(value: number, fallback: number, maximum: number) {
 }
 
 function isOrderStatus(value?: string): value is string {
-  return [
-    "inquiry", "awaiting_confirmation", "confirmed", "queued", "preparing", "frying",
-    "packed", "ready_for_pickup", "ready_for_booking", "booked", "completed", "cancelled"
-  ].includes(value ?? "");
+  return ["inquiry", "awaiting_confirmation", "confirmed", "queued", "preparing", "frying", "packed", "ready_for_pickup", "ready_for_booking", "booked", "completed", "cancelled"].includes(value ?? "");
 }
 
 function parseManilaDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
   const start = new Date(`${value}T00:00:00+08:00`);
   if (Number.isNaN(start.getTime())) return undefined;
-  const end = addDays(start, 1);
-  return { start, end };
+  return { start, end: addDays(start, 1) };
 }
 
 function orderBusinessDateWhere(start: Date, end: Date) {
-  return {
-    OR: [
-      { preferredSchedule: { gte: start, lt: end } },
-      {
-        createdAt: { gte: start, lt: end },
-        OR: [
-          { preferredSchedule: null },
-          { preferredSchedule: { isSet: false } }
-        ]
-      }
-    ]
-  };
+  return { OR: [{ preferredSchedule: { gte: start, lt: end } }, { createdAt: { gte: start, lt: end }, OR: [{ preferredSchedule: null }, { preferredSchedule: { isSet: false } }] }] };
 }
 
 function getManilaRange(range: "today" | "week" | "month") {
   const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(now);
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;
   if (!year || !month || !day) throw new Error("Unable to determine Manila date.");
-
   const today = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
   if (range === "today") return { start: today, end: addDays(today, 1) };
-
-  if (range === "month") {
-    const monthStart = new Date(`${year}-${month}-01T00:00:00+08:00`);
-    return { start: monthStart, end: addDays(today, 1) };
-  }
-
+  if (range === "month") return { start: new Date(`${year}-${month}-01T00:00:00+08:00`), end: addDays(today, 1) };
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", weekday: "short" }).format(now);
   const weekdayNumber = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[weekday] ?? 0;
   const daysFromMonday = weekdayNumber === 0 ? 6 : weekdayNumber - 1;
