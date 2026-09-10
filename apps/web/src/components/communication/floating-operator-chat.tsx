@@ -76,7 +76,7 @@ export function FloatingOperatorChat() {
   }
 
   function openCall(type: "audio" | "video") {
-    const communicationsButton = document.querySelector<HTMLButtonElement>('button[title="Communications"]');
+    const communicationsButton = document.querySelector<HTMLButtonElement>('body > button[title="Communications"]');
     if (!communicationsButton) return;
 
     communicationsButton.click();
