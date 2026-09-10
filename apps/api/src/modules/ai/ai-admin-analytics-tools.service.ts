@@ -112,11 +112,25 @@ export class AiAdminAnalyticsToolsService {
     if (!id && !orderNumber) throw new BadRequestException("Provide either an order id or order number.");
     if (!params.status && params.notes === undefined) throw new BadRequestException("Provide an order status or notes change.");
 
-    let resolvedId = id;
-    if (!resolvedId) {
+    let resolvedId: string | undefined;
+    if (orderNumber) {
       const order = await this.prisma.order.findUnique({ where: { orderNumber }, select: { id: true } });
       if (!order) throw new BadRequestException(`Order not found: ${orderNumber}`);
       resolvedId = order.id;
+    } else if (id && isMongoObjectId(id)) {
+      resolvedId = id;
+    } else if (id && /^\d{10,15}$/.test(id)) {
+      const matches = await this.prisma.order.findMany({
+        where: { customer: { phoneNumber: id } },
+        select: { id: true, orderNumber: true },
+        orderBy: { createdAt: "desc" },
+        take: 2
+      });
+      if (matches.length === 1) resolvedId = matches[0].id;
+      else if (matches.length === 0) throw new BadRequestException(`Order id "${id}" is invalid and no order was found for that customer phone number.`);
+      else throw new BadRequestException(`Order identifier "${id}" is ambiguous. Use the order number from the order search result.`);
+    } else {
+      throw new BadRequestException(`Invalid order id "${id ?? ""}". Use the order number from the order search result.`);
     }
 
     return this.mcpOrdersService.updateOrder({
@@ -278,4 +292,8 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function isMongoObjectId(value: string) {
+  return /^[0-9a-fA-F]{24}$/.test(value);
 }
