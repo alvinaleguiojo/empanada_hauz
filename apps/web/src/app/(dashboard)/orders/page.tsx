@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
-import { OrdersBoard } from "@/components/orders/orders-board";
+import { OrdersView } from "@/components/orders/orders-view";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 
@@ -25,7 +25,7 @@ export default async function OrdersPage() {
         </Link>
       </div>
       <ManualOrderForm />
-      <OrdersBoard orders={orders} />
+      <OrdersView orders={orders} />
     </div>
   );
 }
