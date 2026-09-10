@@ -118,7 +118,7 @@ input[type="time"]::-webkit-calendar-picker-indicator:hover {
   background: transparent !important;
 }
 
-/* Right-side floating chat launcher: three circular controls stacked like a chat rail. */
+/* Right-side floating launchers: circular controls stacked like a chat rail. */
 body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 {
   left: auto !important;
   right: 24px !important;
@@ -146,17 +146,31 @@ body > div.fixed.inset-0[class*="z-[9999]"] button[title="Messenger"] > span:not
   display: none !important;
 }
 
-/* Chat-sized panels: compact, anchored immediately above their launcher. */
+/* Docked chat panels: the panel itself is independent from the launcher position. */
 body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"] {
-  width: min(390px, calc(100vw - 24px)) !important;
-  height: min(570px, calc(100dvh - 212px)) !important;
-  max-height: min(570px, calc(100dvh - 212px)) !important;
+  position: fixed !important;
+  right: 24px !important;
+  bottom: 0 !important;
+  margin-bottom: 0 !important;
+  width: min(390px, calc(100vw - 48px)) !important;
+  height: min(570px, 78dvh) !important;
+  max-height: min(570px, 78dvh) !important;
+  border-radius: 16px 16px 0 0 !important;
+  box-shadow: 0 -12px 50px rgba(0, 0, 0, 0.38) !important;
+  z-index: 1 !important;
 }
 
 body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
-  width: min(520px, calc(100vw - 24px)) !important;
-  height: min(590px, calc(100dvh - 142px)) !important;
-  max-height: min(590px, calc(100dvh - 142px)) !important;
+  position: fixed !important;
+  right: 24px !important;
+  bottom: 0 !important;
+  margin-bottom: 0 !important;
+  width: min(520px, calc(100vw - 48px)) !important;
+  height: min(590px, 80dvh) !important;
+  max-height: min(590px, 80dvh) !important;
+  border-radius: 16px 16px 0 0 !important;
+  box-shadow: 0 -12px 50px rgba(0, 0, 0, 0.38) !important;
+  z-index: 1 !important;
 }
 
 /* Communications / operator control remains the bottom circular button. */
@@ -182,14 +196,15 @@ body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
   left: auto !important;
   top: auto !important;
   right: 24px !important;
-  bottom: 92px !important;
+  bottom: 0 !important;
   transform: none !important;
   width: min(440px, calc(100vw - 48px)) !important;
   max-width: 440px !important;
-  height: min(560px, calc(100dvh - 116px)) !important;
-  max-height: min(560px, calc(100dvh - 116px)) !important;
-  border-radius: 16px !important;
+  height: min(560px, 76dvh) !important;
+  max-height: min(560px, 76dvh) !important;
+  border-radius: 16px 16px 0 0 !important;
   overflow: hidden !important;
+  box-shadow: 0 -12px 50px rgba(0, 0, 0, 0.38) !important;
 }
 
 @media (max-width: 640px) {
@@ -220,17 +235,22 @@ body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
 
   body > div.fixed.inset-0[class*="z-[10000]"] > div.fixed.bottom-3 > div[class*="w-[min(420px"],
   body > div.fixed.inset-0[class*="z-[9999]"] > div.fixed.bottom-3 > div[class*="w-[min(640px"] {
-    width: calc(100vw - 24px) !important;
-    height: min(560px, calc(100dvh - 196px)) !important;
-    max-height: min(560px, calc(100dvh - 196px)) !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: min(560px, 82dvh) !important;
+    max-height: min(560px, 82dvh) !important;
+    border-radius: 16px 16px 0 0 !important;
   }
 
   body > div[class*="max-h-[calc(100vh-3rem)]"][class*="bg-[#111827]"] {
-    right: 12px !important;
-    bottom: 80px !important;
-    width: calc(100vw - 24px) !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
     max-width: none !important;
-    height: calc(100dvh - 96px) !important;
-    max-height: calc(100dvh - 96px) !important;
+    height: 82dvh !important;
+    max-height: 82dvh !important;
+    border-radius: 16px 16px 0 0 !important;
   }
 }
