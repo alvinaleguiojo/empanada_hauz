@@ -1,5 +1,6 @@
 import io
 import os
+import threading
 from functools import lru_cache
 
 import numpy as np
@@ -17,6 +18,7 @@ MODEL = os.getenv("TTS_MODEL", "Splintir/speecht5_tts-pld-ceb-solo")
 DEVICE = os.getenv("TTS_DEVICE", "cpu")
 
 app = FastAPI(title="Empanada Hauz Cebuano TTS")
+_models_lock = threading.Lock()
 
 
 class SynthesisRequest(BaseModel):
@@ -24,7 +26,7 @@ class SynthesisRequest(BaseModel):
 
 
 @lru_cache(maxsize=1)
-def load_models():
+def _load_models_once():
     print(f"Loading Cebuano TTS models: {MODEL} ({DEVICE})", flush=True)
     device = torch.device(DEVICE)
     processor = SpeechT5Processor.from_pretrained(MODEL)
@@ -34,6 +36,11 @@ def load_models():
     speaker = torch.from_numpy(np.load(speaker_path)).float().unsqueeze(0).to(device)
     print("Cebuano TTS models ready", flush=True)
     return processor, model, vocoder, speaker
+
+
+def load_models():
+    with _models_lock:
+        return _load_models_once()
 
 
 @app.get("/health")
