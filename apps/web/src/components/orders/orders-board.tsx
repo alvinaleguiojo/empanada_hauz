@@ -661,14 +661,21 @@ export function OrdersBoard({
     }
 
     setLineItems((current) => {
-      if (current.length > 0) {
-        return current;
-      }
+      const hasAllCatalogProducts =
+        productOptions.every((product) =>
+          current.some(
+            (item) =>
+              item.productName.toLowerCase() ===
+              product.value.toLowerCase(),
+          ),
+        );
 
-      return createEditableLineItems(
-        selectedOrder,
-        productOptions,
-      );
+      return hasAllCatalogProducts
+        ? current
+        : createEditableLineItems(
+            selectedOrder,
+            productOptions,
+          );
     });
   }, [productOptions, selectedOrder?.id]);
 
@@ -2215,7 +2222,8 @@ export function OrdersBoard({
                                       maximRiderPlate:
                                         e.target
                                           .value,
-                                  }),
+                                    }),
+                                  )
                                 }
                                 placeholder="Plate number"
                               />
