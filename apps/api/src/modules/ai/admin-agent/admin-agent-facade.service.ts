@@ -60,15 +60,15 @@ export class AdminAgentFacadeService {
   private parseStatusQuery(query: string) {
     if (!query.startsWith("__status__:")) return null;
     const status = query.slice("__status__:".length);
-    return status === "pending" || status === "completed" || status === "cancelled" ? status : null;
+    return status === "queued" || status === "awaiting_confirmation" || status === "completed" || status === "cancelled" ? status : null;
   }
 
   private formatNoOrderMatch(query: string, status: string | null) {
-    return status ? `No ${status} orders found.` : `No order found for "${query}".`;
+    return status ? `No ${status.replace(/_/g, " ")} orders found.` : `No order found for "${query}".`;
   }
 
   private formatOrders(query: string, orders: Array<{ orderNumber: string; status: string; quantity: number; totalAmount: unknown; customer?: { name: string; phoneNumber?: string | null } | null }>, status: string | null) {
-    const title = status ? `${status.charAt(0).toUpperCase()}${status.slice(1)} orders` : `Order matches for "${query}"`;
+    const title = status ? `${status.replace(/_/g, " ").replace(/^\w/, (value) => value.toUpperCase())} orders` : `Order matches for "${query}"`;
     const lines = orders.map((order, index) => `${index + 1}. ${order.orderNumber} — ${order.customer?.name ?? "Unknown customer"}${order.customer?.phoneNumber ? ` · ${order.customer.phoneNumber}` : ""} · ${order.status} · ${order.quantity} pcs · ₱${Number(order.totalAmount).toLocaleString("en-PH")}`);
     return `${title}:\n${lines.join("\n")}`;
   }
