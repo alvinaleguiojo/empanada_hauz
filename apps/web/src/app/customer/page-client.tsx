@@ -301,10 +301,25 @@ export default function CustomerKioskPage() {
     );
   }
 
+  const stepNavigation = (
+    <nav className="mx-auto flex max-w-7xl gap-2.5 overflow-x-auto py-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Order steps">
+      {steps.map((item, index) => {
+        const active = index === step;
+        const complete = index < step;
+        return (
+          <button key={item.title} type="button" onClick={() => complete && setStep(index)} disabled={!complete && !active} className={`group flex shrink-0 items-center gap-2.5 rounded-full border px-3.5 py-2 transition ${active ? "border-[#E3A64B]/70 bg-[#E3A64B]/12 text-[#F6EFDD]" : complete ? "border-[#7A9B4E]/35 bg-[#7A9B4E]/8 text-[#c9dba6]" : "border-[#F2E8D5]/10 text-[#F2E8D5]/35"}`}>
+            <span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-extrabold ${active ? "bg-[#E3A64B] text-[#20160d]" : complete ? "bg-[#7A9B4E] text-[#17110b]" : "bg-[#34271a] text-[#F2E8D5]/40"}`}>{complete ? <Check size={13} /> : index + 1}</span>
+            <span className="font-semibold">{item.title}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+
   return (
     <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-3 pb-8 pt-3 text-[#F2E8D5] sm:px-6 lg:px-8`}>
       <div className="mx-auto max-w-7xl">
-        <header className="sticky top-0 z-30 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <header className="sticky top-0 z-40 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#E3A64B] text-[#20160d] shadow-[0_8px_24px_-14px_rgba(227,166,75,0.9)]"><ChefHat size={20} /></div>
@@ -313,12 +328,7 @@ export default function CustomerKioskPage() {
                 <div className="mt-1 truncate text-xs text-[#F2E8D5]/50">Freshly made, your way.</div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setBagOpen(true)}
-              aria-label={`Open bag with ${summary.totalQuantity} pieces`}
-              className="inline-flex items-center gap-2 rounded-full border border-[#F2E8D5]/10 bg-[#241c13] px-3 py-2 transition hover:border-[#E3A64B]/30 hover:bg-[#2b2117]"
-            >
+            <button type="button" onClick={() => setBagOpen(true)} aria-label={`Open bag with ${summary.totalQuantity} pieces`} className="inline-flex items-center gap-2 rounded-full border border-[#F2E8D5]/10 bg-[#241c13] px-3 py-2 transition hover:border-[#E3A64B]/30 hover:bg-[#2b2117]">
               <ShoppingBag size={15} className="text-[#E3A64B]" />
               <span className="font-[family-name:var(--font-mono)] text-xs font-semibold text-[#F2E8D5]">{summary.totalQuantity} pcs</span>
               <span className="hidden text-[#F2E8D5]/30 sm:inline">·</span>
@@ -327,20 +337,18 @@ export default function CustomerKioskPage() {
           </div>
         </header>
 
-        <section className="mt-5 overflow-hidden rounded-[30px] border border-[#F2E8D5]/10 bg-[#241c13] shadow-[0_30px_90px_-35px_rgba(0,0,0,0.8)]">
+        <div className="sticky top-[67px] z-30 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/90 px-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 lg:top-[68px]">
+          {stepNavigation}
+        </div>
+
+        <section className="mt-0 overflow-hidden rounded-b-[30px] border-x border-b border-[#F2E8D5]/10 bg-[#241c13] shadow-[0_30px_90px_-35px_rgba(0,0,0,0.8)]">
           <div className="jeepney-stripe h-1.5 w-full" />
           <div className="grid gap-8 px-5 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.75fr] lg:px-10 lg:py-10">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/30 bg-[#E3A64B]/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-[#E3A64B]">Made to order <span className="h-1 w-1 rounded-full bg-[#E3A64B]/60" /> 10 pcs minimum</div>
               <h1 className="mt-4 max-w-3xl font-[family-name:var(--font-display)] text-4xl font-extrabold leading-[1.02] tracking-tight text-[#F6EFDD] sm:text-5xl lg:text-6xl">Build your box.<br /><span className="text-[#E3A64B]">We'll handle the rest.</span></h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-[#F2E8D5]/60 sm:text-base">Choose your favorite flavors, set your quantities, then tell us where to send your freshly made empanadas.</p>
-              <div className="mt-6 flex flex-wrap gap-2.5">
-                {steps.map((item, index) => {
-                  const active = index === step;
-                  const complete = index < step;
-                  return <button key={item.title} type="button" onClick={() => complete && setStep(index)} disabled={!complete && !active} className={`group flex items-center gap-2.5 rounded-full border px-3.5 py-2 transition ${active ? "border-[#E3A64B]/70 bg-[#E3A64B]/12 text-[#F6EFDD]" : complete ? "border-[#7A9B4E]/35 bg-[#7A9B4E]/8 text-[#c9dba6]" : "border-[#F2E8D5]/10 text-[#F2E8D5]/35"}`}><span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-extrabold ${active ? "bg-[#E3A64B] text-[#20160d]" : complete ? "bg-[#7A9B4E] text-[#17110b]" : "bg-[#34271a] text-[#F2E8D5]/40"}`}>{complete ? <Check size={13} /> : index + 1}</span><span className="font-semibold">{item.title}</span></button>;
-                })}
-              </div>
+              <div className="mt-6 hidden lg:block" />
             </div>
             <div className="hidden lg:flex lg:items-end lg:justify-end">
               <div className="max-w-xs rounded-2xl border border-dashed border-[#F2E8D5]/15 bg-[#1a140d] p-5 text-right">
@@ -453,23 +461,15 @@ export default function CustomerKioskPage() {
               </div>
               <button type="button" onClick={() => setBagOpen(false)} aria-label="Close bag" className="grid h-10 w-10 place-items-center rounded-full border border-[#241c13]/10 bg-[#241c13]/5 transition hover:bg-[#241c13]/10"><X size={18} /></button>
             </div>
-
             <div className="min-h-0 flex-1 overflow-auto px-5 py-4 sm:px-6">
               {summary.items.length > 0 ? summary.items.map((item) => (
-                <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#241c13]/7 py-3 first:pt-0 last:border-b-0">
-                  <div className="min-w-0"><div className="truncate text-sm font-bold">{item.name}</div><div className="mt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#241c13]/45">{item.quantity} × Php {item.price}</div></div>
-                  <div className="shrink-0 font-[family-name:var(--font-mono)] text-sm font-bold">Php {item.subtotal}</div>
-                </div>
-              )) : (
-                <div className="py-16 text-center"><ShoppingBag className="mx-auto text-[#241c13]/20" size={30} /><p className="mt-3 text-sm font-semibold text-[#241c13]/45">Your bag is empty.</p><p className="mt-1 text-xs text-[#241c13]/35">Pick a flavor to get started.</p></div>
-              )}
+                <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#241c13]/7 py-3 first:pt-0 last:border-b-0"><div className="min-w-0"><div className="truncate text-sm font-bold">{item.name}</div><div className="mt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#241c13]/45">{item.quantity} × Php {item.price}</div></div><div className="shrink-0 font-[family-name:var(--font-mono)] text-sm font-bold">Php {item.subtotal}</div></div>
+              )) : <div className="py-16 text-center"><ShoppingBag className="mx-auto text-[#241c13]/20" size={30} /><p className="mt-3 text-sm font-semibold text-[#241c13]/45">Your bag is empty.</p><p className="mt-1 text-xs text-[#241c13]/35">Pick a flavor to get started.</p></div>}
             </div>
-
             <div className="border-t border-dashed border-[#241c13]/15 px-5 py-5 sm:px-6">
               {form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mb-3 flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-1.5 text-[#241c13]/55"><Truck size={14} /> {quotingDelivery ? "Estimating delivery…" : "Est. delivery"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km` : ""}</span><span className="font-[family-name:var(--font-mono)] font-bold">{quotingDelivery ? "…" : deliveryQuote ? `Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}
               <div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#241c13]/45">Total</div><div className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold">Php {summary.total}</div></div><div className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${summary.totalQuantity >= 10 ? "bg-[#7A9B4E]/15 text-[#4f6a34]" : "bg-[#C0472B]/10 text-[#a53b25]"}`}>{summary.totalQuantity >= 10 ? "Minimum reached" : `${remaining} pcs to go`}</div></div>
               {form.deliveryMethod === "maxim" ? <p className="mt-2 text-[10px] leading-4 text-[#241c13]/40">Delivery total uses an estimate until our team confirms the final fare.</p> : null}
-
               <div className="mt-5 grid gap-2.5">
                 <div className="flex gap-2.5">
                   <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#241c13]/12 bg-[#241c13]/4 text-[#241c13] disabled:cursor-not-allowed disabled:opacity-25"><ArrowLeft size={17} /></button>
