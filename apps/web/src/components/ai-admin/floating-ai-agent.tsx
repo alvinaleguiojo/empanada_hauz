@@ -1,4 +1,4 @@
-use client;
+"use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -37,9 +37,9 @@ export function FloatingAiAgent() {
     };
   }, []);
 
-  async function sendText(text: string) {
+  async function sendText(text: string, allowWhileLoading = false) {
     const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || (loading && !allowWhileLoading)) return;
 
     const history = messages.slice(-12);
     setMessages((current) => [...current, { role: "user", content: trimmed }]);
@@ -85,9 +85,10 @@ export function FloatingAiAgent() {
       const transcript = result.transcript.trim();
       if (!transcript) {
         setError("No speech was detected. Please try again.");
+        setLoading(false);
         return;
       }
-      await sendText(transcript);
+      await sendText(transcript, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to transcribe the recording.");
       setLoading(false);
