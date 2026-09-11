@@ -78,11 +78,11 @@ export function FloatingAiAgent() {
     try {
       const formData = new FormData();
       formData.append("file", blob, "admin-ai-voice.webm");
-      const result = await apiFetch<{ transcript: string }>("/transcribe", {
+      const result = await apiFetch<{ text?: string; transcript?: string }>("/transcribe", {
         method: "POST",
         body: formData
       });
-      const transcript = result.transcript.trim();
+      const transcript = (result.text ?? result.transcript ?? "").trim();
       if (!transcript) {
         setError("No speech was detected. Please try again.");
         setLoading(false);
