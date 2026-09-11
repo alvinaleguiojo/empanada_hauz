@@ -1,35 +1,29 @@
-import { BadGatewayException, Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
+import { BadGatewayException, Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common";
 import { dirname, resolve } from "node:path";
 import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { existsSync, mkdir } from "node:fs";
 import { TranscriptionResult } from "./transcription.types";
 
 @Injectable()
-export class TranscriptionService implements OnModuleInit, OnModuleDestroy {
+export class TranscriptionService implements OnModuleDestroy {
   private readonly logger = new Logger(TranscriptionService.name);
   private worker?: ChildProcessWithoutNullStreams;
-  private workerReady: Promise<void> = Promise.resolve();
+  private workerReady?: Promise<void>;
   private readonly port = Number(process.env.TRANSCRIPTION_PORT ?? 8765);
   private readonly model = process.env.TRANSCRIPTION_MODEL ?? "small";
   private readonly python = process.env.TRANSCRIPTION_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
-
-  async onModuleInit() {
-    if ((process.env.TRANSCRIPTION_ENABLED ?? "true").toLowerCase() === "false") return;
-    this.workerReady = this.startWorker();
-  }
 
   async onModuleDestroy() {
     if (this.worker && !this.worker.killed) this.worker.kill();
   }
 
-  async transcribe(buffer: Buffer, filename: string, mimeType?: string, language?: string, model = this.model) {
+  async transcribe(buffer: Buffer, filename: string, mimeType?: string, language?: string) {
     if (!buffer.length) throw new ServiceUnavailableException("Audio file is empty.");
     await this.ensureWorkerReady();
 
     const form = new FormData();
     form.append("file", new Blob([buffer], { type: mimeType || "application/octet-stream" }), filename || "audio.bin");
     if (language?.trim()) form.append("language", language.trim());
-    form.append("model", model);
 
     let response: Response;
     try {
@@ -60,12 +54,23 @@ export class TranscriptionService implements OnModuleInit, OnModuleDestroy {
     if ((process.env.TRANSCRIPTION_ENABLED ?? "true").toLowerCase() === "false") {
       throw new ServiceUnavailableException("Local transcription is disabled.");
     }
+
+    if (!this.workerReady) {
+      this.workerReady = this.startWorker().catch((error) => {
+        this.workerReady = undefined;
+        throw error;
+      });
+    }
+
     await this.workerReady;
     try {
       const response = await fetch(`http://127.0.0.1:${this.port}/health`, { signal: AbortSignal.timeout(1500) });
       if (!response.ok) throw new Error(`health ${response.status}`);
     } catch {
-      this.workerReady = this.startWorker();
+      this.workerReady = this.startWorker().catch((error) => {
+        this.workerReady = undefined;
+        throw error;
+      });
       await this.workerReady;
     }
   }
@@ -77,7 +82,7 @@ export class TranscriptionService implements OnModuleInit, OnModuleDestroy {
     const cwd = dirname(script);
     this.logger.log(`Starting local transcription worker with ${this.python} (${this.model})`);
 
-    await mkdir(cwd, { recursive: true });
+    await new Promise<void>((resolvePromise, rejectPromise) => mkdir(cwd, { recursive: true }, (error) => error ? rejectPromise(error) : resolvePromise()));
     const worker = spawn(this.python, [script], {
       cwd,
       env: {
@@ -96,7 +101,7 @@ export class TranscriptionService implements OnModuleInit, OnModuleDestroy {
       if (this.worker === worker) this.worker = undefined;
     });
 
-    const deadline = Date.now() + Number(process.env.TRANSCRIPTION_STARTUP_TIMEOUT_MS ?? 30000);
+    const deadline = Date.now() + Number(process.env.TRANSCRIPTION_STARTUP_TIMEOUT_MS ?? 10000);
     while (Date.now() < deadline) {
       if (worker.exitCode !== null) throw new Error(`Transcription worker exited with code ${worker.exitCode}.`);
       try {
@@ -119,6 +124,7 @@ export class TranscriptionService implements OnModuleInit, OnModuleDestroy {
       resolve(process.cwd(), "tools", "transcription_server.py"),
       resolve(process.cwd(), "apps/api/tools/transcription_server.py")
     ];
-    return candidates.find((candidate) => candidate.endsWith("tools/transcription_server.py")) ?? candidates[0];
+    const existing = candidates.find((candidate) => existsSync(candidate));
+    return existing ?? candidates[1];
   }
 }
