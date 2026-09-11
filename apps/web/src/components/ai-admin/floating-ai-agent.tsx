@@ -52,6 +52,7 @@ export function FloatingAiAgent() {
       discardNextRecordingRef.current = true;
       stopVad();
       stopAudioPlayback();
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
       recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       void audioContextRef.current?.close();
@@ -61,7 +62,7 @@ export function FloatingAiAgent() {
 
   async function sendToAgent(text: string) {
     const trimmed = text.trim();
-    if (!trimmed) return "";
+    if (!trimmed) return { reply: "", fastLane: false };
 
     const history = messages.slice(-12);
     setMessages((current) => [...current, { role: "user", content: trimmed }]);
@@ -70,12 +71,12 @@ export function FloatingAiAgent() {
     setError("");
 
     try {
-      const result = await apiFetch<{ reply: string }>("/ai-admin-agent/chat", {
+      const result = await apiFetch<{ reply: string; fastLane?: boolean }>("/ai-admin-agent/chat", {
         method: "POST",
         body: JSON.stringify({ message: trimmed, history })
       });
       setMessages((current) => [...current, { role: "assistant", content: result.reply }]);
-      return result.reply;
+      return { reply: result.reply, fastLane: result.fastLane === true };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to reach the Admin AI Agent.";
       setError(message);
@@ -109,6 +110,7 @@ export function FloatingAiAgent() {
   }
 
   function stopAudioPlayback() {
+    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     const source = playbackSourceRef.current;
     playbackSourceRef.current = null;
     if (source) {
@@ -139,11 +141,36 @@ export function FloatingAiAgent() {
     setRecording(false);
   }
 
-  async function speakReply(text: string) {
+  function speakInstantReply(text: string) {
+    if (!voiceModeRef.current || !text.trim() || typeof window === "undefined" || !window.speechSynthesis) return false;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text.trim());
+    utterance.lang = "en-US";
+    utterance.rate = 1.05;
+    utterance.pitch = 1;
+
+    return new Promise<void>((resolve) => {
+      utterance.onend = () => resolve();
+      utterance.onerror = () => resolve();
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  async function speakReply(text: string, fastLane = false) {
     if (!voiceModeRef.current || !text.trim()) return;
 
     setVoiceState("speaking");
     stopAudioPlayback();
+
+    if (fastLane && typeof window !== "undefined" && window.speechSynthesis) {
+      try {
+        await speakInstantReply(text);
+        return;
+      } catch {
+        // Fall back to server TTS below.
+      }
+    }
 
     try {
       const audio = await apiFetchBlob("/tts", {
@@ -203,10 +230,10 @@ export function FloatingAiAgent() {
       }
 
       setVoiceState("thinking");
-      const reply = await sendToAgent(transcript);
+      const resultFromAgent = await sendToAgent(transcript);
       if (!voiceModeRef.current) return;
 
-      await speakReply(reply);
+      await speakReply(resultFromAgent.reply, resultFromAgent.fastLane);
       if (voiceModeRef.current) beginRecordingCycle();
     } catch (err) {
       setLoading(false);
@@ -372,7 +399,7 @@ export function FloatingAiAgent() {
         ? "Transcribing…"
         : voiceState === "thinking"
           ? "Thinking…"
-          : "Speaking Cebuano…"
+          : "Speaking…"
     : "Mic to start continuous voice conversation";
 
   const content = (
@@ -436,7 +463,7 @@ export function FloatingAiAgent() {
                 <button type="submit" disabled={!input.trim() || loading || voiceMode} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
               </div>
             </div>
-            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · Cebuano voice replies · mic off ends the conversation" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
+            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · instant replies for simple chat · business answers use Cebuano TTS" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
           </form>
         </div>
       ) : null}
