@@ -29,6 +29,7 @@ export function FloatingAiAgent() {
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [error, setError] = useState("");
 
+  const voiceModeRef = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -46,6 +47,7 @@ export function FloatingAiAgent() {
 
   useEffect(() => {
     return () => {
+      voiceModeRef.current = false;
       discardNextRecordingRef.current = true;
       stopVad();
       window.speechSynthesis?.cancel();
@@ -82,7 +84,7 @@ export function FloatingAiAgent() {
   }
 
   async function sendText(text: string) {
-    if (loading || voiceMode) return;
+    if (loading || voiceModeRef.current) return;
     try {
       await sendToAgent(text);
     } catch {
@@ -112,7 +114,7 @@ export function FloatingAiAgent() {
   }
 
   async function speakReply(text: string) {
-    if (!voiceMode || !text.trim()) return;
+    if (!voiceModeRef.current || !text.trim()) return;
 
     if (typeof window === "undefined" || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
       setError("Speech playback is not supported by this browser.");
@@ -152,23 +154,21 @@ export function FloatingAiAgent() {
       const transcript = (result.text ?? result.transcript ?? "").trim();
       setLoading(false);
 
-      if (!transcript || !voiceMode) {
-        if (voiceMode) setVoiceState("listening");
+      if (!transcript || !voiceModeRef.current) {
+        if (voiceModeRef.current) setVoiceState("listening");
         return;
       }
 
       setVoiceState("thinking");
       const reply = await sendToAgent(transcript);
-      if (!voiceMode) return;
+      if (!voiceModeRef.current) return;
 
       await speakReply(reply);
-      if (voiceMode) {
-        beginRecordingCycle();
-      }
+      if (voiceModeRef.current) beginRecordingCycle();
     } catch (err) {
       setLoading(false);
       setError(err instanceof Error ? err.message : "Unable to transcribe the recording.");
-      if (voiceMode) beginRecordingCycle();
+      if (voiceModeRef.current) beginRecordingCycle();
     }
   }
 
@@ -192,7 +192,7 @@ export function FloatingAiAgent() {
 
     const buffer = new Uint8Array(analyser.fftSize);
     const check = () => {
-      if (recorder.state !== "recording" || !voiceMode) return;
+      if (recorder.state !== "recording" || !voiceModeRef.current) return;
 
       analyser.getByteTimeDomainData(buffer);
       let sum = 0;
@@ -226,7 +226,7 @@ export function FloatingAiAgent() {
 
   function beginRecordingCycle() {
     const stream = streamRef.current;
-    if (!voiceMode || !stream || recording || recorderRef.current) return;
+    if (!voiceModeRef.current || !stream || recording || recorderRef.current) return;
 
     try {
       const preferredMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
@@ -248,9 +248,9 @@ export function FloatingAiAgent() {
         discardNextRecordingRef.current = false;
         cleanupRecorder();
 
-        if (!discard && blob.size > 0 && voiceMode) {
+        if (!discard && blob.size > 0 && voiceModeRef.current) {
           void transcribeRecording(blob);
-        } else if (voiceMode) {
+        } else if (voiceModeRef.current) {
           setVoiceState("listening");
         }
       };
@@ -258,7 +258,7 @@ export function FloatingAiAgent() {
       recorder.onerror = () => {
         cleanupRecorder();
         setError("The microphone recording failed. Please try again.");
-        if (voiceMode) beginRecordingCycle();
+        if (voiceModeRef.current) beginRecordingCycle();
       };
 
       recorder.start(250);
@@ -271,6 +271,7 @@ export function FloatingAiAgent() {
   }
 
   function stopVoiceConversation() {
+    voiceModeRef.current = false;
     setVoiceMode(false);
     setVoiceState("idle");
     setError("");
@@ -289,7 +290,7 @@ export function FloatingAiAgent() {
   }
 
   async function startVoiceConversation() {
-    if (voiceMode) return;
+    if (voiceModeRef.current) return;
     setError("");
 
     if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
@@ -300,6 +301,7 @@ export function FloatingAiAgent() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      voiceModeRef.current = true;
       setVoiceMode(true);
       setVoiceState("listening");
       setLoading(false);
@@ -307,6 +309,7 @@ export function FloatingAiAgent() {
     } catch (err) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      voiceModeRef.current = false;
       setVoiceMode(false);
       setVoiceState("idle");
       setError(err instanceof Error ? err.message : "Microphone access was denied or unavailable.");
@@ -333,7 +336,7 @@ export function FloatingAiAgent() {
               <p className="text-sm font-semibold">Admin AI Agent</p>
               <p className="mt-0.5 text-[11px] text-foreground/45">Live business data & approved tools</p>
             </div>
-            <button type="button" onClick={() => { if (voiceMode) stopVoiceConversation(); setOpen(false); }} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-foreground/45 transition hover:bg-white/[0.06] hover:text-foreground" aria-label="Close Admin AI Agent"><X size={17} /></button>
+            <button type="button" onClick={() => { if (voiceModeRef.current) stopVoiceConversation(); setOpen(false); }} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-foreground/45 transition hover:bg-white/[0.06] hover:text-foreground" aria-label="Close Admin AI Agent"><X size={17} /></button>
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
@@ -378,7 +381,7 @@ export function FloatingAiAgent() {
             <div className="flex items-end gap-2">
               <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} disabled={voiceMode || loading} rows={2} placeholder={voiceMode ? "Voice conversation active…" : "Ask the Admin Agent…"} className="min-h-11 max-h-28 min-w-0 flex-1 resize-none rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2.5 text-xs outline-none placeholder:text-foreground/30 focus:border-accent/50 disabled:opacity-60" />
               <div className="flex shrink-0 flex-col gap-2">
-                <button type="button" onClick={() => { if (voiceMode) stopVoiceConversation(); else void startVoiceConversation(); }} disabled={false} className={`inline-flex h-11 w-11 items-center justify-center rounded-xl transition hover:brightness-110 ${voiceMode ? "bg-danger text-white" : "border border-white/[0.1] bg-white/[0.04] text-foreground hover:bg-accent/10 hover:text-accent"}`} aria-label={voiceMode ? "Stop voice conversation" : "Start voice conversation"} title={voiceMode ? "Stop voice conversation" : "Start voice conversation"}>
+                <button type="button" onClick={() => { if (voiceModeRef.current) stopVoiceConversation(); else void startVoiceConversation(); }} className={`inline-flex h-11 w-11 items-center justify-center rounded-xl transition hover:brightness-110 ${voiceMode ? "bg-danger text-white" : "border border-white/[0.1] bg-white/[0.04] text-foreground hover:bg-accent/10 hover:text-accent"}`} aria-label={voiceMode ? "Stop voice conversation" : "Start voice conversation"} title={voiceMode ? "Stop voice conversation" : "Start voice conversation"}>
                   {voiceMode ? <Square size={15} fill="currentColor" /> : <Mic size={17} />}
                 </button>
                 <button type="submit" disabled={!input.trim() || loading || voiceMode} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
