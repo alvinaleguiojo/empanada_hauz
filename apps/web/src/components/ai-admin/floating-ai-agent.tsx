@@ -1,8 +1,8 @@
-"use client";
+use client;
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, Loader2, Send, Sparkles, X } from "lucide-react";
+import { Bot, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -19,20 +19,30 @@ export function FloatingAiAgent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recording, setRecording] = useState(false);
   const [error, setError] = useState("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
   }, [open, messages, loading]);
 
-  async function sendMessage(event?: FormEvent) {
-    event?.preventDefault();
-    const text = input.trim();
-    if (!text || loading) return;
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.stop();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  async function sendText(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || loading) return;
 
     const history = messages.slice(-12);
-    setMessages((current) => [...current, { role: "user", content: text }]);
+    setMessages((current) => [...current, { role: "user", content: trimmed }]);
     setInput("");
     setLoading(true);
     setError("");
@@ -40,13 +50,102 @@ export function FloatingAiAgent() {
     try {
       const result = await apiFetch<{ reply: string }>("/ai-admin-agent/chat", {
         method: "POST",
-        body: JSON.stringify({ message: text, history })
+        body: JSON.stringify({ message: trimmed, history })
       });
       setMessages((current) => [...current, { role: "assistant", content: result.reply }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to reach the Admin AI Agent.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function sendMessage(event?: FormEvent) {
+    event?.preventDefault();
+    if (recording) return;
+    await sendText(input);
+  }
+
+  async function transcribeRecording(blob: Blob) {
+    if (!blob.size) {
+      setError("The recording was empty. Please try again.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, "admin-ai-voice.webm");
+      const result = await apiFetch<{ transcript: string }>("/transcribe", {
+        method: "POST",
+        body: formData
+      });
+      const transcript = result.transcript.trim();
+      if (!transcript) {
+        setError("No speech was detected. Please try again.");
+        return;
+      }
+      await sendText(transcript);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to transcribe the recording.");
+      setLoading(false);
+    }
+  }
+
+  function stopRecording() {
+    if (!recorderRef.current || recorderRef.current.state === "inactive") return;
+    recorderRef.current.stop();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }
+
+  async function startRecording() {
+    if (loading || recording) return;
+    setError("");
+
+    if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError("Voice recording is not supported by this browser.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      const mimeType = preferredMimeTypes.find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        chunksRef.current = [];
+        recorderRef.current = null;
+        streamRef.current = null;
+        setRecording(false);
+        void transcribeRecording(blob);
+      };
+
+      recorder.onerror = () => {
+        setRecording(false);
+        stream.getTracks().forEach((track) => track.stop());
+        setError("The microphone recording failed. Please try again.");
+      };
+
+      recorder.start();
+      setRecording(true);
+    } catch (err) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setRecording(false);
+      setError(err instanceof Error ? err.message : "Microphone access was denied or unavailable.");
     }
   }
 
@@ -86,9 +185,14 @@ export function FloatingAiAgent() {
                   </div>
                 </div>
               ))}
+              {recording ? (
+                <div className="flex justify-start">
+                  <div className="flex items-center gap-2 rounded-2xl border border-accent/20 bg-accent/[0.06] px-3.5 py-2.5 text-xs text-accent"><span className="h-2 w-2 animate-pulse rounded-full bg-current" /> Listening… tap the mic to stop</div>
+                </div>
+              ) : null}
               {loading ? (
                 <div className="flex justify-start">
-                  <div className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-xs text-foreground/50"><Loader2 size={14} className="animate-spin" /> Checking business data…</div>
+                  <div className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-xs text-foreground/50"><Loader2 size={14} className="animate-spin" /> Transcribing / checking business data…</div>
                 </div>
               ) : null}
               {error ? <div className="rounded-xl border border-danger/25 bg-danger/10 px-3.5 py-2.5 text-xs text-danger">{error}</div> : null}
@@ -98,10 +202,15 @@ export function FloatingAiAgent() {
 
           <form onSubmit={sendMessage} className="shrink-0 border-t border-white/[0.08] p-3">
             <div className="flex items-end gap-2">
-              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={2} placeholder="Ask the Admin Agent…" className="min-h-11 max-h-28 min-w-0 flex-1 resize-none rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2.5 text-xs outline-none placeholder:text-foreground/30 focus:border-accent/50" />
-              <button type="submit" disabled={!input.trim() || loading} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
+              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} disabled={recording || loading} rows={2} placeholder={recording ? "Listening…" : "Ask the Admin Agent…"} className="min-h-11 max-h-28 min-w-0 flex-1 resize-none rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2.5 text-xs outline-none placeholder:text-foreground/30 focus:border-accent/50 disabled:opacity-60" />
+              <div className="flex shrink-0 flex-col gap-2">
+                <button type="button" onClick={() => { if (recording) stopRecording(); else void startRecording(); }} disabled={loading} className={`inline-flex h-11 w-11 items-center justify-center rounded-xl transition hover:brightness-110 disabled:opacity-50 ${recording ? "bg-danger text-white" : "border border-white/[0.1] bg-white/[0.04] text-foreground hover:bg-accent/10 hover:text-accent"}`} aria-label={recording ? "Stop recording" : "Start voice input"} title={recording ? "Stop recording" : "Use microphone"}>
+                  {recording ? <Square size={15} fill="currentColor" /> : <Mic size={17} />}
+                </button>
+                <button type="submit" disabled={!input.trim() || loading || recording} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
+              </div>
             </div>
-            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">Enter to send · Shift+Enter for a new line</p>
+            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">Enter to send · Shift+Enter for a new line · Mic to speak</p>
           </form>
         </div>
       ) : null}
