@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AiAdminAgentService } from "../ai-admin-agent.service";
-import { AiAdminActionStateService } from "../ai-admin-action-state.service";
 import { AiAdminAnalyticsToolsService } from "../ai-admin-analytics-tools.service";
 import { AdminAgentRouterService } from "./admin-agent-router.service";
 
@@ -16,8 +15,7 @@ export class AdminAgentFacadeService {
   constructor(
     private readonly legacyAgent: AiAdminAgentService,
     private readonly router: AdminAgentRouterService,
-    private readonly analytics: AiAdminAnalyticsToolsService,
-    private readonly actionState: AiAdminActionStateService
+    private readonly analytics: AiAdminAnalyticsToolsService
   ) {}
 
   async process(request: AdminAgentRequest) {
@@ -27,7 +25,6 @@ export class AdminAgentFacadeService {
     const route = this.router.route(message);
 
     if (route.intent === "confirmation") {
-      // Keep confirmation semantics centralized in the existing safety-aware agent.
       return this.legacyAgent.process(request);
     }
 
@@ -55,7 +52,6 @@ export class AdminAgentFacadeService {
       return { reply: this.formatMetrics(range, data), snapshotAt: new Date().toISOString(), data };
     }
 
-    // Complex reasoning and writes remain on the proven guarded implementation.
     return this.legacyAgent.process(request);
   }
 
