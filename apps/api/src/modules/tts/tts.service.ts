@@ -15,7 +15,7 @@ export class TtsService implements OnModuleDestroy {
   private readonly python = process.env.TTS_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
 
   async onModuleDestroy() {
-    if (this.worker && !this.worker.killed) this.worker.kill();
+    this.killWorker();
   }
 
   async synthesize(text: string) {
@@ -34,6 +34,7 @@ export class TtsService implements OnModuleDestroy {
         signal: AbortSignal.timeout(Number(process.env.TTS_TIMEOUT_MS ?? 120000))
       });
     } catch (error) {
+      this.workerReady = undefined;
       this.logger.error(`Local TTS worker request failed: ${error instanceof Error ? error.message : String(error)}`);
       throw new ServiceUnavailableException("Local TTS worker is unavailable.");
     }
@@ -45,6 +46,12 @@ export class TtsService implements OnModuleDestroy {
     }
 
     return Buffer.from(await response.arrayBuffer());
+  }
+
+  private killWorker() {
+    if (this.worker && !this.worker.killed) this.worker.kill();
+    this.worker = undefined;
+    this.workerReady = undefined;
   }
 
   private async ensureWorkerReady() {
@@ -65,6 +72,8 @@ export class TtsService implements OnModuleDestroy {
       const response = await fetch(`http://127.0.0.1:${this.port}/health`, { signal: AbortSignal.timeout(1500) });
       if (!response.ok) throw new Error(`health ${response.status}`);
     } catch {
+      this.workerReady = undefined;
+      this.killWorker();
       this.workerReady = this.startWorker().catch((error) => {
         this.workerReady = undefined;
         throw error;
@@ -77,6 +86,10 @@ export class TtsService implements OnModuleDestroy {
     if (this.worker && !this.worker.killed) return;
 
     const script = this.resolveWorkerScript();
+    if (!existsSync(script)) {
+      throw new ServiceUnavailableException(`TTS worker script was not found: ${script}`);
+    }
+
     const cwd = dirname(script);
     this.logger.log(`Starting local Cebuano TTS worker with ${this.python} (${this.model}/${this.device})`);
 
@@ -100,7 +113,10 @@ export class TtsService implements OnModuleDestroy {
     worker.stderr.on("data", (chunk: Buffer) => this.logger.warn(`[worker] ${chunk.toString().trim()}`));
     worker.once("exit", (code, signal) => {
       this.logger.warn(`Local TTS worker exited (${code ?? "null"}/${signal ?? "null"}).`);
-      if (this.worker === worker) this.worker = undefined;
+      if (this.worker === worker) {
+        this.worker = undefined;
+        this.workerReady = undefined;
+      }
     });
 
     const deadline = Date.now() + Number(process.env.TTS_STARTUP_TIMEOUT_MS ?? 180000);
@@ -115,6 +131,7 @@ export class TtsService implements OnModuleDestroy {
     }
 
     worker.kill();
+    this.worker = undefined;
     throw new ServiceUnavailableException("Local TTS worker did not start in time. Install the Python dependencies and ensure Python is available.");
   }
 
