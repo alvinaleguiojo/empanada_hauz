@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bot, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFetchBlob } from "@/lib/api";
 
 type Message = { role: "user" | "assistant"; content: string };
 type VoiceState = "idle" | "listening" | "transcribing" | "thinking" | "speaking";
@@ -35,6 +35,8 @@ export function FloatingAiAgent() {
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
   const vadFrameRef = useRef<number | null>(null);
   const speechStartedAtRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef<number | null>(null);
@@ -50,7 +52,7 @@ export function FloatingAiAgent() {
       voiceModeRef.current = false;
       discardNextRecordingRef.current = true;
       stopVad();
-      window.speechSynthesis?.cancel();
+      stopAudioPlayback();
       recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       void audioContextRef.current?.close();
@@ -106,6 +108,15 @@ export function FloatingAiAgent() {
     lastSpeechAtRef.current = null;
   }
 
+  function stopAudioPlayback() {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }
+
   function cleanupRecorder() {
     stopVad();
     recorderRef.current = null;
@@ -116,25 +127,35 @@ export function FloatingAiAgent() {
   async function speakReply(text: string) {
     if (!voiceModeRef.current || !text.trim()) return;
 
-    if (typeof window === "undefined" || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-      setError("Speech playback is not supported by this browser.");
-      return;
-    }
-
     setVoiceState("speaking");
-    window.speechSynthesis.cancel();
+    stopAudioPlayback();
 
-    await new Promise<void>((resolve) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find((voice) => /en-PH|en-US|en-GB/i.test(voice.lang));
-      if (preferredVoice) utterance.voice = preferredVoice;
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-      window.speechSynthesis.speak(utterance);
-    });
+    try {
+      const audio = await apiFetchBlob("/tts", {
+        method: "POST",
+        body: JSON.stringify({ text: text.trim() })
+      });
+
+      if (!voiceModeRef.current) return;
+
+      const url = URL.createObjectURL(audio);
+      audioUrlRef.current = url;
+      const player = new Audio(url);
+      audioRef.current = player;
+      player.preload = "auto";
+
+      await new Promise<void>((resolve, reject) => {
+        player.onended = () => resolve();
+        player.onerror = () => reject(new Error("Cebuano voice playback failed."));
+        void player.play().catch(reject);
+      });
+    } catch (err) {
+      if (voiceModeRef.current) {
+        throw new Error(err instanceof Error ? err.message : "Unable to play the Cebuano voice.");
+      }
+    } finally {
+      stopAudioPlayback();
+    }
   }
 
   async function transcribeRecording(blob: Blob) {
@@ -167,7 +188,7 @@ export function FloatingAiAgent() {
       if (voiceModeRef.current) beginRecordingCycle();
     } catch (err) {
       setLoading(false);
-      setError(err instanceof Error ? err.message : "Unable to transcribe the recording.");
+      setError(err instanceof Error ? err.message : "Unable to process the voice conversation.");
       if (voiceModeRef.current) beginRecordingCycle();
     }
   }
@@ -276,7 +297,7 @@ export function FloatingAiAgent() {
     setVoiceState("idle");
     setError("");
     stopVad();
-    window.speechSynthesis?.cancel();
+    stopAudioPlayback();
 
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       discardNextRecordingRef.current = true;
@@ -323,7 +344,7 @@ export function FloatingAiAgent() {
         ? "Transcribing…"
         : voiceState === "thinking"
           ? "Thinking…"
-          : "Speaking…"
+          : "Speaking Cebuano…"
     : "Mic to start continuous voice conversation";
 
   const content = (
@@ -387,7 +408,7 @@ export function FloatingAiAgent() {
                 <button type="submit" disabled={!input.trim() || loading || voiceMode} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
               </div>
             </div>
-            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · mic off ends the conversation" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
+            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · Cebuano voice replies · mic off ends the conversation" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
           </form>
         </div>
       ) : null}
