@@ -18,6 +18,13 @@ const ALLOWED_AUDIO_TYPES = new Set([
   "video/webm"
 ]);
 
+type UploadedAudio = {
+  buffer: Buffer;
+  size: number;
+  mimetype: string;
+  originalname: string;
+};
+
 @Controller("transcribe")
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class TranscriptionController {
@@ -25,13 +32,13 @@ export class TranscriptionController {
 
   @Post()
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_AUDIO_BYTES } }))
-  async transcribe(@UploadedFile() file: Express.Multer.File, @Query("language") language?: string, @Query("model") model?: string) {
+  async transcribe(@UploadedFile() file: UploadedAudio | undefined, @Query("language") language?: string) {
     if (!file) throw new BadRequestException("An audio file is required in the 'file' field.");
     if (file.size > MAX_AUDIO_BYTES) throw new BadRequestException("Audio file exceeds the 25 MB limit.");
     if (file.mimetype && !ALLOWED_AUDIO_TYPES.has(file.mimetype)) {
       throw new BadRequestException(`Unsupported audio type: ${file.mimetype}`);
     }
 
-    return this.transcription.transcribe(file.buffer, file.originalname, file.mimetype, language, model);
+    return this.transcription.transcribe(file.buffer, file.originalname, file.mimetype, language);
   }
 }
