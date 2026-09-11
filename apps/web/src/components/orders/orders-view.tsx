@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutGrid, List, Pencil, Search } from "lucide-react";
+import { LayoutGrid, List, Pencil, Search, X } from "lucide-react";
 import { OrdersBoard } from "@/components/orders/orders-board";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import layoutStyles from "./orders-board-layout.module.css";
 
 const statusOptions = [
   "inquiry", "awaiting_confirmation", "confirmed", "queued", "preparing", "frying", "packed",
@@ -53,6 +53,17 @@ const statusFilterOptions = [
   ...statusOptions.map((status) => ({ label: statusLabels[status], value: status }))
 ];
 
+const deliveryOptions = [
+  { label: "Pickup", value: "pickup" },
+  { label: "Maxim", value: "maxim" },
+  { label: "Own Rider", value: "own_delivery" }
+];
+
+const paymentOptions = [
+  { label: "COD", value: "cod" },
+  { label: "GCash", value: "gcash" }
+];
+
 const deliveryLabels: Record<string, string> = {
   pickup: "Pickup",
   maxim: "Maxim",
@@ -61,12 +72,7 @@ const deliveryLabels: Record<string, string> = {
 
 export function OrdersView({ orders }: { orders: Array<any> }) {
   const [view, setView] = useState<"kanban" | "list">("kanban");
-  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
-
-  function openOrderForEdit(orderId: string) {
-    setEditingOrderId(orderId);
-    setView("kanban");
-  }
+  const [editingOrder, setEditingOrder] = useState<any | null>(null);
 
   return (
     <div className="space-y-4">
@@ -80,25 +86,20 @@ export function OrdersView({ orders }: { orders: Array<any> }) {
             <LayoutGrid size={16} />
             Kanban
           </Button>
-          <Button type="button" variant="ghost" aria-pressed={view === "list"} onClick={() => { setEditingOrderId(null); setView("list"); }} className={cn("h-9 gap-2 px-4 font-semibold", view === "list" && "bg-accent text-white hover:bg-accent/90")}>
+          <Button type="button" variant="ghost" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("h-9 gap-2 px-4 font-semibold", view === "list" && "bg-accent text-white hover:bg-accent/90")}>
             <List size={16} />
             List
           </Button>
         </div>
       </div>
 
-      {view === "kanban" ? (
-        <div className={layoutStyles.root}>
-          <OrdersBoard orders={orders} openOrderId={editingOrderId} openInEdit={Boolean(editingOrderId)} />
-        </div>
-      ) : (
-        <OrdersList orders={orders} onEdit={openOrderForEdit} />
-      )}
+      {view === "kanban" ? <OrdersBoard orders={orders} /> : <OrdersList orders={orders} onEdit={setEditingOrder} />}
+      {editingOrder ? <OrderEditModal order={editingOrder} onClose={() => setEditingOrder(null)} /> : null}
     </div>
   );
 }
 
-function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (orderId: string) => void }) {
+function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (order: any) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
 
@@ -106,15 +107,7 @@ function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (orderId: 
     const query = search.trim().toLowerCase();
     return orders
       .filter((order) => status === "all" || order.status === status)
-      .filter((order) => !query || [
-        order.orderNumber,
-        order.customer?.name,
-        order.customer?.phoneNumber,
-        order.deliveryMethod,
-        order.location,
-        order.address,
-        order.status
-      ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query)))
+      .filter((order) => !query || [order.orderNumber, order.customer?.name, order.customer?.phoneNumber, order.deliveryMethod, order.location, order.address, order.status].filter(Boolean).some((value) => String(value).toLowerCase().includes(query)))
       .sort((a, b) => new Date(a.preferredSchedule ?? 0).getTime() - new Date(b.preferredSchedule ?? 0).getTime());
   }, [orders, search, status]);
 
@@ -153,7 +146,7 @@ function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (orderId: 
                 <td className="px-4 py-4 text-foreground/65">{deliveryLabels[order.deliveryMethod] ?? order.deliveryMethod ?? "—"}</td>
                 <td className="whitespace-nowrap px-4 py-4 font-semibold">Php {String(order.totalAmount ?? 0)}</td>
                 <td className="whitespace-nowrap px-4 py-4"><div className="flex items-center gap-2"><span className={cn("h-2 w-2 shrink-0 rounded-full", statusDot[order.status] ?? "bg-foreground/30")} /><span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", statusTone[order.status] ?? "bg-white/[0.08] text-foreground/70")}>{statusLabels[order.status] ?? order.status ?? "Unknown"}</span></div></td>
-                <td className="whitespace-nowrap px-4 py-4 text-right"><Button type="button" variant="secondary" className="h-9 gap-2 px-3" onClick={() => onEdit(order.id)}><Pencil size={14} />Edit</Button></td>
+                <td className="whitespace-nowrap px-4 py-4 text-right"><Button type="button" variant="secondary" className="h-9 gap-2 px-3" onClick={() => onEdit(order)}><Pencil size={14} />Edit</Button></td>
               </tr>
             ))}
           </tbody>
@@ -164,6 +157,113 @@ function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (orderId: 
   );
 }
 
+function OrderEditModal({ order, onClose }: { order: any; onClose: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    customerName: order.customer?.name ?? "",
+    phoneNumber: order.customer?.phoneNumber ?? "",
+    quantity: String(order.quantity ?? 0),
+    unitPrice: String(order.unitPrice ?? 0),
+    deliveryMethod: order.deliveryMethod ?? "pickup",
+    paymentMethod: order.paymentMethod ?? "cod",
+    deliveryFee: String(order.deliveryFee ?? 0),
+    discountAmount: String(order.discountAmount ?? 0),
+    location: order.location ?? "",
+    address: order.address ?? "",
+    preferredSchedule: order.preferredSchedule ? toInputDate(order.preferredSchedule) : "",
+    notes: stripItemsBlock(order.notes ?? ""),
+    status: order.status ?? "queued"
+  });
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const quantity = Math.max(0, Number(form.quantity || 0));
+      const unitPrice = Math.max(0, Number(form.unitPrice || 0));
+      await apiFetch<any>(`/orders/${order.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          customerName: form.customerName.trim(),
+          phoneNumber: form.phoneNumber.trim() || undefined,
+          quantity,
+          unitPrice,
+          deliveryFee: Math.max(0, Number(form.deliveryFee || 0)),
+          discountAmount: Math.max(0, Number(form.discountAmount || 0)),
+          deliveryMethod: form.deliveryMethod,
+          paymentMethod: form.paymentMethod,
+          location: form.location.trim() || undefined,
+          address: form.address.trim() || undefined,
+          preferredSchedule: form.preferredSchedule ? new Date(form.preferredSchedule).toISOString() : undefined,
+          notes: form.notes.trim() || undefined
+        })
+      });
+      if (form.status !== order.status) {
+        await apiFetch<any>(`/orders/${order.id}/status`, { method: "PATCH", body: JSON.stringify({ status: form.status }) });
+      }
+      onClose();
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save order");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <button type="button" aria-label="Close edit order dialog" onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-y-0 right-0 w-full max-w-[520px] p-2 sm:p-4">
+        <div className="flex h-full flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-2xl">
+          <div className="flex items-center justify-between border-b border-line/70 px-4 py-4 sm:px-6">
+            <div><p className="text-[10px] uppercase tracking-[0.2em] text-foreground/35">Edit Order</p><h3 className="mt-1 text-xl font-semibold">{order.customer?.name ?? order.orderNumber}</h3><p className="mt-1 text-xs text-foreground/40">{order.orderNumber}</p></div>
+            <Button type="button" variant="ghost" className="h-9 w-9 p-0" onClick={onClose}><X size={18} /></Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="grid gap-3">
+              <Input value={form.customerName} onChange={(e) => setForm((c) => ({ ...c, customerName: e.target.value }))} placeholder="Customer name" />
+              <Input value={form.phoneNumber} onChange={(e) => setForm((c) => ({ ...c, phoneNumber: e.target.value }))} placeholder="Phone number" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input type="number" min="0" value={form.quantity} onChange={(e) => setForm((c) => ({ ...c, quantity: e.target.value }))} placeholder="Quantity" />
+                <Input type="number" min="0" step="0.01" value={form.unitPrice} onChange={(e) => setForm((c) => ({ ...c, unitPrice: e.target.value }))} placeholder="Unit price" />
+                <Select value={form.deliveryMethod} onChange={(value) => setForm((c) => ({ ...c, deliveryMethod: value }))} options={deliveryOptions} />
+                <Select value={form.paymentMethod} onChange={(value) => setForm((c) => ({ ...c, paymentMethod: value }))} options={paymentOptions} />
+                <Input type="number" min="0" step="0.01" value={form.deliveryFee} onChange={(e) => setForm((c) => ({ ...c, deliveryFee: e.target.value }))} placeholder="Delivery fee" />
+                <Input type="number" min="0" step="0.01" value={form.discountAmount} onChange={(e) => setForm((c) => ({ ...c, discountAmount: e.target.value }))} placeholder="Discount" />
+              </div>
+              <Input value={form.location} onChange={(e) => setForm((c) => ({ ...c, location: e.target.value }))} placeholder="Area / Location" />
+              <Input value={form.address} onChange={(e) => setForm((c) => ({ ...c, address: e.target.value }))} placeholder="Full address" />
+              <Input type="datetime-local" value={form.preferredSchedule} onChange={(e) => setForm((c) => ({ ...c, preferredSchedule: e.target.value }))} />
+              <Select value={form.status} onChange={(value) => setForm((c) => ({ ...c, status: value }))} options={statusFilterOptions.filter((option) => option.value !== "all")} />
+              <textarea value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} placeholder="Notes" className="min-h-28 w-full rounded-lg border border-line/80 bg-black/10 px-3.5 py-3 text-sm outline-none transition placeholder:text-foreground/38 hover:border-foreground/18 focus:border-accent/60" />
+            </div>
+            {error ? <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p> : null}
+          </div>
+          <div className="flex flex-col-reverse gap-2 border-t border-line/70 bg-panel p-4 sm:flex-row sm:justify-end sm:px-6">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="button" onClick={save} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function toInputDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function stripItemsBlock(value: string) {
+  return value.replace(/\n?\[ITEMS\][\s\S]*?\[\/ITEMS\]\n?/i, "").trim();
+}
+
 function formatSchedule(value?: string | null) {
-  return value ? new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value)) : "Not scheduled";
+  if (!value) return "Not scheduled";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not scheduled";
+  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
