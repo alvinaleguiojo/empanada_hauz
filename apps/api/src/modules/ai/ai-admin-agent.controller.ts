@@ -2,14 +2,14 @@ import { Body, Controller, Post, Req, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AdminGuard } from "../ai-instructions/admin.guard";
-import { AiAdminAgentService } from "./ai-admin-agent.service";
+import { AdminAgentFacadeService } from "./admin-agent/admin-agent-facade.service";
 
 type AuthenticatedRequest = Request & { user?: { id?: string; email?: string; name?: string; role?: string } };
 
 @Controller("ai-admin-agent")
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AiAdminAgentController {
-  constructor(private readonly agent: AiAdminAgentService) {}
+  constructor(private readonly agent: AdminAgentFacadeService) {}
 
   @Post("chat")
   async chat(
