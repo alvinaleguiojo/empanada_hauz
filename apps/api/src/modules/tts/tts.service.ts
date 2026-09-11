@@ -1,11 +1,11 @@
-import { BadGatewayException, Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common";
+import { BadGatewayException, Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
 import { dirname, resolve } from "node:path";
 import { spawn, ChildProcessByStdio } from "node:child_process";
 import { existsSync, mkdir } from "node:fs";
 import { Readable } from "node:stream";
 
 @Injectable()
-export class TtsService implements OnModuleDestroy {
+export class TtsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TtsService.name);
   private worker?: ChildProcessByStdio<null, Readable, Readable>;
   private workerReady?: Promise<void>;
@@ -13,6 +13,13 @@ export class TtsService implements OnModuleDestroy {
   private readonly model = process.env.TTS_MODEL ?? "Splintir/speecht5_tts-pld-ceb-solo";
   private readonly device = process.env.TTS_DEVICE ?? "cpu";
   private readonly python = this.resolvePython();
+
+  onModuleInit() {
+    if ((process.env.TTS_ENABLED ?? "true").toLowerCase() === "false") return;
+    void this.warmup().catch((error) => {
+      this.logger.warn(`Cebuano TTS background warmup failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
 
   async onModuleDestroy() {
     this.killWorker();
