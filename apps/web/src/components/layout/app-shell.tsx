@@ -7,7 +7,7 @@ import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChevronLeft, ClipboardList, LayoutDashboard, LogOut, Maximize2, MessageCircle, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, ReceiptText, Send, Settings, Share2, Truck, Video, VideoOff } from "lucide-react";
+import { Bell, ChevronLeft, ClipboardList, FileText, LayoutDashboard, LogOut, Maximize2, MessageCircle, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, ReceiptText, Send, Settings, Share2, Truck, Video, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { socket } from "@/lib/socket";
@@ -21,6 +21,7 @@ const items = [
   { href: "/expenses", label: "Expenses", icon: ReceiptText },
   { href: "/referrals", label: "Referrals", icon: Share2 },
   { href: "/delivery-network", label: "Delivery", icon: Truck },
+  { href: "/documents", label: "Documents", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
