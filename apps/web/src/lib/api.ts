@@ -1,7 +1,7 @@
 import { API_URL } from "./config";
 import { getSelectedDeliveryCoordinates } from "./delivery-place";
 
-export async function apiFetch<T>(path: string, options?: RequestInit, token?: string, tokenCookie?: string): Promise<T> {
+async function resolveApiRequest(path: string, options?: RequestInit, token?: string, tokenCookie?: string) {
   const cookieName = tokenCookie ?? (path.startsWith("/rider") ? "empanada-rider-token" : "empanada-token");
   let resolvedToken = token;
   if (!resolvedToken) {
@@ -54,9 +54,25 @@ export async function apiFetch<T>(path: string, options?: RequestInit, token?: s
     cache: "no-store"
   });
 
+  return response;
+}
+
+export async function apiFetch<T>(path: string, options?: RequestInit, token?: string, tokenCookie?: string): Promise<T> {
+  const response = await resolveApiRequest(path, options, token, tokenCookie);
+
   if (!response.ok) {
     throw new Error(await response.text());
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function apiFetchBlob(path: string, options?: RequestInit, token?: string, tokenCookie?: string): Promise<Blob> {
+  const response = await resolveApiRequest(path, options, token, tokenCookie);
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return response.blob();
 }
