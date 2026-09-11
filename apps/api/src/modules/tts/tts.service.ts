@@ -12,7 +12,7 @@ export class TtsService implements OnModuleDestroy {
   private readonly port = Number(process.env.TTS_PORT ?? 8766);
   private readonly model = process.env.TTS_MODEL ?? "Splintir/speecht5_tts-pld-ceb-solo";
   private readonly device = process.env.TTS_DEVICE ?? "cpu";
-  private readonly python = process.env.TTS_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+  private readonly python = this.resolvePython();
 
   async onModuleDestroy() {
     this.killWorker();
@@ -132,7 +132,24 @@ export class TtsService implements OnModuleDestroy {
 
     worker.kill();
     this.worker = undefined;
-    throw new ServiceUnavailableException("Local TTS worker did not start in time. Install the Python dependencies and ensure Python is available.");
+    throw new ServiceUnavailableException("Local TTS worker did not start in time. Run the voice setup script or install the Python dependencies and ensure Python is available.");
+  }
+
+  private resolvePython() {
+    const configured = process.env.TTS_PYTHON?.trim();
+    if (configured) return configured;
+
+    const venvPython = process.platform === "win32"
+      ? resolve(process.cwd(), ".venv", "Scripts", "python.exe")
+      : resolve(process.cwd(), ".venv", "bin", "python");
+    if (existsSync(venvPython)) return venvPython;
+
+    const apiVenvPython = process.platform === "win32"
+      ? resolve(process.cwd(), "apps/api/.venv/Scripts/python.exe")
+      : resolve(process.cwd(), "apps/api/.venv/bin/python");
+    if (existsSync(apiVenvPython)) return apiVenvPython;
+
+    return process.platform === "win32" ? "python" : "python3";
   }
 
   private resolveWorkerScript() {
