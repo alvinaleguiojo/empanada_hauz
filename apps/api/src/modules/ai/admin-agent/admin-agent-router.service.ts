@@ -6,6 +6,9 @@ export class AdminAgentRouterService {
   route(message: string): AdminRoute {
     const value = message.trim();
 
+    const smalltalk = this.routeSmalltalk(value);
+    if (smalltalk) return smalltalk;
+
     if (this.isConfirmation(value)) return { intent: "confirmation" };
 
     const operationalStatus = this.extractOperationalOrderStatus(value);
@@ -43,6 +46,30 @@ export class AdminAgentRouterService {
     }
 
     return { intent: "complex" };
+  }
+
+  private routeSmalltalk(value: string): AdminRoute | null {
+    const normalized = value
+      .toLowerCase()
+      .replace(/[!?.,;:]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!normalized || normalized.length > 120) return null;
+    if (this.isGreeting(normalized)) return { intent: "smalltalk", reply: "Hello! How can I help with Empanada Hauz today?" };
+    if (this.isThanks(normalized)) return { intent: "smalltalk", reply: "You're welcome! Happy to help." };
+    if (/^(bye|goodbye|good night|see you|see ya|talk to you later)$/.test(normalized)) return { intent: "smalltalk", reply: "Goodbye! Have a great day." };
+    if (/^(how are you|how are you doing|how is it going)$/.test(normalized)) return { intent: "smalltalk", reply: "I'm doing well and ready to help!" };
+    if (/^(nice|great|awesome|perfect|great job|well done)$/.test(normalized)) return { intent: "smalltalk", reply: "Thank you! Let's keep things moving." };
+    return null;
+  }
+
+  private isGreeting(value: string) {
+    return /^(hi|hello|hey|hey there|good morning|good afternoon|good evening|kumusta)(?: empanada hauz| empanada| there| team)?$/.test(value);
+  }
+
+  private isThanks(value: string) {
+    return /^(thanks|thank you|thank you so much|thanks a lot|salamat|salamat kaayo)(?: empanada hauz| everyone| all)?$/.test(value);
   }
 
   private isConfirmation(value: string) {
