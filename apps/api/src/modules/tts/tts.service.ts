@@ -18,6 +18,21 @@ export class TtsService implements OnModuleDestroy {
     this.killWorker();
   }
 
+  async warmup() {
+    await this.ensureWorkerReady();
+    try {
+      const response = await fetch(`http://127.0.0.1:${this.port}/ready`, {
+        signal: AbortSignal.timeout(Number(process.env.TTS_WARMUP_TIMEOUT_MS ?? 180000))
+      });
+      if (response.ok) return;
+      const payload = await response.text();
+      throw new Error(`ready ${response.status}: ${payload.slice(0, 500)}`);
+    } catch (error) {
+      this.logger.warn(`Local TTS warmup failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ServiceUnavailableException("Local Cebuano voice is not ready yet.");
+    }
+  }
+
   async synthesize(text: string) {
     const trimmed = text.trim();
     if (!trimmed) throw new ServiceUnavailableException("TTS text is empty.");
