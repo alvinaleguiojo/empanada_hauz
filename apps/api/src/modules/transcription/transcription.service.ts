@@ -1,13 +1,14 @@
 import { BadGatewayException, Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from "@nestjs/common";
 import { dirname, resolve } from "node:path";
-import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, ChildProcessByStdio } from "node:child_process";
 import { existsSync, mkdir } from "node:fs";
+import { Readable } from "node:stream";
 import { TranscriptionResult } from "./transcription.types";
 
 @Injectable()
 export class TranscriptionService implements OnModuleDestroy {
   private readonly logger = new Logger(TranscriptionService.name);
-  private worker?: ChildProcessWithoutNullStreams;
+  private worker?: ChildProcessByStdio<null, Readable, Readable>;
   private workerReady?: Promise<void>;
   private readonly port = Number(process.env.TRANSCRIPTION_PORT ?? 8765);
   private readonly model = process.env.TRANSCRIPTION_MODEL ?? "small";
