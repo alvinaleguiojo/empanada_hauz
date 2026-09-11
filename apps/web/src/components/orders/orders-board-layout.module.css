@@ -1,0 +1,27 @@
+.root :global(.fixed.inset-0.z-40 [class*="sm:flex-row"][class*="sm:items-center"][class*="sm:justify-between"]) {
+  align-items: flex-start !important;
+  gap: 0.75rem !important;
+}
+
+.root :global(.fixed.inset-0.z-40 [class*="sm:flex-row"][class*="sm:items-center"][class*="sm:justify-between"] > [class*="flex-wrap"]) {
+  width: 100% !important;
+  justify-content: flex-start !important;
+  gap: 0.5rem !important;
+}
+
+.root :global(.fixed.inset-0.z-40 [class*="sm:flex-row"][class*="sm:items-center"][class*="sm:justify-between"] > [class*="flex-wrap"] > button) {
+  min-width: max-content;
+}
+
+@media (min-width: 640px) {
+  .root :global(.fixed.inset-0.z-40 [class*="sm:flex-row"][class*="sm:items-center"][class*="sm:justify-between"]) {
+    flex-direction: row !important;
+    align-items: flex-start !important;
+  }
+
+  .root :global(.fixed.inset-0.z-40 [class*="sm:flex-row"][class*="sm:items-center"][class*="sm:justify-between"] > [class*="flex-wrap"]) {
+    width: auto !important;
+    margin-left: auto !important;
+    justify-content: flex-end !important;
+  }
+}
