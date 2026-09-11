@@ -1,11 +1,7 @@
 import { BadGatewayException, Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
-import { once } from "node:events";
-import { FormData, File } from "undici";
+import { mkdir } from "node:fs/promises";
 import { TranscriptionResult } from "./transcription.types";
 
 @Injectable()
@@ -31,7 +27,7 @@ export class TranscriptionService implements OnModuleInit, OnModuleDestroy {
     await this.ensureWorkerReady();
 
     const form = new FormData();
-    form.append("file", new File([buffer], filename || "audio.bin", { type: mimeType || "application/octet-stream" }));
+    form.append("file", new Blob([buffer], { type: mimeType || "application/octet-stream" }), filename || "audio.bin");
     if (language?.trim()) form.append("language", language.trim());
     form.append("model", model);
 
@@ -117,9 +113,12 @@ export class TranscriptionService implements OnModuleInit, OnModuleDestroy {
 
   private resolveWorkerScript() {
     const configured = process.env.TRANSCRIPTION_SCRIPT_PATH?.trim();
-    const candidates = configured
-      ? [resolve(configured)]
-      : [resolve(process.cwd(), "tools", "transcription_server.py"), resolve(process.cwd(), "apps/api/tools/transcription_server.py")];
-    return candidates[0] ?? resolve(process.cwd(), "apps/api/tools/transcription_server.py");
+    if (configured) return resolve(configured);
+
+    const candidates = [
+      resolve(process.cwd(), "tools", "transcription_server.py"),
+      resolve(process.cwd(), "apps/api/tools/transcription_server.py")
+    ];
+    return candidates.find((candidate) => candidate.endsWith("tools/transcription_server.py")) ?? candidates[0];
   }
 }
