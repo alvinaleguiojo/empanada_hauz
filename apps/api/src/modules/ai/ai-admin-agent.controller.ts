@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Logger, Post, Req, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AdminGuard } from "../ai-instructions/admin.guard";
@@ -9,6 +9,8 @@ type AuthenticatedRequest = Request & { user?: { id?: string; email?: string; na
 @Controller("ai-admin-agent")
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AiAdminAgentController {
+  private readonly logger = new Logger(AiAdminAgentController.name);
+
   constructor(private readonly agent: AdminAgentFacadeService) {}
 
   @Post("chat")
@@ -19,6 +21,16 @@ export class AiAdminAgentController {
     const adminId = request.user?.id?.trim();
     if (!adminId) throw new Error("Authenticated admin identity is required.");
     const conversationId = body.conversationId?.trim() || `admin:${adminId}`;
-    return this.agent.process({ message: body.message ?? "", history: body.history, adminId, conversationId });
+    const message = body.message?.trim() ?? "";
+
+    this.logger.log(`Admin AI request: ${message.slice(0, 160)}`);
+    try {
+      const result = await this.agent.process({ message, history: body.history, adminId, conversationId });
+      this.logger.log(`Admin AI response ready: ${String(result.reply ?? "").slice(0, 160)}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Admin AI request failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
   }
 }
