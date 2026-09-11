@@ -87,7 +87,9 @@ export function OrdersView({ orders }: { orders: Array<any> }) {
       </div>
 
       {view === "kanban" ? (
-        <OrdersBoard orders={orders} openOrderId={editingOrderId} openInEdit={Boolean(editingOrderId)} />
+        <div className="orders-board-root">
+          <OrdersBoard orders={orders} openOrderId={editingOrderId} openInEdit={Boolean(editingOrderId)} />
+        </div>
       ) : (
         <OrdersList orders={orders} onEdit={openOrderForEdit} />
       )}
