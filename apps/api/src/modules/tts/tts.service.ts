@@ -136,9 +136,6 @@ export class TtsService implements OnModuleDestroy {
   }
 
   private resolvePython() {
-    const configured = process.env.TTS_PYTHON?.trim();
-    if (configured) return configured;
-
     const venvPython = process.platform === "win32"
       ? resolve(process.cwd(), ".venv", "Scripts", "python.exe")
       : resolve(process.cwd(), ".venv", "bin", "python");
@@ -148,6 +145,9 @@ export class TtsService implements OnModuleDestroy {
       ? resolve(process.cwd(), "apps/api/.venv/Scripts/python.exe")
       : resolve(process.cwd(), "apps/api/.venv/bin/python");
     if (existsSync(apiVenvPython)) return apiVenvPython;
+
+    const configured = process.env.TTS_PYTHON?.trim();
+    if (configured) return configured;
 
     return process.platform === "win32" ? "python" : "python3";
   }
