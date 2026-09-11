@@ -12,7 +12,7 @@ export class TranscriptionService implements OnModuleDestroy {
   private workerReady?: Promise<void>;
   private readonly port = Number(process.env.TRANSCRIPTION_PORT ?? 8765);
   private readonly model = process.env.TRANSCRIPTION_MODEL ?? "small";
-  private readonly python = process.env.TRANSCRIPTION_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+  private readonly python = this.resolvePython();
 
   async onModuleDestroy() {
     if (this.worker && !this.worker.killed) this.worker.kill();
@@ -114,7 +114,24 @@ export class TranscriptionService implements OnModuleDestroy {
     }
 
     worker.kill();
-    throw new ServiceUnavailableException("Local transcription worker did not start in time. Install the Python dependencies and ensure Python is available.");
+    throw new ServiceUnavailableException("Local transcription worker did not start in time. Run the voice setup script or install the Python dependencies and ensure Python is available.");
+  }
+
+  private resolvePython() {
+    const configured = process.env.TRANSCRIPTION_PYTHON?.trim();
+    if (configured) return configured;
+
+    const venvPython = process.platform === "win32"
+      ? resolve(process.cwd(), ".venv", "Scripts", "python.exe")
+      : resolve(process.cwd(), ".venv", "bin", "python");
+    if (existsSync(venvPython)) return venvPython;
+
+    const apiVenvPython = process.platform === "win32"
+      ? resolve(process.cwd(), "apps/api/.venv/Scripts/python.exe")
+      : resolve(process.cwd(), "apps/api/.venv/bin/python");
+    if (existsSync(apiVenvPython)) return apiVenvPython;
+
+    return process.platform === "win32" ? "python" : "python3";
   }
 
   private resolveWorkerScript() {
