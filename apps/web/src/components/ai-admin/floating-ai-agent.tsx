@@ -15,7 +15,7 @@ const suggestions = [
   "Show me inventory items near reorder level."
 ];
 
-const SPEECH_THRESHOLD = 0.025;
+const SPEECH_THRESHOLD = 0.018;
 const MIN_SPEECH_MS = 250;
 const SILENCE_MS = 900;
 
@@ -35,8 +35,7 @@ export function FloatingAiAgent() {
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const vadFrameRef = useRef<number | null>(null);
   const speechStartedAtRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef<number | null>(null);
@@ -56,6 +55,7 @@ export function FloatingAiAgent() {
       recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       void audioContextRef.current?.close();
+      audioContextRef.current = null;
     };
   }, []);
 
@@ -109,12 +109,27 @@ export function FloatingAiAgent() {
   }
 
   function stopAudioPlayback() {
-    audioRef.current?.pause();
-    audioRef.current = null;
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
+    const source = playbackSourceRef.current;
+    playbackSourceRef.current = null;
+    if (source) {
+      try {
+        source.stop();
+      } catch {
+        // The source may already have ended.
+      }
+      source.disconnect();
     }
+  }
+
+  async function ensureAudioContext() {
+    if (typeof window === "undefined") throw new Error("Audio playback is unavailable.");
+    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) throw new Error("Audio playback is not supported by this browser.");
+
+    const context = audioContextRef.current ?? new AudioContextCtor();
+    audioContextRef.current = context;
+    if (context.state === "suspended") await context.resume();
+    return context;
   }
 
   function cleanupRecorder() {
@@ -138,16 +153,22 @@ export function FloatingAiAgent() {
 
       if (!voiceModeRef.current) return;
 
-      const url = URL.createObjectURL(audio);
-      audioUrlRef.current = url;
-      const player = new Audio(url);
-      audioRef.current = player;
-      player.preload = "auto";
+      const context = await ensureAudioContext();
+      const buffer = await context.decodeAudioData(await audio.arrayBuffer());
+      if (!voiceModeRef.current) return;
+
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      playbackSourceRef.current = source;
 
       await new Promise<void>((resolve, reject) => {
-        player.onended = () => resolve();
-        player.onerror = () => reject(new Error("Cebuano voice playback failed."));
-        void player.play().catch(reject);
+        source.onended = () => resolve();
+        try {
+          source.start(0);
+        } catch (err) {
+          reject(err);
+        }
       });
     } catch (err) {
       if (voiceModeRef.current) {
@@ -167,7 +188,8 @@ export function FloatingAiAgent() {
 
     try {
       const formData = new FormData();
-      formData.append("file", blob, "admin-ai-voice.webm");
+      const extension = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
+      formData.append("file", blob, `admin-ai-voice.${extension}`);
       const result = await apiFetch<{ text?: string; transcript?: string }>("/transcribe", {
         method: "POST",
         body: formData
@@ -308,6 +330,9 @@ export function FloatingAiAgent() {
 
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    void audioContextRef.current?.close();
+    audioContextRef.current = null;
+    analyserRef.current = null;
   }
 
   async function startVoiceConversation() {
@@ -320,6 +345,7 @@ export function FloatingAiAgent() {
     }
 
     try {
+      await ensureAudioContext();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       voiceModeRef.current = true;
@@ -334,6 +360,8 @@ export function FloatingAiAgent() {
       setVoiceMode(false);
       setVoiceState("idle");
       setError(err instanceof Error ? err.message : "Microphone access was denied or unavailable.");
+      void audioContextRef.current?.close();
+      audioContextRef.current = null;
     }
   }
 
