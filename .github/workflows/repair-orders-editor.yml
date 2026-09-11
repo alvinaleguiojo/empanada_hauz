@@ -1,0 +1,82 @@
+name: Repair orders editor
+
+on:
+  push:
+    branches: [fix/orders-editor-live]
+    paths:
+      - .github/workflows/repair-orders-editor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message != 'fix: stabilize orders editor state and layout'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch orders editor
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          board = Path('apps/web/src/components/orders/orders-board.tsx')
+          text = board.read_text()
+
+          old_deps = '''  }, [\n    editMode,\n    productOptions,\n    selectedOrder,\n  ]);'''
+          new_deps = '''  }, [\n    editMode,\n    selectedOrder?.id,\n  ]);'''
+          if old_deps not in text:
+              raise SystemExit('Could not find order editor form effect dependency block')
+          text = text.replace(old_deps, new_deps, 1)
+
+          second_effect = re.compile(r'''\n  useEffect\(\(\) => \{\n    if \(\n      !selectedOrder \|\|\n      productOptions\.length === 0\n    \) \{\n      return;\n    \}\n\n    setLineItems\(\(current\) => \{\n      const hasAllCatalogProducts =\n        productOptions\.every\(\(product\) =>\n          current\.some\(\n            \(item\) =>\n              item\.productName\.toLowerCase\(\) ===\n              product\.value\.toLowerCase\(\),\n          \),\n        \);\n\n      return hasAllCatalogProducts\n        \? current\n        : createEditableLineItems\(\n            selectedOrder,\n            productOptions,\n          \);\n    \}\);\n  \}, \[productOptions, selectedOrder\?\.id\]\);\n''')
+          text, removed = second_effect.subn('\n', text, count=1)
+          if removed != 1:
+              raise SystemExit('Could not find duplicate catalog line-item synchronization effect')
+
+          header_old = 'className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"'
+          header_new = 'className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"'
+          if header_old not in text:
+              raise SystemExit('Could not find Order details header layout')
+          text = text.replace(header_old, header_new, 1)
+
+          actions_old = 'className="flex flex-wrap gap-2"'
+          actions_new = 'className="flex flex-wrap gap-2 sm:justify-end"'
+          if actions_old not in text:
+              raise SystemExit('Could not find Order details action container')
+          text = text.replace(actions_old, actions_new, 1)
+
+          board.write_text(text)
+
+          view = Path('apps/web/src/components/orders/orders-view.tsx')
+          view_text = view.read_text()
+          view_text = view_text.replace('import layoutStyles from "./orders-board-layout.module.css";\n', '', 1)
+          wrapper_old = '''      {view === "kanban" ? (\n        <div className={layoutStyles.root}>\n          <OrdersBoard orders={orders} openOrderId={editingOrderId} openInEdit={Boolean(editingOrderId)} />\n        </div>\n      ) : ('''
+          wrapper_new = '''      {view === "kanban" ? (\n        <OrdersBoard orders={orders} openOrderId={editingOrderId} openInEdit={Boolean(editingOrderId)} />\n      ) : ('''
+          if wrapper_old not in view_text:
+              raise SystemExit('Could not find orders-board layout wrapper')
+          view.write_text(view_text.replace(wrapper_old, wrapper_new, 1))
+
+          css = Path('apps/web/src/components/orders/orders-board-layout.module.css')
+          if css.exists():
+              css.unlink()
+      
+      - name: Verify
+        run: |
+          grep -n "selectedOrder?.id" apps/web/src/components/orders/orders-board.tsx | head
+          ! grep -n "hasAllCatalogProducts" apps/web/src/components/orders/orders-board.tsx
+          ! grep -n "orders-board-layout" apps/web/src/components/orders/orders-view.tsx
+          test ! -f apps/web/src/components/orders/orders-board-layout.module.css
+          npm ci
+          npm run lint --workspace @empanada-hauz/web
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/components/orders/orders-board.tsx apps/web/src/components/orders/orders-view.tsx apps/web/src/components/orders/orders-board-layout.module.css .github/workflows/repair-orders-editor.yml
+          git commit -m "fix: stabilize orders editor state and layout"
+          git push origin fix/orders-editor-live
