@@ -27,13 +27,14 @@ import { AdminUsersModule } from "./modules/admin-users/admin-users.module";
 import { ProductsModule } from "./modules/products/products.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { TranscriptionModule } from "./modules/transcription/transcription.module";
+import { TtsModule } from "./modules/tts/tts.module";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, RealtimeModule, HealthModule, AuthModule, AdminUsersModule,
     ProductsModule, DocumentsModule, MessengerModule, AiModule, AiInstructionsModule, CustomersModule, OrdersModule, BatchesModule, KitchenModule,
     DeliveriesModule, DeliveryNetworkModule, RiderModule, AnalyticsModule, InventoryModule, ExpensesModule, ReferralsModule,
-    ReferralChatModule, NotificationsModule, ChatModule, McpModule, GoogleMapsModule, TranscriptionModule
+    ReferralChatModule, NotificationsModule, ChatModule, McpModule, GoogleMapsModule, TranscriptionModule, TtsModule
   ]
 })
 export class AppModule {}
