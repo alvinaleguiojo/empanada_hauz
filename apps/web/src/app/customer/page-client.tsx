@@ -18,7 +18,8 @@ import {
   ShoppingBag,
   Ticket,
   Truck,
-  Wallet
+  Wallet,
+  X
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { MENU_ITEMS } from "@/lib/menu";
@@ -126,6 +127,7 @@ export default function CustomerKioskPage() {
   const [referralCode, setReferralCode] = useState("");
   const [deliveryQuote, setDeliveryQuote] = useState<{ distanceKm: number | null; estimatedFare: number } | null>(null);
   const [quotingDelivery, setQuotingDelivery] = useState(false);
+  const [bagOpen, setBagOpen] = useState(false);
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -257,6 +259,7 @@ export default function CustomerKioskPage() {
       setForm(initialState);
       setDeliveryQuote(null);
       setAgreedToPolicy(false);
+      setBagOpen(false);
       setStep(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to place order");
@@ -299,7 +302,7 @@ export default function CustomerKioskPage() {
   }
 
   return (
-    <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-3 pb-28 pt-3 text-[#F2E8D5] sm:px-6 lg:px-8 lg:pb-8`}>
+    <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board min-h-screen px-3 pb-8 pt-3 text-[#F2E8D5] sm:px-6 lg:px-8`}>
       <div className="mx-auto max-w-7xl">
         <header className="sticky top-0 z-30 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
@@ -310,12 +313,17 @@ export default function CustomerKioskPage() {
                 <div className="mt-1 truncate text-xs text-[#F2E8D5]/50">Freshly made, your way.</div>
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-[#F2E8D5]/10 bg-[#241c13] px-3 py-2">
+            <button
+              type="button"
+              onClick={() => setBagOpen(true)}
+              aria-label={`Open bag with ${summary.totalQuantity} pieces`}
+              className="inline-flex items-center gap-2 rounded-full border border-[#F2E8D5]/10 bg-[#241c13] px-3 py-2 transition hover:border-[#E3A64B]/30 hover:bg-[#2b2117]"
+            >
               <ShoppingBag size={15} className="text-[#E3A64B]" />
               <span className="font-[family-name:var(--font-mono)] text-xs font-semibold text-[#F2E8D5]">{summary.totalQuantity} pcs</span>
               <span className="hidden text-[#F2E8D5]/30 sm:inline">·</span>
               <span className="hidden font-[family-name:var(--font-mono)] text-xs font-semibold text-[#E3A64B] sm:inline">Php {summary.total}</span>
-            </div>
+            </button>
           </div>
         </header>
 
@@ -343,7 +351,7 @@ export default function CustomerKioskPage() {
           </div>
         </section>
 
-        <form id="kiosk-order-form" onSubmit={handleSubmit} className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_370px]">
+        <form id="kiosk-order-form" onSubmit={handleSubmit} className="mt-5">
           <section className="min-w-0 rounded-[26px] border border-[#F2E8D5]/10 bg-[#20180f] p-4 shadow-[0_22px_60px_-36px_rgba(0,0,0,0.8)] sm:p-6">
             {step === 0 ? (
               <>
@@ -429,38 +437,51 @@ export default function CustomerKioskPage() {
 
             {error ? <p className="mt-5 rounded-xl border border-[#C0472B]/30 bg-[#C0472B]/10 px-4 py-3 text-sm text-[#f0a894]">{error}</p> : null}
           </section>
-
-          <aside className="lg:sticky lg:top-[88px]">
-            <div className="overflow-hidden rounded-[26px] border border-[#F2E8D5]/10 bg-[#F3EBDD] text-[#241c13] shadow-[0_24px_70px_-30px_rgba(0,0,0,0.85)]">
-              <div className="border-b border-dashed border-[#241c13]/15 px-5 py-5 sm:px-6">
-                <div className="flex items-center justify-between"><div className="flex items-center gap-2 font-[family-name:var(--font-display)] text-sm font-extrabold uppercase tracking-[0.16em]"><ShoppingBag size={17} /> Your bag</div><span className="rounded-full bg-[#241c13]/7 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11px] font-bold text-[#241c13]/65">{summary.totalQuantity} pcs</span></div>
-                <p className="mt-1.5 text-xs text-[#241c13]/45">Your selections update live.</p>
-              </div>
-              <div className="max-h-[360px] overflow-auto px-5 py-4 sm:px-6">
-                {summary.items.length > 0 ? summary.items.map((item) => <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#241c13]/7 py-3 first:pt-0 last:border-b-0"><div className="min-w-0"><div className="truncate text-sm font-bold">{item.name}</div><div className="mt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#241c13]/45">{item.quantity} × Php {item.price}</div></div><div className="shrink-0 font-[family-name:var(--font-mono)] text-sm font-bold">Php {item.subtotal}</div></div>) : <div className="py-10 text-center"><ShoppingBag className="mx-auto text-[#241c13]/20" size={28} /><p className="mt-3 text-sm font-semibold text-[#241c13]/45">Your bag is empty.</p><p className="mt-1 text-xs text-[#241c13]/35">Pick a flavor to get started.</p></div>}
-              </div>
-              <div className="border-t border-dashed border-[#241c13]/15 px-5 py-5 sm:px-6">
-                {form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mb-3 flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-1.5 text-[#241c13]/55"><Truck size={14} /> {quotingDelivery ? "Estimating delivery…" : "Est. delivery"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km` : ""}</span><span className="font-[family-name:var(--font-mono)] font-bold">{quotingDelivery ? "…" : deliveryQuote ? `Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}
-                <div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#241c13]/45">Total</div><div className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold">Php {summary.total}</div></div><div className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${summary.totalQuantity >= 10 ? "bg-[#7A9B4E]/15 text-[#4f6a34]" : "bg-[#C0472B]/10 text-[#a53b25]"}`}>{summary.totalQuantity >= 10 ? "Minimum reached" : `${remaining} pcs to go`}</div></div>
-                {form.deliveryMethod === "maxim" ? <p className="mt-2 text-[10px] leading-4 text-[#241c13]/40">Delivery total uses an estimate until our team confirms the final fare.</p> : null}
-                <div className="mt-5 grid gap-2.5 lg:flex lg:flex-col"><div className="flex gap-2.5"><button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#241c13]/12 bg-[#241c13]/4 text-[#241c13] disabled:cursor-not-allowed disabled:opacity-25"><ArrowLeft size={17} /></button>{step < steps.length - 1 ? <button type="button" onClick={() => setStep((current) => current + 1)} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">Continue <ArrowRight size={16} /></button> : <button type="submit" disabled={submitting || !agreedToPolicy} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>}</div></div>
-              </div>
-            </div>
-          </aside>
         </form>
 
         <p className="py-4 text-center font-[family-name:var(--font-script)] text-lg text-[#F2E8D5]/35">made fresh daily by Empanada Hauz</p>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#F2E8D5]/10 bg-[#17110b]/96 px-3 pb-[env(safe-area-inset-bottom)] pt-2.5 shadow-[0_-18px_35px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:hidden">
-        <div className="mx-auto flex max-w-7xl items-center gap-2.5">
-          <div className="min-w-0 flex-1"><div className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.16em] text-[#F2E8D5]/35">Your bag</div><div className="truncate font-[family-name:var(--font-display)] text-base font-extrabold text-[#F6EFDD]">{summary.totalQuantity} pcs · Php {summary.total}</div></div>
-          <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} aria-label="Back" disabled={step === 0} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-[#F2E8D5]/10 bg-[#241c13] text-[#F2E8D5] disabled:opacity-25"><ArrowLeft size={17} /></button>
-          {step < steps.length - 1 ? <button type="button" onClick={() => setStep((current) => current + 1)} disabled={!isStepValid} className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-35">Continue <ArrowRight size={16} /></button> : <button type="submit" form="kiosk-order-form" disabled={submitting || !agreedToPolicy} className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-35">{submitting ? "Placing…" : "Place order"}</button>}
+      {bagOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button type="button" aria-label="Close bag" onClick={() => setBagOpen(false)} className="absolute inset-0 bg-[#0f0b07]/65 backdrop-blur-[2px]" />
+          <aside className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-[#F3EBDD] text-[#241c13] shadow-[-24px_0_80px_-40px_rgba(0,0,0,0.85)]">
+            <div className="flex items-center justify-between border-b border-dashed border-[#241c13]/15 px-5 py-5 sm:px-6">
+              <div>
+                <div className="flex items-center gap-2 font-[family-name:var(--font-display)] text-sm font-extrabold uppercase tracking-[0.16em]"><ShoppingBag size={17} /> Your bag</div>
+                <p className="mt-1.5 text-xs text-[#241c13]/45">Your selections update live.</p>
+              </div>
+              <button type="button" onClick={() => setBagOpen(false)} aria-label="Close bag" className="grid h-10 w-10 place-items-center rounded-full border border-[#241c13]/10 bg-[#241c13]/5 transition hover:bg-[#241c13]/10"><X size={18} /></button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto px-5 py-4 sm:px-6">
+              {summary.items.length > 0 ? summary.items.map((item) => (
+                <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#241c13]/7 py-3 first:pt-0 last:border-b-0">
+                  <div className="min-w-0"><div className="truncate text-sm font-bold">{item.name}</div><div className="mt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[#241c13]/45">{item.quantity} × Php {item.price}</div></div>
+                  <div className="shrink-0 font-[family-name:var(--font-mono)] text-sm font-bold">Php {item.subtotal}</div>
+                </div>
+              )) : (
+                <div className="py-16 text-center"><ShoppingBag className="mx-auto text-[#241c13]/20" size={30} /><p className="mt-3 text-sm font-semibold text-[#241c13]/45">Your bag is empty.</p><p className="mt-1 text-xs text-[#241c13]/35">Pick a flavor to get started.</p></div>
+              )}
+            </div>
+
+            <div className="border-t border-dashed border-[#241c13]/15 px-5 py-5 sm:px-6">
+              {form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mb-3 flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-1.5 text-[#241c13]/55"><Truck size={14} /> {quotingDelivery ? "Estimating delivery…" : "Est. delivery"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km` : ""}</span><span className="font-[family-name:var(--font-mono)] font-bold">{quotingDelivery ? "…" : deliveryQuote ? `Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}
+              <div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#241c13]/45">Total</div><div className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold">Php {summary.total}</div></div><div className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${summary.totalQuantity >= 10 ? "bg-[#7A9B4E]/15 text-[#4f6a34]" : "bg-[#C0472B]/10 text-[#a53b25]"}`}>{summary.totalQuantity >= 10 ? "Minimum reached" : `${remaining} pcs to go`}</div></div>
+              {form.deliveryMethod === "maxim" ? <p className="mt-2 text-[10px] leading-4 text-[#241c13]/40">Delivery total uses an estimate until our team confirms the final fare.</p> : null}
+
+              <div className="mt-5 grid gap-2.5">
+                <div className="flex gap-2.5">
+                  <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#241c13]/12 bg-[#241c13]/4 text-[#241c13] disabled:cursor-not-allowed disabled:opacity-25"><ArrowLeft size={17} /></button>
+                  {step < steps.length - 1 ? <button type="button" onClick={() => { setStep((current) => current + 1); setBagOpen(false); }} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">Continue <ArrowRight size={16} /></button> : <button type="submit" form="kiosk-order-form" disabled={submitting || !agreedToPolicy} onClick={() => setBagOpen(false)} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>}
+                </div>
+                {step === 0 && summary.totalQuantity < 10 ? <p className="text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">add {remaining} more piece{remaining === 1 ? "" : "s"} po</p> : null}
+                {step === 2 && !agreedToPolicy ? <p className="text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">please agree to the Privacy Policy to continue</p> : null}
+              </div>
+            </div>
+          </aside>
         </div>
-        {step === 0 && summary.totalQuantity < 10 ? <p className="mx-auto mt-1.5 max-w-7xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">add {remaining} more piece{remaining === 1 ? "" : "s"} po</p> : null}
-        {step === 2 && !agreedToPolicy ? <p className="mx-auto mt-1.5 max-w-7xl text-center font-[family-name:var(--font-script)] text-sm text-[#C0472B]">please agree to the Privacy Policy to continue</p> : null}
-      </div>
+      ) : null}
 
       <style jsx global>{`.kiosk-board{background:radial-gradient(circle at 10% 0%,rgba(227,166,75,.08),transparent 28rem),radial-gradient(circle at 100% 55%,rgba(47,143,122,.06),transparent 26rem),linear-gradient(160deg,#17110b 0%,#1c150e 55%,#17110b 100%)} .jeepney-stripe{background:repeating-linear-gradient(45deg,#c0472b 0px,#c0472b 12px,#f0b429 12px,#f0b429 24px,#2f8f7a 24px,#2f8f7a 36px,#f2e8d5 36px,#f2e8d5 48px)} .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
     </main>
