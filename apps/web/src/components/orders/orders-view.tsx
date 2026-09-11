@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import layoutStyles from "./orders-board-layout.module.css";
 
 const statusOptions = [
   "inquiry", "awaiting_confirmation", "confirmed", "queued", "preparing", "frying", "packed",
@@ -87,7 +88,7 @@ export function OrdersView({ orders }: { orders: Array<any> }) {
       </div>
 
       {view === "kanban" ? (
-        <div className="orders-board-root">
+        <div className={layoutStyles.root}>
           <OrdersBoard orders={orders} openOrderId={editingOrderId} openInEdit={Boolean(editingOrderId)} />
         </div>
       ) : (
