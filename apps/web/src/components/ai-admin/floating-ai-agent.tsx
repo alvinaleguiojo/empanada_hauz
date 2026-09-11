@@ -6,6 +6,7 @@ import { Bot, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 type Message = { role: "user" | "assistant"; content: string };
+type VoiceState = "idle" | "listening" | "transcribing" | "thinking" | "speaking";
 
 const suggestions = [
   "Give me today's business summary.",
@@ -14,32 +15,49 @@ const suggestions = [
   "Show me inventory items near reorder level."
 ];
 
+const SPEECH_THRESHOLD = 0.025;
+const MIN_SPEECH_MS = 250;
+const SILENCE_MS = 900;
+
 export function FloatingAiAgent() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [error, setError] = useState("");
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const vadFrameRef = useRef<number | null>(null);
+  const speechStartedAtRef = useRef<number | null>(null);
+  const lastSpeechAtRef = useRef<number | null>(null);
+  const discardNextRecordingRef = useRef(false);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
-  }, [open, messages, loading]);
+  }, [open, messages, loading, voiceState]);
 
   useEffect(() => {
     return () => {
+      discardNextRecordingRef.current = true;
+      stopVad();
+      window.speechSynthesis?.cancel();
       recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      void audioContextRef.current?.close();
     };
   }, []);
 
-  async function sendText(text: string, allowWhileLoading = false) {
+  async function sendToAgent(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || (loading && !allowWhileLoading)) return;
+    if (!trimmed) return "";
 
     const history = messages.slice(-12);
     setMessages((current) => [...current, { role: "user", content: trimmed }]);
@@ -53,25 +71,74 @@ export function FloatingAiAgent() {
         body: JSON.stringify({ message: trimmed, history })
       });
       setMessages((current) => [...current, { role: "assistant", content: result.reply }]);
+      return result.reply;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to reach the Admin AI Agent.");
+      const message = err instanceof Error ? err.message : "Unable to reach the Admin AI Agent.";
+      setError(message);
+      throw err;
     } finally {
       setLoading(false);
     }
   }
 
+  async function sendText(text: string) {
+    if (loading || voiceMode) return;
+    try {
+      await sendToAgent(text);
+    } catch {
+      // Error state is already shown by sendToAgent.
+    }
+  }
+
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
-    if (recording) return;
     await sendText(input);
   }
 
-  async function transcribeRecording(blob: Blob) {
-    if (!blob.size) {
-      setError("The recording was empty. Please try again.");
+  function stopVad() {
+    if (vadFrameRef.current !== null) {
+      cancelAnimationFrame(vadFrameRef.current);
+      vadFrameRef.current = null;
+    }
+    speechStartedAtRef.current = null;
+    lastSpeechAtRef.current = null;
+  }
+
+  function cleanupRecorder() {
+    stopVad();
+    recorderRef.current = null;
+    chunksRef.current = [];
+    setRecording(false);
+  }
+
+  async function speakReply(text: string) {
+    if (!voiceMode || !text.trim()) return;
+
+    if (typeof window === "undefined" || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+      setError("Speech playback is not supported by this browser.");
       return;
     }
 
+    setVoiceState("speaking");
+    window.speechSynthesis.cancel();
+
+    await new Promise<void>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find((voice) => /en-PH|en-US|en-GB/i.test(voice.lang));
+      if (preferredVoice) utterance.voice = preferredVoice;
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.onend = () => resolve();
+      utterance.onerror = () => resolve();
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  async function transcribeRecording(blob: Blob) {
+    if (!blob.size) return;
+
+    setVoiceState("transcribing");
     setLoading(true);
     setError("");
 
@@ -83,26 +150,146 @@ export function FloatingAiAgent() {
         body: formData
       });
       const transcript = (result.text ?? result.transcript ?? "").trim();
-      if (!transcript) {
-        setError("No speech was detected. Please try again.");
-        setLoading(false);
+      setLoading(false);
+
+      if (!transcript || !voiceMode) {
+        if (voiceMode) setVoiceState("listening");
         return;
       }
-      await sendText(transcript, true);
+
+      setVoiceState("thinking");
+      const reply = await sendToAgent(transcript);
+      if (!voiceMode) return;
+
+      await speakReply(reply);
+      if (voiceMode) {
+        beginRecordingCycle();
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to transcribe the recording.");
       setLoading(false);
+      setError(err instanceof Error ? err.message : "Unable to transcribe the recording.");
+      if (voiceMode) beginRecordingCycle();
     }
   }
 
-  function stopRecording() {
-    if (!recorderRef.current || recorderRef.current.state === "inactive") return;
-    recorderRef.current.stop();
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+  function monitorVad(stream: MediaStream, recorder: MediaRecorder) {
+    stopVad();
+
+    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) {
+      recorder.stop();
+      return;
+    }
+
+    const context = audioContextRef.current ?? new AudioContextCtor();
+    audioContextRef.current = context;
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.2;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+
+    const buffer = new Uint8Array(analyser.fftSize);
+    const check = () => {
+      if (recorder.state !== "recording" || !voiceMode) return;
+
+      analyser.getByteTimeDomainData(buffer);
+      let sum = 0;
+      for (const sample of buffer) {
+        const normalized = (sample - 128) / 128;
+        sum += normalized * normalized;
+      }
+      const rms = Math.sqrt(sum / buffer.length);
+      const now = performance.now();
+
+      if (rms >= SPEECH_THRESHOLD) {
+        if (speechStartedAtRef.current === null) speechStartedAtRef.current = now;
+        lastSpeechAtRef.current = now;
+      } else if (speechStartedAtRef.current !== null && lastSpeechAtRef.current !== null) {
+        const speechDuration = now - speechStartedAtRef.current;
+        const silenceDuration = now - lastSpeechAtRef.current;
+        if (speechDuration >= MIN_SPEECH_MS && silenceDuration >= SILENCE_MS) {
+          stopVad();
+          recorder.stop();
+          return;
+        }
+      }
+
+      vadFrameRef.current = requestAnimationFrame(check);
+    };
+
+    void context.resume().finally(() => {
+      vadFrameRef.current = requestAnimationFrame(check);
+    });
   }
 
-  async function startRecording() {
-    if (loading || recording) return;
+  function beginRecordingCycle() {
+    const stream = streamRef.current;
+    if (!voiceMode || !stream || recording || recorderRef.current) return;
+
+    try {
+      const preferredMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      const mimeType = preferredMimeTypes.find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      discardNextRecordingRef.current = false;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        const discard = discardNextRecordingRef.current;
+        discardNextRecordingRef.current = false;
+        cleanupRecorder();
+
+        if (!discard && blob.size > 0 && voiceMode) {
+          void transcribeRecording(blob);
+        } else if (voiceMode) {
+          setVoiceState("listening");
+        }
+      };
+
+      recorder.onerror = () => {
+        cleanupRecorder();
+        setError("The microphone recording failed. Please try again.");
+        if (voiceMode) beginRecordingCycle();
+      };
+
+      recorder.start(250);
+      setRecording(true);
+      setVoiceState("listening");
+      monitorVad(stream, recorder);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start voice recording.");
+    }
+  }
+
+  function stopVoiceConversation() {
+    setVoiceMode(false);
+    setVoiceState("idle");
+    setError("");
+    stopVad();
+    window.speechSynthesis?.cancel();
+
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      discardNextRecordingRef.current = true;
+      recorderRef.current.stop();
+    } else {
+      cleanupRecorder();
+    }
+
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  }
+
+  async function startVoiceConversation() {
+    if (voiceMode) return;
     setError("");
 
     if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
@@ -112,43 +299,29 @@ export function FloatingAiAgent() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const preferredMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-      const mimeType = preferredMimeTypes.find((type) => MediaRecorder.isTypeSupported(type));
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-
       streamRef.current = stream;
-      recorderRef.current = recorder;
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-
-      recorder.onstop = () => {
-        const type = recorder.mimeType || "audio/webm";
-        const blob = new Blob(chunksRef.current, { type });
-        chunksRef.current = [];
-        recorderRef.current = null;
-        streamRef.current = null;
-        setRecording(false);
-        void transcribeRecording(blob);
-      };
-
-      recorder.onerror = () => {
-        setRecording(false);
-        stream.getTracks().forEach((track) => track.stop());
-        setError("The microphone recording failed. Please try again.");
-      };
-
-      recorder.start();
-      setRecording(true);
+      setVoiceMode(true);
+      setVoiceState("listening");
+      setLoading(false);
+      beginRecordingCycle();
     } catch (err) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      setRecording(false);
+      setVoiceMode(false);
+      setVoiceState("idle");
       setError(err instanceof Error ? err.message : "Microphone access was denied or unavailable.");
     }
   }
+
+  const voiceLabel = voiceMode
+    ? voiceState === "listening"
+      ? "Listening… speak naturally; pauses are detected automatically"
+      : voiceState === "transcribing"
+        ? "Transcribing…"
+        : voiceState === "thinking"
+          ? "Thinking…"
+          : "Speaking…"
+    : "Mic to start continuous voice conversation";
 
   const content = (
     <div className="pointer-events-none fixed inset-0 z-[10000]">
@@ -160,7 +333,7 @@ export function FloatingAiAgent() {
               <p className="text-sm font-semibold">Admin AI Agent</p>
               <p className="mt-0.5 text-[11px] text-foreground/45">Live business data & approved tools</p>
             </div>
-            <button type="button" onClick={() => setOpen(false)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-foreground/45 transition hover:bg-white/[0.06] hover:text-foreground" aria-label="Close Admin AI Agent"><X size={17} /></button>
+            <button type="button" onClick={() => { if (voiceMode) stopVoiceConversation(); setOpen(false); }} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-foreground/45 transition hover:bg-white/[0.06] hover:text-foreground" aria-label="Close Admin AI Agent"><X size={17} /></button>
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
@@ -172,7 +345,7 @@ export function FloatingAiAgent() {
                 </div>
                 <div className="space-y-2">
                   {suggestions.map((suggestion) => (
-                    <button key={suggestion} type="button" onClick={() => setInput(suggestion)} className="w-full rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5 text-left text-xs text-foreground/65 transition hover:border-accent/25 hover:bg-accent/[0.04]">{suggestion}</button>
+                    <button key={suggestion} type="button" onClick={() => setInput(suggestion)} disabled={voiceMode} className="w-full rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5 text-left text-xs text-foreground/65 transition hover:border-accent/25 hover:bg-accent/[0.04] disabled:opacity-40">{suggestion}</button>
                   ))}
                 </div>
               </div>
@@ -186,14 +359,14 @@ export function FloatingAiAgent() {
                   </div>
                 </div>
               ))}
-              {recording ? (
+              {voiceMode ? (
                 <div className="flex justify-start">
-                  <div className="flex items-center gap-2 rounded-2xl border border-accent/20 bg-accent/[0.06] px-3.5 py-2.5 text-xs text-accent"><span className="h-2 w-2 animate-pulse rounded-full bg-current" /> Listening… tap the mic to stop</div>
+                  <div className="flex items-center gap-2 rounded-2xl border border-accent/20 bg-accent/[0.06] px-3.5 py-2.5 text-xs text-accent"><span className="h-2 w-2 animate-pulse rounded-full bg-current" /> {voiceLabel}</div>
                 </div>
               ) : null}
-              {loading ? (
+              {loading && !voiceMode ? (
                 <div className="flex justify-start">
-                  <div className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-xs text-foreground/50"><Loader2 size={14} className="animate-spin" /> Transcribing / checking business data…</div>
+                  <div className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-xs text-foreground/50"><Loader2 size={14} className="animate-spin" /> Checking business data…</div>
                 </div>
               ) : null}
               {error ? <div className="rounded-xl border border-danger/25 bg-danger/10 px-3.5 py-2.5 text-xs text-danger">{error}</div> : null}
@@ -203,15 +376,15 @@ export function FloatingAiAgent() {
 
           <form onSubmit={sendMessage} className="shrink-0 border-t border-white/[0.08] p-3">
             <div className="flex items-end gap-2">
-              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} disabled={recording || loading} rows={2} placeholder={recording ? "Listening…" : "Ask the Admin Agent…"} className="min-h-11 max-h-28 min-w-0 flex-1 resize-none rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2.5 text-xs outline-none placeholder:text-foreground/30 focus:border-accent/50 disabled:opacity-60" />
+              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} disabled={voiceMode || loading} rows={2} placeholder={voiceMode ? "Voice conversation active…" : "Ask the Admin Agent…"} className="min-h-11 max-h-28 min-w-0 flex-1 resize-none rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-2.5 text-xs outline-none placeholder:text-foreground/30 focus:border-accent/50 disabled:opacity-60" />
               <div className="flex shrink-0 flex-col gap-2">
-                <button type="button" onClick={() => { if (recording) stopRecording(); else void startRecording(); }} disabled={loading} className={`inline-flex h-11 w-11 items-center justify-center rounded-xl transition hover:brightness-110 disabled:opacity-50 ${recording ? "bg-danger text-white" : "border border-white/[0.1] bg-white/[0.04] text-foreground hover:bg-accent/10 hover:text-accent"}`} aria-label={recording ? "Stop recording" : "Start voice input"} title={recording ? "Stop recording" : "Use microphone"}>
-                  {recording ? <Square size={15} fill="currentColor" /> : <Mic size={17} />}
+                <button type="button" onClick={() => { if (voiceMode) stopVoiceConversation(); else void startVoiceConversation(); }} disabled={false} className={`inline-flex h-11 w-11 items-center justify-center rounded-xl transition hover:brightness-110 ${voiceMode ? "bg-danger text-white" : "border border-white/[0.1] bg-white/[0.04] text-foreground hover:bg-accent/10 hover:text-accent"}`} aria-label={voiceMode ? "Stop voice conversation" : "Start voice conversation"} title={voiceMode ? "Stop voice conversation" : "Start voice conversation"}>
+                  {voiceMode ? <Square size={15} fill="currentColor" /> : <Mic size={17} />}
                 </button>
-                <button type="submit" disabled={!input.trim() || loading || recording} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
+                <button type="submit" disabled={!input.trim() || loading || voiceMode} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
               </div>
             </div>
-            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">Enter to send · Shift+Enter for a new line · Mic to speak</p>
+            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · mic off ends the conversation" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
           </form>
         </div>
       ) : null}
