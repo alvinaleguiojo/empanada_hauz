@@ -25,7 +25,7 @@ export class AdminAgentFacadeService {
     const route = this.router.route(message);
 
     if (route.intent === "smalltalk" && route.reply) {
-      return { reply: route.reply, snapshotAt: new Date().toISOString(), fastLane: true };
+      return { reply: route.reply, snapshotAt: new Date().toISOString() };
     }
 
     if (route.intent === "confirmation") {
