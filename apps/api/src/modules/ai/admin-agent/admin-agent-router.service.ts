@@ -8,6 +8,11 @@ export class AdminAgentRouterService {
 
     if (this.isConfirmation(value)) return { intent: "confirmation" };
 
+    const operationalStatus = this.extractOperationalOrderStatus(value);
+    if (operationalStatus) {
+      return { intent: "order_lookup", query: `__status__:${operationalStatus}`, toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
+    }
+
     const orderNumber = this.extractOrderNumber(value);
     if (orderNumber) return { intent: "order_lookup", query: orderNumber, toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
 
@@ -17,7 +22,7 @@ export class AdminAgentRouterService {
     const customer = this.extractCustomerSearch(value);
     if (customer) return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
 
-    if (/\b(how many|count|number of|orders|sales|revenue|income|metrics|analytics|performance)\b/i.test(value) && /\b(today|this week|this month|week|month|yesterday)\b/i.test(value)) {
+    if (/\b(how many|count|number of|orders|sales|revenue|income|metrics|analytics|performance)\b/i.test(value) && /\b(today|this week|this month|week|month)\b/i.test(value)) {
       return { intent: "metrics", toolNames: ["get_order_metrics", "search_orders"] };
     }
 
@@ -42,6 +47,14 @@ export class AdminAgentRouterService {
 
   private isConfirmation(value: string) {
     return /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|approve|approved|go ahead|do it|proceed|please do|please proceed|no|nope|nah|cancel|stop|don't|do not)([.!\s]|$)/i.test(value);
+  }
+
+  private extractOperationalOrderStatus(message: string) {
+    if (!/\b(order|orders)\b/i.test(message)) return null;
+    if (/\b(pending|queued|awaiting|waiting)\b/i.test(message)) return "pending";
+    if (/\b(completed|complete|delivered|done)\b/i.test(message)) return "completed";
+    if (/\b(cancelled|canceled)\b/i.test(message)) return "cancelled";
+    return null;
   }
 
   private extractOrderNumber(message: string) {
