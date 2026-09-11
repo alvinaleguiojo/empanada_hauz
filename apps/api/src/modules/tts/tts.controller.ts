@@ -9,6 +9,12 @@ import { TtsService } from "./tts.service";
 export class TtsController {
   constructor(private readonly tts: TtsService) {}
 
+  @Post("warmup")
+  async warmup() {
+    await this.tts.warmup();
+    return { ok: true };
+  }
+
   @Post()
   async synthesize(@Body() body: { text?: string }, @Res() response: Response) {
     const text = body?.text?.trim();
