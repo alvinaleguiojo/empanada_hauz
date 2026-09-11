@@ -130,7 +130,7 @@ export function FloatingAiAgent() {
 
     const context = audioContextRef.current ?? new AudioContextCtor();
     audioContextRef.current = context;
-    if (context.state === "suspended") await context.resume();
+    if (context.state !== "running") await context.resume();
     return context;
   }
 
@@ -141,37 +141,45 @@ export function FloatingAiAgent() {
     setRecording(false);
   }
 
-  function speakInstantReply(text: string) {
-    if (!voiceModeRef.current || !text.trim() || typeof window === "undefined" || !window.speechSynthesis) return false;
+  function speakInstantReply(text: string): Promise<boolean> {
+    if (!voiceModeRef.current || !text.trim() || typeof window === "undefined" || !window.speechSynthesis) {
+      return Promise.resolve(false);
+    }
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text.trim());
-    utterance.lang = "en-US";
-    utterance.rate = 1.05;
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find((voice) => /ceb|fil|en-PH/i.test(`${voice.lang} ${voice.name}`))
+      ?? voices.find((voice) => /^en(-|_)/i.test(voice.lang));
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.lang = preferredVoice?.lang ?? "en-PH";
+    utterance.rate = 1.02;
     utterance.pitch = 1;
 
-    return new Promise<void>((resolve) => {
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-      window.speechSynthesis.speak(utterance);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (success: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(success);
+      };
+      utterance.onend = () => finish(true);
+      utterance.onerror = () => finish(false);
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        finish(false);
+      }
     });
   }
 
-  async function speakReply(text: string, fastLane = false) {
+  async function speakReply(text: string) {
     if (!voiceModeRef.current || !text.trim()) return;
 
     setVoiceState("speaking");
     stopAudioPlayback();
 
-    if (fastLane && typeof window !== "undefined" && window.speechSynthesis) {
-      try {
-        await speakInstantReply(text);
-        return;
-      } catch {
-        // Fall back to server TTS below.
-      }
-    }
-
+    let serverError: unknown;
     try {
       const audio = await apiFetchBlob("/tts", {
         method: "POST",
@@ -181,29 +189,50 @@ export function FloatingAiAgent() {
       if (!voiceModeRef.current) return;
 
       const context = await ensureAudioContext();
-      const buffer = await context.decodeAudioData(await audio.arrayBuffer());
+      const arrayBuffer = await audio.arrayBuffer();
+      const buffer = await context.decodeAudioData(arrayBuffer.slice(0));
       if (!voiceModeRef.current) return;
+
+      const gain = context.createGain();
+      gain.gain.value = 1;
+      gain.connect(context.destination);
 
       const source = context.createBufferSource();
       source.buffer = buffer;
-      source.connect(context.destination);
+      source.connect(gain);
       playbackSourceRef.current = source;
 
       await new Promise<void>((resolve, reject) => {
         source.onended = () => resolve();
         try {
-          source.start(0);
+          if (context.state !== "running") {
+            void context.resume().then(() => source.start(0)).catch(reject);
+          } else {
+            source.start(0);
+          }
         } catch (err) {
           reject(err);
         }
       });
+      gain.disconnect();
+      return;
     } catch (err) {
-      if (voiceModeRef.current) {
-        throw new Error(err instanceof Error ? err.message : "Unable to play the Cebuano voice.");
-      }
+      serverError = err;
     } finally {
       stopAudioPlayback();
     }
+
+    if (!voiceModeRef.current) return;
+
+    // Keep the agent audible even when local Cebuano TTS is still loading or unavailable.
+    const browserSpoke = await speakInstantReply(text);
+    if (browserSpoke) return;
+
+    throw new Error(
+      serverError instanceof Error
+        ? `Voice playback failed: ${serverError.message}`
+        : "Voice playback failed."
+    );
   }
 
   async function transcribeRecording(blob: Blob) {
@@ -233,7 +262,7 @@ export function FloatingAiAgent() {
       const resultFromAgent = await sendToAgent(transcript);
       if (!voiceModeRef.current) return;
 
-      await speakReply(resultFromAgent.reply, resultFromAgent.fastLane);
+      await speakReply(resultFromAgent.reply);
       if (voiceModeRef.current) beginRecordingCycle();
     } catch (err) {
       setLoading(false);
@@ -379,6 +408,12 @@ export function FloatingAiAgent() {
       setVoiceMode(true);
       setVoiceState("listening");
       setLoading(false);
+
+      // Load the Cebuano voice while the user is speaking their first turn.
+      void apiFetch<{ ok?: boolean }>("/tts/warmup", { method: "POST" }).catch(() => {
+        // Playback has a browser-speech fallback if the local model is unavailable.
+      });
+
       beginRecordingCycle();
     } catch (err) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -463,7 +498,7 @@ export function FloatingAiAgent() {
                 <button type="submit" disabled={!input.trim() || loading || voiceMode} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
               </div>
             </div>
-            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · instant replies for simple chat · business answers use Cebuano TTS" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
+            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · Cebuano TTS with browser voice fallback" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
           </form>
         </div>
       ) : null}
