@@ -29,9 +29,11 @@ export class AdminAgentFacadeService {
     }
 
     if (route.intent === "order_lookup" && route.query) {
-      const orders = await this.analytics.searchOrders(route.query, undefined, undefined, 20);
+      const status = this.parseStatusQuery(route.query);
+      const query = status ? undefined : route.query;
+      const orders = await this.analytics.searchOrders(query, undefined, status ?? undefined, 20);
       return {
-        reply: orders.length ? this.formatOrders(route.query, orders) : `No order found for "${route.query}".`,
+        reply: orders.length ? this.formatOrders(route.query, orders, status) : this.formatNoOrderMatch(route.query, status),
         snapshotAt: new Date().toISOString(),
         data: orders
       };
@@ -55,9 +57,20 @@ export class AdminAgentFacadeService {
     return this.legacyAgent.process(request);
   }
 
-  private formatOrders(query: string, orders: Array<{ orderNumber: string; status: string; quantity: number; totalAmount: unknown; customer?: { name: string; phoneNumber?: string | null } | null }>) {
+  private parseStatusQuery(query: string) {
+    if (!query.startsWith("__status__:")) return null;
+    const status = query.slice("__status__:".length);
+    return status === "queued" || status === "awaiting_confirmation" || status === "completed" || status === "cancelled" ? status : null;
+  }
+
+  private formatNoOrderMatch(query: string, status: string | null) {
+    return status ? `No ${status.replace(/_/g, " ")} orders found.` : `No order found for "${query}".`;
+  }
+
+  private formatOrders(query: string, orders: Array<{ orderNumber: string; status: string; quantity: number; totalAmount: unknown; customer?: { name: string; phoneNumber?: string | null } | null }>, status: string | null) {
+    const title = status ? `${status.replace(/_/g, " ").replace(/^\w/, (value) => value.toUpperCase())} orders` : `Order matches for "${query}"`;
     const lines = orders.map((order, index) => `${index + 1}. ${order.orderNumber} — ${order.customer?.name ?? "Unknown customer"}${order.customer?.phoneNumber ? ` · ${order.customer.phoneNumber}` : ""} · ${order.status} · ${order.quantity} pcs · ₱${Number(order.totalAmount).toLocaleString("en-PH")}`);
-    return `Order matches for "${query}":\n${lines.join("\n")}`;
+    return `${title}:\n${lines.join("\n")}`;
   }
 
   private formatCustomers(query: string, customers: Array<{ name: string; phoneNumber?: string | null; totalOrders: number; totalSpent: unknown; isVip: boolean }>) {

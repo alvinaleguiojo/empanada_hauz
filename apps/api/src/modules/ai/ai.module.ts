@@ -19,7 +19,7 @@ import { AiDateTimeService } from "./ai-datetime.service";
 import { AiModelService } from "./ai-model.service";
 import { AiAdminAgentController } from "./ai-admin-agent.controller";
 import { AiAdminAgentService } from "./ai-admin-agent.service";
-import { AiAdminAgentFacadeService } from "./admin-agent/admin-agent-facade.service";
+import { AdminAgentFacadeService } from "./admin-agent/admin-agent-facade.service";
 import { AdminAgentRouterService } from "./admin-agent/admin-agent-router.service";
 import { AdminAgentToolsetService } from "./admin-agent/admin-agent-toolset.service";
 import { AiAdminModelService } from "./ai-admin-model.service";
@@ -53,10 +53,10 @@ import { AiAdminActionStateService } from "./ai-admin-action-state.service";
     AdminAgentRouterService,
     AdminAgentToolsetService,
     AiAdminAgentService,
-    AiAdminAgentFacadeService,
+    AdminAgentFacadeService,
     AiPublicAgentService,
     AiDateTimeService
   ],
-  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService, AiDateTimeService, AiModelService, AiAdminAgentService, AiAdminAgentFacadeService]
+  exports: [AiControlService, AiRuntimeService, AiToolRegistryService, AiActionConfigService, AiPublicAgentService, AiDateTimeService, AiModelService, AiAdminAgentService, AdminAgentFacadeService]
 })
 export class AiModule {}
