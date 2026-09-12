@@ -8,8 +8,6 @@ export class AdminAgentRouterService {
     const value = message.trim();
     if (this.isConfirmation(value)) return { intent: "confirmation" };
 
-    // A write must win over a status read: "cancel order 123" is an action,
-    // while "cancelled orders" is a status query.
     if (this.isOrderWriteRequest(value)) {
       return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
     }
@@ -34,6 +32,10 @@ export class AdminAgentRouterService {
       return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
     }
 
+    if (this.isProductRequest(value)) {
+      return { intent: "product_lookup", toolNames: ["list_products", "get_product"] };
+    }
+
     if (this.isMetricsRequest(value)) {
       return { intent: "metrics", toolNames: ["get_order_metrics", "search_orders"] };
     }
@@ -41,16 +43,14 @@ export class AdminAgentRouterService {
     const smalltalk = this.routeSmalltalk(value);
     if (smalltalk) return smalltalk;
 
-    if (this.isOrderRequest(value)) {
-      return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
-    }
-    if (this.isCustomerRequest(value)) {
-      return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
-    }
-    if (this.isAnalyticsRequest(value)) {
-      return { intent: "complex", toolNames: ["get_order_metrics", "search_orders"] };
-    }
+    if (this.isOrderRequest(value)) return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
+    if (this.isCustomerRequest(value)) return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
+    if (this.isAnalyticsRequest(value)) return { intent: "complex", toolNames: ["get_order_metrics", "search_orders"] };
     return { intent: "complex" };
+  }
+
+  private isProductRequest(value: string) {
+    return /\b(menu|menus|product|products|item|items|flavor|flavours|flavors|price|prices|cost|costs|available|availability|what do you sell|what can i order|what can we order|what's available|whats available|show me the menu|send me the menu|send the menu|list the menu|list products)\b/i.test(value);
   }
 
   private isMetricsRequest(value: string) {
@@ -84,22 +84,14 @@ export class AdminAgentRouterService {
     if (/^(nice|great|awesome|perfect|great job|well done|sige|ayos|okay|ok|got it|i see)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm ready for the next thing." };
     if (/^(i(?:'| a)m home|i am home|nasa bahay ako|nandito ako sa bahay|i am really at home|i'm really at home)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm here with you. What would you like me to check?" };
 
-    const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
+    const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|menu|menus|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
     if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
     return null;
   }
 
-  private isGreeting(value: string) {
-    return /^(hi|hello|hey|hey there|good morning|good afternoon|good evening|kumusta|kamusta|helo)(?: empanada hauz| empanada| there| team)?$/.test(value);
-  }
-
-  private isThanks(value: string) {
-    return /^(thanks|thank you|thank you so much|thanks a lot|salamat|salamat kaayo|daghang salamat)(?: empanada hauz| everyone| all)?$/.test(value);
-  }
-
-  private isConfirmation(value: string) {
-    return /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|approve|approved|go ahead|do it|proceed|please do|please proceed|no|nope|nah|cancel|stop|don't|do not)([.!\s]|$)/i.test(value);
-  }
+  private isGreeting(value: string) { return /^(hi|hello|hey|hey there|good morning|good afternoon|good evening|kumusta|kamusta|helo)(?: empanada hauz| empanada| there| team)?$/.test(value); }
+  private isThanks(value: string) { return /^(thanks|thank you|thank you so much|thanks a lot|salamat|salamat kaayo|daghang salamat)(?: empanada hauz| everyone| all)?$/.test(value); }
+  private isConfirmation(value: string) { return /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|approve|approved|go ahead|do it|proceed|please do|please proceed|no|nope|nah|cancel|stop|don't|do not)([.!\s]|$)/i.test(value); }
 
   private extractOperationalOrderStatus(message: string) {
     if (!/\b(order|orders)\b/i.test(message)) return null;
