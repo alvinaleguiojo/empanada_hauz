@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { DeliveryNetworkModule } from "../delivery-network/delivery-network.module";
 import { DatabaseModule } from "../../database/database.module";
 import { CustomersModule } from "../customers/customers.module";
@@ -28,7 +28,7 @@ import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service
 import { AiAdminActionStateService } from "./ai-admin-action-state.service";
 
 @Module({
-  imports: [DatabaseModule, CustomersModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
+  imports: [DatabaseModule, CustomersModule, DeliveryNetworkModule, forwardRef(() => McpModule), AiInstructionsModule, ProductsModule],
   controllers: [AiActionsController, AiPublicAgentController, AiAdminAgentController],
   providers: [
     AiApplicationToolsService,
