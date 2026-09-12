@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { AiModule } from "../ai/ai.module";
 import { CustomersModule } from "../customers/customers.module";
 import { NotificationsModule } from "../notifications/notifications.module";
@@ -8,7 +8,7 @@ import { MetaAuthService } from "./meta-auth.service";
 import { MessengerSyncService } from "./messenger-sync.service";
 
 @Module({
-  imports: [AiModule, CustomersModule, NotificationsModule],
+  imports: [forwardRef(() => AiModule), CustomersModule, NotificationsModule],
   controllers: [MessengerController],
   providers: [MessengerService, MetaAuthService, MessengerSyncService],
   exports: [MessengerService, MetaAuthService]
