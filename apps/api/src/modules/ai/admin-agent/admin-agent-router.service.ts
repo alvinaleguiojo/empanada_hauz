@@ -37,7 +37,7 @@ export class AdminAgentRouterService {
       return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
     }
 
-    if (/\b(order|orders|delivery|status|pending|queued|completed|cancelled|canceled)\b/i.test(value)) {
+    if (/\b(order|orders|delivery|status|pending|queued|completed|cancelled|canceled|out[- ]of[- ]delivery)\b/i.test(value)) {
       return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
     }
 
@@ -88,9 +88,15 @@ export class AdminAgentRouterService {
 
   private extractOperationalOrderStatus(message: string) {
     if (!/\b(order|orders)\b/i.test(message)) return null;
-    if (/\b(pending|queued|awaiting|waiting)\b/i.test(message)) return /\b(awaiting|waiting)\b/i.test(message) ? "awaiting_confirmation" : "queued";
+
+    if (/\b(pending|queued|awaiting|waiting)\b/i.test(message)) {
+      return /\b(awaiting|waiting)\b/i.test(message) ? "awaiting_confirmation" : "queued";
+    }
+
     if (/\b(completed|complete|delivered|done)\b/i.test(message)) return "completed";
-    if (/\b(cancelled|canceled)\b/i.test(message)) return "cancelled";
+    if (/\b(cancelled|canceled|cancel)\b/i.test(message)) return "cancelled";
+    if (/\bout[- ]of[- ]delivery\b/i.test(message)) return "out_for_delivery";
+
     return null;
   }
 
