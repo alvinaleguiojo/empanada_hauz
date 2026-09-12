@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { DeliveryNetworkModule } from "../delivery-network/delivery-network.module";
 import { DatabaseModule } from "../../database/database.module";
+import { CustomersModule } from "../customers/customers.module";
 import { McpModule } from "../mcp/mcp.module";
 import { AiInstructionsModule } from "../ai-instructions/ai-instructions.module";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
@@ -27,7 +28,7 @@ import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service
 import { AiAdminActionStateService } from "./ai-admin-action-state.service";
 
 @Module({
-  imports: [DatabaseModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
+  imports: [DatabaseModule, CustomersModule, DeliveryNetworkModule, McpModule, AiInstructionsModule, ProductsModule],
   controllers: [AiActionsController, AiPublicAgentController, AiAdminAgentController],
   providers: [
     AiApplicationToolsService,
@@ -35,13 +36,7 @@ import { AiAdminActionStateService } from "./ai-admin-action-state.service";
     {
       provide: AiRuntimeService,
       inject: [AiModelService, AiConversationStateService, AiToolRegistryService, AiInstructionsService, ProductsService],
-      useFactory: (
-        aiModel: AiModelService,
-        stateService: AiConversationStateService,
-        toolRegistry: AiToolRegistryService,
-        instructionsService: AiInstructionsService,
-        productsService: ProductsService
-      ) => aiModel.createRuntime(stateService, toolRegistry, instructionsService, productsService)
+      useFactory: (aiModel: AiModelService, stateService: AiConversationStateService, toolRegistry: AiToolRegistryService, instructionsService: AiInstructionsService, productsService: ProductsService) => aiModel.createRuntime(stateService, toolRegistry, instructionsService, productsService)
     },
     AiToolRegistryService,
     AiControlService,
