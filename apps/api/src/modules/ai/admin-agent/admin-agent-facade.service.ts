@@ -94,10 +94,28 @@ export class AdminAgentFacadeService {
     return `Customer matches for "${query}":\n${lines.join("\n")}`;
   }
 
-  private formatProducts(products: Array<{ name: string; description?: string | null; price: number; available: boolean }>) {
+  private formatProducts(products: Array<{ name: string; description?: string | null; category?: string | null; price: number; available: boolean }>) {
     if (!products.length) return "No products are currently available.";
-    const lines = products.map((product) => `${product.name} — ₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}${product.description ? ` — ${product.description}` : ""}`);
-    return `Current menu:\n${lines.join("\n")}`;
+
+    const groups = new Map<string, typeof products>();
+    for (const product of products) {
+      const category = product.category?.trim() || "empanada";
+      const existing = groups.get(category) ?? [];
+      existing.push(product);
+      groups.set(category, existing);
+    }
+
+    const sections: string[] = ["🥟 Empanada Hauz Price List"];
+    for (const [category, items] of groups) {
+      const title = category
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+      sections.push(`\n**${title}**`);
+      sections.push(items.map((product) => `• ${product.name} — **₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}**`).join("\n"));
+    }
+
+    sections.push("\nPrices shown are for currently available products.");
+    return sections.join("\n");
   }
 
   private formatMetrics(range: string, data: unknown) {
