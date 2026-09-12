@@ -1,76 +1,94 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { AdminAiPerformanceMetric } from './admin-ai-performance.types';
+import { PrismaService } from '../../../database/prisma.service';
+
+interface PerformanceContext {
+  requestId: string;
+  startedAt: bigint;
+  adminId?: string;
+  model?: string;
+  llmMs: number;
+  toolMs: number;
+  toolCalls: number;
+  iterations: number;
+  tools: Array<{ name: string; durationMs: number }>;
+}
+
+interface MongoFindResult<T> {
+  cursor?: { firstBatch?: T[] };
+}
 
 @Injectable()
 export class AdminAiPerformanceService {
-  private readonly metrics: AdminAiPerformanceMetric[] = [];
-  private readonly maxMetrics = 1000;
+  private readonly collection = 'admin_ai_performance_metrics';
 
-  start(adminId?: string, model?: string) {
-    const startedAt = process.hrtime.bigint();
-    const requestId = randomUUID();
-    return {
-      requestId,
-      startedAt,
-      adminId,
-      model,
-      llmMs: 0,
-      toolMs: 0,
-      toolCalls: 0,
-      iterations: 0,
-      tools: [] as { name: string; durationMs: number }[],
-    };
+  constructor(private readonly prisma: PrismaService) {}
+
+  start(adminId?: string, model?: string): PerformanceContext {
+    return { requestId: randomUUID(), startedAt: process.hrtime.bigint(), adminId, model, llmMs: 0, toolMs: 0, toolCalls: 0, iterations: 0, tools: [] };
   }
 
-  recordLlm(context: ReturnType<AdminAiPerformanceService['start']>, durationMs: number) {
-    context.llmMs += durationMs;
-  }
+  recordLlm(context: PerformanceContext, durationMs: number) { context.llmMs += durationMs; }
+  recordIteration(context: PerformanceContext) { context.iterations += 1; }
 
-  recordIteration(context: ReturnType<AdminAiPerformanceService['start']>) {
-    context.iterations += 1;
-  }
-
-  recordTool(context: ReturnType<AdminAiPerformanceService['start']>, name: string, durationMs: number) {
+  recordTool(context: PerformanceContext, name: string, durationMs: number) {
     context.toolMs += durationMs;
     context.toolCalls += 1;
     context.tools.push({ name, durationMs });
   }
 
-  finish(context: ReturnType<AdminAiPerformanceService['start']>) {
+  async finish(context: PerformanceContext) {
     const totalMs = Number(process.hrtime.bigint() - context.startedAt) / 1_000_000;
-    const metric: AdminAiPerformanceMetric = {
+    const document = {
       requestId: context.requestId,
-      adminId: context.adminId,
-      model: context.model,
+      adminId: context.adminId ?? null,
+      model: context.model ?? null,
       totalMs: Math.round(totalMs),
       llmMs: Math.round(context.llmMs),
       toolMs: Math.round(context.toolMs),
       toolCalls: context.toolCalls,
       iterations: context.iterations,
       tools: context.tools.map((tool) => ({ ...tool, durationMs: Math.round(tool.durationMs) })),
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(),
     };
-
-    this.metrics.push(metric);
-    if (this.metrics.length > this.maxMetrics) this.metrics.shift();
-    return metric;
+    await this.prisma.$runCommandRaw({ insert: this.collection, documents: [document] });
+    return document;
   }
 
-  list(limit = 100) {
-    return this.metrics.slice(-Math.min(limit, this.maxMetrics)).reverse();
+  async list(limit = 100) {
+    const result = await this.prisma.$runCommandRaw<MongoFindResult<Record<string, unknown>>>({
+      find: this.collection,
+      sort: { createdAt: -1 },
+      limit: Math.min(Math.max(limit, 1), 1000),
+    });
+    return result.cursor?.firstBatch ?? [];
   }
 
-  summary() {
-    const values = this.metrics.map((m) => m.totalMs).sort((a, b) => a - b);
-    if (!values.length) return { count: 0, averageMs: 0, p50Ms: 0, p95Ms: 0, maxMs: 0 };
-    const percentile = (p: number) => values[Math.min(values.length - 1, Math.ceil(values.length * p) - 1)];
+  async summary() {
+    const result = await this.prisma.$runCommandRaw<{
+      cursor?: { firstBatch?: Array<{ count: number; averageMs: number; maxMs: number; values: number[] }> };
+    }>({
+      aggregate: this.collection,
+      pipeline: [
+        { $sort: { totalMs: 1 } },
+        { $group: { _id: null, count: { $sum: 1 }, averageMs: { $avg: '$totalMs' }, maxMs: { $max: '$totalMs' }, values: { $push: '$totalMs' } } },
+      ],
+      cursor: {},
+    });
+
+    const aggregate = result.cursor?.firstBatch?.[0];
+    if (!aggregate) return { count: 0, averageMs: 0, p50Ms: 0, p95Ms: 0, maxMs: 0 };
+
+    const percentile = (p: number) => aggregate.values.length
+      ? aggregate.values[Math.min(aggregate.values.length - 1, Math.ceil(aggregate.values.length * p) - 1)]
+      : 0;
+
     return {
-      count: values.length,
-      averageMs: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length),
+      count: aggregate.count,
+      averageMs: Math.round(aggregate.averageMs ?? 0),
       p50Ms: percentile(0.5),
       p95Ms: percentile(0.95),
-      maxMs: values[values.length - 1],
+      maxMs: aggregate.maxMs ?? 0,
     };
   }
 }
