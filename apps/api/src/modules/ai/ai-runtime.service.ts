@@ -60,25 +60,22 @@ export class AiRuntimeService {
   }
 
   async process(request: RuntimeRequest) {
-    const fastReply = this.tryFastPath(request.message);
-    if (fastReply) return { reply: fastReply };
-
     const instructions = await this.instructionsService.getActiveInstructionBlock();
     const replyInstructions = await this.instructionsService.getActiveReplyPromptBlock();
-    const needsCatalog = this.messageNeedsCatalog(request.message);
-    const products = needsCatalog ? await this.productsService.list({ availableOnly: true }) : [];
+    const products = await this.productsService.list({ availableOnly: true });
     const tools = await this.toolRegistry.getTools();
-    let currentMessages = [...(request.recentMessages ?? []).slice(-12)];
+    let currentMessages = [...(request.recentMessages ?? []).slice(-16)];
     let lastToolResult: unknown;
     let lastAction: string | undefined;
 
     this.logger.log(`AI process context: model=${this.model} instructionsChars=${instructions.length} products=${products.length} tools=${tools.length} historyMessages=${currentMessages.length}`);
 
-    // Most conversational requests need one planning call plus at most one recovery/tool follow-up.
-    // Keeping this bounded prevents slow local models from turning one message into a long inference chain.
-    for (let step = 0; step < 2; step += 1) {
+    for (let step = 0; step < 4; step += 1) {
       const liveState = await this.stateService.get(request.conversationId, request.customerId);
 
+      // Confirmation of an existing pending order is a high-impact write. Do not
+      // leave that decision to the small local model: execute the real create_order
+      // action deterministically after the customer has explicitly confirmed.
       if (step === 0 && this.isExplicitConfirmation(request.message) && liveState?.draft?.items?.length) {
         const confirmedResult = await this.createConfirmedOrder(request, liveState.draft);
         if (confirmedResult.ok) {
@@ -161,33 +158,12 @@ export class AiRuntimeService {
       }
     }
 
-    // The planner already has the authoritative tool result. Only invoke a second LLM when
-    // the bounded tool loop did not produce a final conversational response.
     return {
       reply: await this.generateFinalReply(request.message, replyInstructions, currentMessages, lastToolResult, lastAction),
       tool: lastAction,
       toolResult: lastToolResult,
       state: await this.stateService.get(request.conversationId, request.customerId)
     };
-  }
-
-  private tryFastPath(message: string) {
-    const normalized = message.trim().toLowerCase().replace(/[!?.,;:]+$/g, "").replace(/\s+/g, " ");
-    if (!normalized) return "How can I help you today? 😊";
-    if (/^(hi|hello|hey|hey there|good morning|good afternoon|good evening|kumusta|kamusta)( empanada hauz| there)?$/.test(normalized)) {
-      return "Hello! How can I help you today? 😊";
-    }
-    if (/^(thanks|thank you|thanks a lot|thank you so much|salamat|salamat kaayo|daghang salamat)$/.test(normalized)) {
-      return "You're welcome! Happy to help. 😊";
-    }
-    if (/^(bye|goodbye|good night|see you|see ya|talk to you later|paalam)$/.test(normalized)) {
-      return "Goodbye! Have a great day. 😊";
-    }
-    return null;
-  }
-
-  private messageNeedsCatalog(message: string) {
-    return /\b(menu|product|products|empanada|flavor|flavors|price|prices|cost|buy|order|orders|pcs|pieces|pork|chicken|beef|tuna|cheese)\b/i.test(message);
   }
 
   private async createConfirmedOrder(request: RuntimeRequest, draft: DraftState) {
@@ -283,17 +259,20 @@ export class AiRuntimeService {
     return typeof value === "string" && value.trim() ? value.trim() : undefined;
   }
 
-  private buildContext(request: RuntimeRequest, products: ProductRecord[], draft: unknown, tools: AiToolDefinition[]) {
-    const catalog = products.length
-      ? products.map((product) => `${product.name} | price=₱${product.price} | category=${product.category} | aliases=${product.aliases.join(", ") || "none"}`).join("\n")
-      : "not loaded (not needed for this request)";
+  private buildContext(
+    request: RuntimeRequest,
+    products: ProductRecord[],
+    draft: unknown,
+    tools: AiToolDefinition[]
+  ) {
     return [
       `CHANNEL: ${request.channel}`,
       `CUSTOMER: ${request.customerName || "Customer"}`,
       `CUSTOMER ID: ${request.customerId}`,
       `CONVERSATION ID: ${request.conversationId}`,
-      `AVAILABLE PRODUCTS:\n${catalog}`,
+      `AVAILABLE PRODUCTS:\n${products.map((product) => `${product.name} | price=₱${product.price} | category=${product.category} | aliases=${product.aliases.join(", ") || "none"}`).join("\n") || "none"}`,
       `PENDING ORDER DRAFT: ${draft ? JSON.stringify(draft) : "none"}`,
+      `AVAILABLE AI TOOLS:\n${tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}`,
       `SYSTEM SAFETY: Application tools are authoritative. Never invent prices, availability, delivery fees, route details, order status, ownership, successful writes, or business policy. Use tools for current application facts.`
     ].join("\n\n");
   }
@@ -307,29 +286,51 @@ export class AiRuntimeService {
     lastAction?: string;
     tools: AiToolDefinition[];
   }): Promise<Plan> {
+    // Keep the stable instruction prefix separate from mutable runtime state.
+    // This preserves a reusable prompt prefix for OpenAI prompt caching without
+    // changing the application's business rules or tool semantics.
     const system = `${input.instructions || "You are the Empanada Hauz AI assistant."}
 
 You are the semantic intent router for an application.
 
 Use the application's available tools whenever the customer's request can be answered or completed with a tool. Decide based on meaning and conversational context, not exact phrases.
 
-Do not use keyword lists, regular expressions, literal phrase matching, or exact wording requirements.
+Do not use keyword lists, regular expressions, literal phrase matching, or exact wording requirements. A customer may ask the same thing in many different ways.
+
+Examples of intent:
+- A request to browse, see, view, get, or know the shop's menu, products, flavors, offerings, or current prices requires the live product catalog tool.
+- A request about one specific product requires the corresponding product lookup tool.
+- A request about a delivery fee, delivery cost, or \"df\" requires the destination-specific delivery quote tool when a delivery destination is known.
+- A request about delivery pricing rules, base fare, or per-kilometer rates is not customer-facing information. Do not answer with internal rate configuration. When the customer wants to know what they will pay for their destination, use the destination-specific delivery quote tool instead.
+- A message that provides information for an unfinished purchase should use the pending-order tool.
+- A request to change an existing order should use the order-update tool.
+- A request to cancel or delete an existing order should use the corresponding action, subject to its confirmation requirement.
 
 Delivery quote rules:
 - Never expose or calculate a customer-facing fee from internal base-fare or per-kilometer configuration.
-- When the customer asks for a destination-specific delivery fee, use the delivery quote tool when the destination is known.
-- If a destination is not known, ask for the delivery address/landmark needed to calculate the quote.
+- Never tell the customer the configured delivery rate as a substitute for an address-specific quote.
+- When the customer asks for the delivery fee and the pending draft already contains an address, use that address and landmark from the draft with the delivery quote tool.
+- A delivery quote is destination-specific and application-generated. Do not invent, estimate, round, or substitute a fee yourself.
+- If a destination is not yet known, ask for the delivery address/landmark needed to calculate the quote.
 
 Checkout recovery rules:
 - The persisted pending order draft is the source of truth for unfinished checkout.
 - A customer may provide checkout details across several messages; preserve and merge them.
-- If create_order fails because required checkout information is missing, capture missing fields with the pending-order tool instead of immediately retrying.
-- A previous confirmation remains valid for the same unchanged order details. If details change, ask for confirmation again.
-- Never claim an order was created unless the real create_order action succeeds.
+- If create_order fails because required checkout information is missing, do not treat the conversation as complete and do not immediately retry create_order.
+- Use the pending-order action to capture missing fields from the conversation and persisted state.
+- After repairing the pending draft, retry create_order only when the order is complete and the customer has already explicitly confirmed the order.
+- A previous customer confirmation remains valid for the same unchanged order details. If the order details change, ask for confirmation again.
+- When the customer explicitly confirms a pending order, the runtime executes the real create_order action; never claim success unless that action returns a created order.
 
-Use a final conversational response only when no available tool can satisfy the customer's intent. Never invent missing arguments.`;
+Use a final conversational response only when no available tool can satisfy the customer's intent.
 
-    const dynamic = `AVAILABLE AI TOOLS:\n${input.tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT SCHEMA: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}\n\nRUNTIME CONTEXT:\n${input.context}`;
+Never invent missing arguments. Only provide arguments supported by the customer message or conversation state.`;
+
+    const dynamic = [
+      `AVAILABLE AI TOOLS:\n${input.tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT SCHEMA: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}`,
+      `RUNTIME CONTEXT:\n${input.context}`
+    ].join("\n\n");
+
     const user = [
       `CONVERSATION:\n${input.messages.join("\n") || "none"}`,
       `CURRENT CUSTOMER MESSAGE:\n${input.message}`,
@@ -342,19 +343,27 @@ Use a final conversational response only when no available tool can satisfy the 
       model: this.model,
       stream: false,
       think: false,
-      options: { temperature: 0, num_predict: 192, num_ctx: 4096 },
-      tools: input.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })),
+      options: { temperature: 0, num_predict: 256, num_ctx: 16384 },
+      tools: input.tools.map((tool) => ({
+        type: "function",
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema
+        }
+      })),
       messages: [{ role: "system", content: system }, { role: "user", content: user }]
     });
 
     const nativeToolCall = response.message?.tool_calls?.[0];
     if (nativeToolCall?.function?.name) {
+      const argumentsValue = nativeToolCall.function.arguments;
       this.logger.log(`AI native tool call: ${nativeToolCall.function.name}`);
-      this.logger.log(`AI native tool args: ${JSON.stringify(nativeToolCall.function.arguments ?? {})}`);
+      this.logger.log(`AI native tool args: ${JSON.stringify(argumentsValue ?? {})}`);
       return {
         type: "tool_call",
         tool: nativeToolCall.function.name,
-        arguments: nativeToolCall.function.arguments && typeof nativeToolCall.function.arguments === "object" ? nativeToolCall.function.arguments : {}
+        arguments: argumentsValue && typeof argumentsValue === "object" ? argumentsValue : {}
       };
     }
 
@@ -370,15 +379,15 @@ Use a final conversational response only when no available tool can satisfy the 
       stream: false,
       think: false,
       format: "json",
-      options: { temperature: 0.1, num_predict: 160, num_ctx: 2048 },
+      options: { temperature: 0.1, num_predict: 256, num_ctx: 4096 },
       messages: [
         {
           role: "system",
-          content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nApplication results are authoritative. Never invent successful actions or data. Never expose internal pricing rules. Do not mention tools or internal implementation. Return ONLY JSON: {\"reply\":\"customer-facing reply\"}. Keep the reply concise and Messenger-friendly.`
+          content: `${instructions || "You are the Empanada Hauz customer-facing assistant."}\n\nApplication results are authoritative. Never invent successful actions or data. Never expose internal pricing rules such as base fare or per-kilometer rates. Do not mention tools or internal implementation. Return ONLY JSON: {\"reply\":\"customer-facing reply\"}. Keep the reply concise and Messenger-friendly.`
         },
         {
           role: "user",
-          content: `CURRENT MESSAGE:\n${message}\n\nCONVERSATION:\n${context.slice(-8).join("\n")}\n\nLAST TOOL:\n${lastAction || "none"}\n\nLAST APPLICATION RESULT:\n${JSON.stringify(result)}`
+          content: `CURRENT MESSAGE:\n${message}\n\nCONVERSATION:\n${context.slice(-12).join("\n")}\n\nLAST TOOL:\n${lastAction || "none"}\n\nLAST APPLICATION RESULT:\n${JSON.stringify(result)}`
         }
       ]
     });
@@ -396,7 +405,9 @@ Use a final conversational response only when no available tool can satisfy the 
       if (!candidate) continue;
       try {
         const parsed = JSON.parse(candidate) as Partial<Plan> & { arguments?: Record<string, unknown> };
-        if (parsed.type === "tool_call" && typeof parsed.tool === "string") return { type: "tool_call", tool: parsed.tool, arguments: parsed.arguments && typeof parsed.arguments === "object" ? parsed.arguments : {} };
+        if (parsed.type === "tool_call" && typeof parsed.tool === "string") {
+          return { type: "tool_call", tool: parsed.tool, arguments: parsed.arguments && typeof parsed.arguments === "object" ? parsed.arguments : {} };
+        }
         if (parsed.type === "final" && typeof parsed.reply === "string") return { type: "final", reply: parsed.reply };
       } catch {}
     }
@@ -416,5 +427,61 @@ Use a final conversational response only when no available tool can satisfy the 
     if (/^\{\s*"type"\s*:\s*"(?:tool_call|final)"/i.test(text)) return this.fallbackReply(lastAction, lastToolResult);
     if (/\bbase\s+fare\b|\bper[- ]kilometer\b|\bper[- ]km\b/i.test(text) && lastAction !== "get_delivery_quote") return this.fallbackReply(lastAction, lastToolResult);
     return text;
+  }
+
+  private fallbackReply(lastAction?: string, lastToolResult?: unknown) {
+    if (lastAction === "list_products" || lastAction === "get_product" || lastAction === "get_delivery_quote") return this.renderReadToolReply(lastAction, lastToolResult);
+    if (lastAction === "capture_order_draft") return this.renderDraftReply(lastToolResult);
+    if (lastAction === "create_order" && lastToolResult && typeof lastToolResult === "object" && (lastToolResult as Record<string, unknown>).ok === false) {
+      const error = typeof (lastToolResult as Record<string, unknown>).error === "string" ? (lastToolResult as Record<string, unknown>).error as string : "Application action failed.";
+      return `I couldn't place the order yet: ${error}. Please provide the missing checkout details and confirm again. 😊`;
+    }
+    if (lastAction === "create_order" && lastToolResult && typeof lastToolResult === "object" && (lastToolResult as Record<string, unknown>).orderNumber) return this.renderCreatedOrderReply(lastToolResult);
+    return "How can I help you with your Empanada Hauz order? 😊";
+  }
+
+  private renderReadToolReply(tool: string, result: unknown) {
+    if (tool === "get_delivery_quote") {
+      const quote = result as { distanceKm?: number | null; estimatedDurationMinutes?: number | null; estimatedFare?: number | null; estimatedArrivalAt?: string | null } | null;
+      if (!quote || typeof quote.estimatedFare !== "number") return "I couldn’t calculate the delivery fee for that address right now. Please check the address or try again in a moment.";
+      const distance = typeof quote.distanceKm === "number" ? ` for about ${quote.distanceKm.toFixed(2)} km` : "";
+      return `The estimated delivery fee${distance} is ₱${quote.estimatedFare.toFixed(2)}.`;
+    }
+    if (tool === "get_product") {
+      const product = result as { name?: string; price?: number; category?: string } | null;
+      if (!product?.name || typeof product.price !== "number") return "I couldn’t retrieve that product right now. Please try again in a moment.";
+      return `${product.name} — ₱${product.price.toFixed(2)}${product.category ? ` (${product.category})` : ""}.`;
+    }
+    const products = Array.isArray(result) ? result as Array<{ name?: string; price?: number; category?: string }> : [];
+    if (!products.length) return "We don’t have any available products listed right now.";
+    const lines = products.filter((product) => product?.name && typeof product.price === "number").map((product) => `• ${product.name} — ₱${product.price!.toFixed(2)}${product.category ? ` (${product.category})` : ""}`);
+    return ["Sure! Here’s our current product list:", ...lines, "", "Message me what you’d like to order and I’ll help you with it. 😊"].join("\n");
+  }
+
+  private getDraftFromToolResult(result: unknown): DraftState | undefined {
+    if (!result || typeof result !== "object") return undefined;
+    const candidate = result as { draft?: DraftState };
+    return candidate.draft && typeof candidate.draft === "object" ? candidate.draft : undefined;
+  }
+
+  private renderDraftReply(result: unknown) {
+    const draft = this.getDraftFromToolResult(result);
+    const items = draft?.items ?? [];
+    const quantity = draft?.quantity ?? items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+    if (!items.length) return "I can help with your order. What product and quantity would you like?";
+    const lines = items.map((item) => `• ${item.name} × ${item.quantity}${typeof item.subtotal === "number" ? ` — ₱${item.subtotal.toFixed(2)}` : ""}`);
+    const total = items.reduce((sum, item) => sum + Number(item.subtotal ?? 0), 0);
+    const delivery = draft?.deliveryMethod ? `Delivery: ${draft.deliveryMethod === "maxim" ? "Maxim" : "Pickup"}` : undefined;
+    return ["Here’s your current order:", ...lines, `Total: ${quantity} pcs${total > 0 ? ` — ₱${total.toFixed(2)}` : ""}`, delivery, "What would you like to provide next for the order? 😊"].filter(Boolean).join("\n");
+  }
+
+  private async chat(body: Record<string, unknown>): Promise<OllamaResponse> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify({ ...body, keep_alive: "10m" }) });
+      if (!response.ok) throw new Error(`Ollama runtime request failed: ${response.status} ${await response.text()}`);
+      return await response.json() as OllamaResponse;
+    } finally { clearTimeout(timeout); }
   }
 }
