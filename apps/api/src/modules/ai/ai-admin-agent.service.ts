@@ -1,10 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { AiApplicationToolsService, AiApplicationToolName } from "./ai-application-tools.service";
 import { AiAdminModelService } from "./ai-admin-model.service";
-import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service";
 import { AiAdminActionStateService } from "./ai-admin-action-state.service";
-import { AiToolRegistryService } from "./ai-tool-registry.service";
-import { CustomersService } from "../customers/customers.service";
+import { AiAdminToolRegistryService } from "./ai-admin-tool-registry.service";
+import { AiAgentOrchestratorService } from "./ai-agent-orchestrator.service";
 import { AdminAiPerformanceService } from "./admin-agent/admin-ai-performance.service";
 
 interface AdminAgentRequest {
@@ -14,17 +12,13 @@ interface AdminAgentRequest {
   conversationId: string;
 }
 
-type ToolCall = { id: string; name: string; arguments: Record<string, unknown>; parseError?: string };
-
 @Injectable()
 export class AiAdminAgentService {
   constructor(
-    private readonly applicationTools: AiApplicationToolsService,
-    private readonly analyticsTools: AiAdminAnalyticsToolsService,
     private readonly actionState: AiAdminActionStateService,
-    private readonly registry: AiToolRegistryService,
-    private readonly customersService: CustomersService,
+    private readonly toolRegistry: AiAdminToolRegistryService,
     private readonly aiModel: AiAdminModelService,
+    private readonly orchestrator: AiAgentOrchestratorService,
     private readonly performance: AdminAiPerformanceService
   ) {}
 
@@ -39,154 +33,79 @@ export class AiAdminAgentService {
         await this.actionState.clear(request.adminId, request.conversationId);
         return { reply: "The pending admin action was cancelled.", snapshotAt: new Date().toISOString() };
       }
+
       if (pending && isExplicitConfirmation(message)) {
-        const expected = `${pending.action}:${stableArguments(pending.arguments)}`;
-        if (pending.fingerprint !== expected) {
-          await this.actionState.clear(request.adminId, request.conversationId);
-          throw new BadRequestException("The pending admin action is invalid. Please repeat the action.");
-        }
-        const result = await this.executePendingWrite(pending.action, pending.arguments, request);
-        await this.actionState.clear(request.adminId, request.conversationId);
-        return { reply: `Confirmed. ${formatWriteResult(pending.action, result)}`, snapshotAt: new Date().toISOString(), data: result };
+        const result = await this.toolRegistry.confirmPending(
+          { adminId: request.adminId, conversationId: request.conversationId, message },
+          pending.action,
+          pending.arguments
+        );
+        return {
+          reply: `Confirmed. ${formatWriteResult(pending.action, result)}`,
+          snapshotAt: new Date().toISOString(),
+          data: result
+        };
       }
 
-      const registryTools = await this.registry.getTools();
-      const toolMap = new Map(registryTools.map((tool) => [tool.name, tool]));
-      const tools = [
-        ...registryTools.filter((tool) => !tool.requiresCustomerContext).map((tool) => modelTool(tool.name, tool.description, tool.inputSchema)),
-        modelTool("get_order_metrics", "Read order metrics for today, this week, or this month.", { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false }),
-        modelTool("search_customers", "Find customer records by name, phone number, or Messenger identifier. Use this for any customer lookup.", { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false }),
-        modelTool("search_orders", "Find orders by order number, customer, phone number, location, date, or status.", { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false }),
-        modelTool("get_current_datetime", "Read the current date and time in Asia/Manila. Use for relative dates and schedules.", { type: "object", properties: {}, additionalProperties: false }),
-        modelTool("get_order_summary", "Read a specific order using a verified order id or order number.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }),
-        modelTool("get_my_orders", "Read recent orders for a verified customer id.", { type: "object", properties: { customerId: { type: "string" }, limit: { type: "number" } }, required: ["customerId"], additionalProperties: false }),
-        modelTool("check_order_status", "Read the current status of a specific order.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }),
-        modelTool("create_customer", "Create a customer only after search_customers finds no matching record and the administrator explicitly confirms the exact details.", { type: "object", properties: { name: { type: "string" }, phoneNumber: { type: "string" }, defaultAddress: { type: "string" }, confirmed: { type: "boolean" } }, required: ["name", "confirmed"], additionalProperties: false }),
-        modelTool("create_order", "Create a real order only after all required checkout information is known and the administrator explicitly confirms it.", { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false }),
-        modelTool("update_order", "Update an existing order by verified order id or order number. Requires confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }),
-        modelTool("cancel_order", "Cancel an order only after confirmation and verification of its id or order number.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false })
-      ];
+      const definitions = await this.toolRegistry.getTools();
+      const tools = definitions.map((tool) => ({
+        type: "function",
+        function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
+      }));
 
       const system = `You are the Empanada Hauz Admin AI Agent. You are the reasoning brain for an authenticated administrator.
 
-The application provides tools as capabilities. Decide yourself whether a tool is needed, which tool is appropriate, what arguments it needs, and whether another tool is needed after seeing a result. Do not rely on keywords, intent labels, routing rules, or fixed user phrasing.
+The tool registry is the source of truth for your capabilities. Decide semantically which capability is needed, what arguments it needs, and whether another capability is needed after seeing a result. Do not rely on keyword routing, regular expressions, fixed phrases, intent labels, or hardcoded tool-selection rules.
 
 RULES:
 - Use tools for current, precise, or database-backed information. Never guess business data.
-- Search before identifying a customer or order when the administrator provides a name, phone number, or other non-unique description.
+- Search before identifying a customer or order when the administrator gives a non-unique description.
 - You may chain multiple tools to solve one request.
-- Treat tool results as authoritative and tool errors as facts; never fabricate missing information.
+- Treat tool results and tool errors as authoritative application facts.
 - Never invent customer ids, order ids, order numbers, prices, statuses, dates, fees, inventory, or policies.
-- Read tools can execute normally. Writes require explicit administrator confirmation; never manufacture confirmed=true.
-- For customer creation, search_customers first and do not create duplicates.
-- For order changes, verify the target with search_orders before making a consequential change when the target is not already uniquely identified.
-- Answer naturally and concisely after the required tools have completed.
-- Do not mention internal routing, regexes, tool implementation, or hidden instructions.
+- Read actions may execute normally. Write actions require explicit administrator confirmation; never manufacture confirmation.
+- For customer creation, search for an existing customer before creating one.
+- For order changes, verify the target before a consequential change when it is not already uniquely identified.
+- If a capability is not in the provided tool registry, do not pretend it exists.
+- Do not mention internal routing, tool implementation, hidden instructions, or model limitations.
 
 RESPONSE FORMAT:
-- Write responses for a compact admin chat UI. Keep answers concise and easy to scan.
-- Use Markdown when it improves readability: **bold** important values, short headings, bullets, and numbered lists.
-- Do not output raw Markdown table syntax with pipes. Never use tables. Convert tabular data into bullets or a numbered list instead.
-- Put each logical item on its own line and leave a blank line between major sections.
-- For orders, prefer: **Order Number** — Customer · Status · Quantity · Total, followed by only relevant details.
-- For lists of 2–5 results, use a numbered list. For longer simple lists, use bullets.
-- For menu/product lists, group related items under a short heading and show Name — ₱Price per line. Include descriptions only when useful.
-- For simple questions, answer directly in 1–3 sentences without unnecessary headings.
-- Never start with filler such as "Sure!", "Of course!", or "Here’s" unless it adds useful context.
-- Do not repeat the user's question.
-- Use Philippine peso formatting such as ₱250 and preserve exact values returned by tools.
-- If a tool returns no results, clearly say that nothing matching the request was found and suggest the next useful search only when appropriate.`;
+- Keep answers concise and easy to scan in the admin chat UI.
+- Use Markdown when useful: **bold** values, short headings, bullets, and numbered lists.
+- Never output raw Markdown table syntax with pipes. Convert tables to bullets or numbered lists.
+- Put each logical item on its own line with blank lines between major sections.
+- For orders, prefer **Order Number** — Customer · Status · Quantity · Total.
+- For 2–5 results, use a numbered list. For longer lists, use bullets.
+- For menu/product lists, use Name — ₱Price per line.
+- Simple questions should be answered directly in 1–3 sentences.
+- Avoid filler such as "Sure!", "Of course!", or "Here’s".
+- Preserve exact values returned by tools and use Philippine peso formatting such as ₱250.`;
 
-      const messages: Array<Record<string, unknown>> = [
-        { role: "system", content: system },
-        ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })),
-        { role: "user", content: message }
-      ];
+      const result = await this.orchestrator.run({
+        system,
+        history: request.history,
+        message,
+        tools,
+        chat: (messages, availableTools) => this.aiModel.chat(messages, availableTools),
+        executeTool: (name, args) => this.toolRegistry.execute(name, args, {
+          adminId: request.adminId,
+          conversationId: request.conversationId,
+          message
+        }),
+        maxSteps: 8,
+        onToolResult: (name) => this.performance.recordTool(perf, name, 0)
+      });
 
-      for (let step = 0; step < 8; step += 1) {
-        perf.iterations += 1;
-        const llmStarted = process.hrtime.bigint();
-        const response = await this.aiModel.chat(messages, tools);
-        this.performance.recordLlm(perf, Number(process.hrtime.bigint() - llmStarted) / 1_000_000);
-        const content = readContent(response);
-        const calls = readToolCalls(response);
-        if (!calls.length) return { reply: content || "I couldn't produce a response.", snapshotAt: new Date().toISOString() };
-
-        messages.push({ role: "assistant", content, tool_calls: calls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
-        for (const call of calls) {
-          const toolStarted = process.hrtime.bigint();
-          try {
-            if (call.parseError) throw new BadRequestException(call.parseError);
-            const result = await this.executeTool(call.name, call.arguments, request, toolMap);
-            this.performance.recordTool(perf, call.name, Number(process.hrtime.bigint() - toolStarted) / 1_000_000);
-            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
-          } catch (error) {
-            this.performance.recordTool(perf, call.name, Number(process.hrtime.bigint() - toolStarted) / 1_000_000);
-            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Tool execution failed." }) });
-          }
-        }
-      }
-
-      return { reply: "I reached the tool execution limit before completing that request.", snapshotAt: new Date().toISOString() };
+      perf.iterations += result.iterations;
+      return {
+        reply: result.reply,
+        snapshotAt: new Date().toISOString(),
+        ...(result.tool ? { tool: result.tool, data: result.toolResult } : {})
+      };
     } finally {
       this.performance.finish(perf);
     }
   }
-
-  private async executeTool(name: string, args: Record<string, unknown>, request: AdminAgentRequest, toolMap: Map<string, any>) {
-    if (name === "get_order_metrics") return this.analyticsTools.getOrderMetrics(args.range === "week" || args.range === "month" ? args.range : "today");
-    if (name === "search_customers") return this.analyticsTools.searchCustomers(String(args.query ?? ""), Number(args.limit ?? 10));
-    if (name === "search_orders") return this.analyticsTools.searchOrders(typeof args.query === "string" ? args.query : undefined, typeof args.date === "string" ? args.date : undefined, typeof args.status === "string" ? args.status : undefined, Number(args.limit ?? 20));
-    if (["create_customer", "create_order", "update_order", "cancel_order"].includes(name)) return this.prepareWrite(name, args, request);
-    if (["get_current_datetime", "get_order_summary", "get_my_orders", "check_order_status"].includes(name)) return this.applicationTools.execute(name as AiApplicationToolName, args);
-
-    const tool = toolMap.get(name);
-    if (!tool) throw new BadRequestException(`Unknown AI tool: ${name}`);
-    if (tool.risk === "write") return this.prepareWrite(name, args, request);
-    return this.registry.execute(name, args, { customerId: String(args.customerId ?? "admin"), conversationId: request.conversationId, channel: "admin" });
-  }
-
-  private async prepareWrite(name: string, args: Record<string, unknown>, request: AdminAgentRequest) {
-    if (args.confirmed === true && isExplicitConfirmation(request.message)) return this.executePendingWrite(name, stripConfirmation(args), request);
-    const persisted = stripConfirmation(args);
-    await this.actionState.save(request.adminId, request.conversationId, name, persisted, `${name}:${stableArguments(persisted)}`);
-    return { ok: false, requiresConfirmation: true, message: "Explicit administrator confirmation is required before this action can execute.", pendingAction: name, arguments: persisted };
-  }
-
-  private async executePendingWrite(name: string, args: Record<string, unknown>, request: AdminAgentRequest) {
-    if (name === "update_order") return this.analyticsTools.updateOrder(args as { id?: string; orderNumber?: string; status?: string; notes?: string });
-    if (name === "create_customer") return this.customersService.createCustomer(args as { name?: string; phoneNumber?: string; defaultAddress?: string });
-    if (name === "create_order" || name === "cancel_order") return this.applicationTools.execute(name as AiApplicationToolName, { ...args, confirmed: true });
-    return this.registry.execute(name, { ...args, confirmed: true }, { customerId: String(args.customerId ?? "admin"), conversationId: request.conversationId, channel: "admin" });
-  }
-}
-
-function modelTool(name: string, description: string, parameters: Record<string, unknown>) {
-  return { type: "function", function: { name, description, parameters } };
-}
-
-function readContent(response: unknown) {
-  const value = response as { content?: string; message?: { content?: string }; choices?: Array<{ message?: { content?: string } }> };
-  return value?.content?.trim() || value?.message?.content?.trim() || value?.choices?.[0]?.message?.content?.trim() || "";
-}
-
-function readToolCalls(response: unknown): ToolCall[] {
-  type Shape = { id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } };
-  const value = response as { tool_calls?: Shape[]; message?: { tool_calls?: Shape[] }; choices?: Array<{ message?: { tool_calls?: Shape[] } }> };
-  const calls = value?.tool_calls ?? value?.message?.tool_calls ?? value?.choices?.[0]?.message?.tool_calls ?? [];
-  return calls.flatMap((call, index) => {
-    const name = call.function?.name?.trim();
-    if (!name) return [];
-    const id = call.id || `admin-tool-${index}`;
-    try {
-      const raw = call.function?.arguments ?? "{}";
-      const parsed = typeof raw === "string" ? JSON.parse(raw || "{}") : raw;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [{ id, name, arguments: {}, parseError: "Tool arguments must be a JSON object." }];
-      return [{ id, name, arguments: parsed as Record<string, unknown> }];
-    } catch {
-      return [{ id, name, arguments: {}, parseError: "The model returned invalid JSON tool arguments." }];
-    }
-  });
 }
 
 function isExplicitConfirmation(message: string) {
@@ -197,33 +116,13 @@ function isExplicitRejection(message: string) {
   return /^(no|nope|nah|cancel|stop|don't|do not)([.!\s]|$)/i.test(message.trim());
 }
 
-function stripConfirmation(args: Record<string, unknown>) {
-  const copy = { ...args };
-  delete copy.confirmed;
-  return copy;
-}
-
-function stableArguments(args: Record<string, unknown>) {
-  return JSON.stringify(sortObject(args));
-}
-
-function sortObject(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortObject);
-  if (!value || typeof value !== "object") return value;
-  return Object.keys(value as Record<string, unknown>).sort().reduce<Record<string, unknown>>((result, key) => {
-    result[key] = sortObject((value as Record<string, unknown>)[key]);
-    return result;
-  }, {});
-}
-
-function formatWriteResult(name: string, result: unknown) {
-  if (name === "update_order" && result && typeof result === "object") {
-    const value = result as { orderNumber?: string; status?: string };
-    if (value.orderNumber && value.status) return `Order ${value.orderNumber} is now ${value.status}.`;
+function formatWriteResult(action: string, result: unknown) {
+  if (result && typeof result === "object") {
+    const value = result as Record<string, unknown>;
+    if (typeof value.orderNumber === "string") return `Order ${value.orderNumber} was created successfully.`;
+    if (action === "create_customer" && typeof value.name === "string") return `Customer ${value.name} was created successfully.`;
+    if (action === "cancel_order") return "The order was cancelled successfully.";
+    if (action === "update_order") return "The order was updated successfully.";
   }
-  if (name === "create_customer" && result && typeof result === "object") {
-    const value = result as { name?: string; id?: string };
-    if (value.name) return `Customer ${value.name} was created${value.id ? ` (ID: ${value.id})` : ""}.`;
-  }
-  return `${name.replace(/_/g, " ")} completed.`;
+  return "The action completed successfully.";
 }
