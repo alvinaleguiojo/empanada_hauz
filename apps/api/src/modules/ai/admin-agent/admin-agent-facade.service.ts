@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { AiAdminAgentService } from "../ai-admin-agent.service";
 import { AiAdminAnalyticsToolsService } from "../ai-admin-analytics-tools.service";
 import { ProductsService } from "../../products/products.service";
+import { AiDateTimeService } from "../ai-datetime.service";
 import { AdminAgentRouterService } from "./admin-agent-router.service";
 
 interface AdminAgentRequest {
@@ -17,7 +18,8 @@ export class AdminAgentFacadeService {
     private readonly legacyAgent: AiAdminAgentService,
     private readonly router: AdminAgentRouterService,
     private readonly analytics: AiAdminAnalyticsToolsService,
-    private readonly products: ProductsService
+    private readonly products: ProductsService,
+    private readonly dateTime: AiDateTimeService
   ) {}
 
   async process(request: AdminAgentRequest) {
@@ -41,7 +43,25 @@ export class AdminAgentFacadeService {
       return { reply: customers.length ? this.formatCustomers(route.query, customers) : `No customer record found for "${route.query}".`, snapshotAt: new Date().toISOString(), data: customers };
     }
 
+    if (route.intent === "datetime") {
+      const current = this.dateTime.now();
+      return {
+        reply: `Current date and time: ${current.date} ${current.time} (${current.timezone}).`,
+        snapshotAt: new Date().toISOString(),
+        data: current
+      };
+    }
+
     if (route.intent === "product_lookup") {
+      if (route.query) {
+        const product = await this.products.resolveByName(route.query, { requireAvailable: false });
+        if (!product) return { reply: `I couldn't find a product matching "${route.query}".`, snapshotAt: new Date().toISOString() };
+        return {
+          reply: `${product.name} — ₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}${product.available ? " — available" : " — currently unavailable"}${product.description ? ` — ${product.description}` : ""}`,
+          snapshotAt: new Date().toISOString(),
+          data: product
+        };
+      }
       const products = await this.products.list({ availableOnly: true });
       return { reply: this.formatProducts(products), snapshotAt: new Date().toISOString(), data: products };
     }
