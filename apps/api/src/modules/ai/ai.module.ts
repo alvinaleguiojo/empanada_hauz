@@ -23,6 +23,8 @@ import { AiAdminAgentService } from "./ai-admin-agent.service";
 import { AiAdminModelService } from "./ai-admin-model.service";
 import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service";
 import { AiAdminActionStateService } from "./ai-admin-action-state.service";
+import { AiAdminToolRegistryService } from "./ai-admin-tool-registry.service";
+import { AiAgentOrchestratorService } from "./ai-agent-orchestrator.service";
 import { AdminAiPerformanceService } from "./admin-agent/admin-ai-performance.service";
 import { AdminAiPerformanceController } from "./admin-agent/admin-ai-performance.controller";
 
@@ -44,6 +46,8 @@ import { AdminAiPerformanceController } from "./admin-agent/admin-ai-performance
     AiAdminModelService,
     AiAdminAnalyticsToolsService,
     AiAdminActionStateService,
+    AiAdminToolRegistryService,
+    AiAgentOrchestratorService,
     AdminAiPerformanceService,
     AiAdminAgentService,
     AiPublicAgentService,
