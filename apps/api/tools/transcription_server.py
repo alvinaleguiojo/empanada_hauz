@@ -61,9 +61,12 @@ async def transcribe(
             temp_path,
             language=language.strip() if language and language.strip() else None,
             task="transcribe",
-            vad_filter=True,
+            vad_filter=False,
             beam_size=5,
             condition_on_previous_text=False,
+            no_speech_threshold=0.45,
+            log_prob_threshold=-1.0,
+            compression_ratio_threshold=2.4,
         )
 
         normalized = []
@@ -79,8 +82,11 @@ async def transcribe(
             })
             parts.append(text)
 
+        transcript = " ".join(parts).strip()
+        print(f"Transcription result: {transcript!r}", flush=True)
+
         return {
-            "text": " ".join(parts).strip(),
+            "text": transcript,
             "language": getattr(info, "language", None),
             "languageProbability": round(float(getattr(info, "language_probability", 0.0)), 4),
             "duration": round(float(getattr(info, "duration", 0.0)), 3),
