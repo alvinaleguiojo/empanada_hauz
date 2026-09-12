@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../database/prisma.service';
 
 interface PerformanceContext {
@@ -25,7 +26,7 @@ export class AdminAiPerformanceService {
 
   start(adminId?: string, model?: string): PerformanceContext {
     return {
-      requestId: require('crypto').randomUUID(),
+      requestId: randomUUID(),
       startedAt: process.hrtime.bigint(),
       adminId,
       model,
@@ -37,13 +38,8 @@ export class AdminAiPerformanceService {
     };
   }
 
-  recordLlm(context: PerformanceContext, durationMs: number) {
-    context.llmMs += durationMs;
-  }
-
-  recordIteration(context: PerformanceContext) {
-    context.iterations += 1;
-  }
+  recordLlm(context: PerformanceContext, durationMs: number) { context.llmMs += durationMs; }
+  recordIteration(context: PerformanceContext) { context.iterations += 1; }
 
   recordTool(context: PerformanceContext, name: string, durationMs: number) {
     context.toolMs += durationMs;
@@ -66,11 +62,7 @@ export class AdminAiPerformanceService {
       createdAt: new Date(),
     };
 
-    await this.prisma.$runCommandRaw({
-      insert: this.collection,
-      documents: [document],
-    });
-
+    await this.prisma.$runCommandRaw({ insert: this.collection, documents: [document] });
     return document;
   }
 
@@ -88,16 +80,7 @@ export class AdminAiPerformanceService {
       cursor?: { firstBatch?: Array<{ count: number; averageMs: number; maxMs: number }> };
     }>({
       aggregate: this.collection,
-      pipeline: [
-        {
-          $group: {
-            _id: null,
-            count: { $sum: 1 },
-            averageMs: { $avg: '$totalMs' },
-            maxMs: { $max: '$totalMs' },
-          },
-        },
-      ],
+      pipeline: [{ $group: { _id: null, count: { $sum: 1 }, averageMs: { $avg: '$totalMs' }, maxMs: { $max: '$totalMs' } } }],
       cursor: {},
     });
 
@@ -110,9 +93,7 @@ export class AdminAiPerformanceService {
       sort: { totalMs: 1 },
     });
     const values = (valuesResult.cursor?.firstBatch ?? []).map((item) => item.totalMs);
-    const percentile = (p: number) => values.length
-      ? values[Math.min(values.length - 1, Math.ceil(values.length * p) - 1)]
-      : 0;
+    const percentile = (p: number) => values.length ? values[Math.min(values.length - 1, Math.ceil(values.length * p) - 1)] : 0;
 
     return {
       count: aggregate.count,
