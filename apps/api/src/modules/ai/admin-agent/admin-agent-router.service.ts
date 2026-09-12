@@ -56,6 +56,13 @@ export class AdminAgentRouterService {
     const smalltalk = this.routeSmalltalk(value);
     if (smalltalk) return smalltalk;
 
+    // A short noun phrase can be an exact product name (including names
+    // supplied by the database). The facade resolves it against ProductsService,
+    // so this deliberately does not contain product names or prices.
+    if (this.isBareProductCandidate(value)) {
+      return { intent: "product_lookup", query: value, toolNames: ["get_product", "list_products"] };
+    }
+
     if (this.isOrderRequest(value)) return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
     if (this.isCustomerRequest(value)) return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
     if (this.isAnalyticsRequest(value)) return { intent: "complex", toolNames: ["get_order_metrics", "search_orders"] };
@@ -110,6 +117,15 @@ export class AdminAgentRouterService {
     return null;
   }
 
+  private isBareProductCandidate(value: string) {
+    const normalized = value.replace(/[?!.]+$/g, "").replace(/\s+/g, " ").trim();
+    const words = normalized.split(" ");
+    if (words.length < 1 || words.length > 6 || normalized.length > 80) return false;
+    if (/[?]/.test(value)) return false;
+    if (/\b(the|a|an|is|are|was|were|what|why|when|where|who|how|can|could|would|will|please|show|tell|find|search|check|get|give|order|orders|customer|customers|sales|revenue|menu|price|cost|pila|presyo|magkano|tagpila)\b/i.test(normalized)) return false;
+    return /^[\p{L}\p{N}&'’()_-]+(?:\s+[\p{L}\p{N}&'’()_-]+)*$/u.test(normalized);
+  }
+
   private isMetricsRequest(value: string) {
     return /\b(how many|how much|count|number of|total|sum|sales|revenue|income|metrics|analytics|performance|order volume|sales volume)\b/i.test(value)
       && /\b(order|orders|sale|sales|revenue|income|metric|metrics|analytics|performance|volume|business)\b/i.test(value);
@@ -142,7 +158,7 @@ export class AdminAgentRouterService {
     if (/^(i(?:'| a)m home|i am home|nasa bahay ako|nandito ako sa bahay|i am really at home|i'm really at home)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm here with you. What would you like me to check?" };
 
     const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|menu|menus|pricelist|price\s*list|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
-    if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
+    if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized) && !this.isBareProductCandidate(normalized)) return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
     return null;
   }
 
