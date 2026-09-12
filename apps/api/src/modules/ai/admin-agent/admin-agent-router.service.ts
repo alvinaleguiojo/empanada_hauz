@@ -57,11 +57,11 @@ export class AdminAgentRouterService {
   }
 
   private isProductRequest(value: string) {
-    return /\b(menu|menus|product|products|item|items|flavor|flavours|flavors|price|prices|cost|costs|available|availability|what do you sell|what can i order|what can we order|what's available|whats available|show me the menu|send me the menu|send the menu|list the menu|list products)\b/i.test(value);
+    return /\b(menu|menus|pricelist|price\s*list|price-list|product|products|item|items|flavor|flavours|flavors|price|prices|cost|costs|available|availability|what do you sell|what can i order|what can we order|what's available|whats available|show me the menu|send me the menu|send the menu|list the menu|list products)\b/i.test(value);
   }
 
   private extractProductQuery(value: string) {
-    if (/\b(menu|menus|list products|what do you sell|what can i order|what can we order|show me the menu|send me the menu|send the menu)\b/i.test(value)) return null;
+    if (/\b(menu|menus|pricelist|price\s*list|price-list|list products|what do you sell|what can i order|what can we order|show me the menu|send me the menu|send the menu)\b/i.test(value)) return null;
     const match = value.match(/(?:price|cost|availability|available|product|item)\s+(?:of|for|is|on)?\s*(?:the\s+)?(.+?)(?:\s+available)?[?!.]*$/i);
     if (match?.[1]) return match[1].trim();
     return null;
@@ -98,7 +98,7 @@ export class AdminAgentRouterService {
     if (/^(nice|great|awesome|perfect|great job|well done|sige|ayos|okay|ok|got it|i see)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm ready for the next thing." };
     if (/^(i(?:'| a)m home|i am home|nasa bahay ako|nandito ako sa bahay|i am really at home|i'm really at home)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm here with you. What would you like me to check?" };
 
-    const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|menu|menus|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
+    const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|menu|menus|pricelist|price\s*list|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
     if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
     return null;
   }
