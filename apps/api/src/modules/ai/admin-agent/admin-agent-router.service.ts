@@ -49,7 +49,8 @@ export class AdminAgentRouterService {
     }
 
     if (this.isMetricsRequest(value)) {
-      return { intent: "metrics", toolNames: ["get_order_metrics", "search_orders"] };
+      const range = /\bmonth\b/i.test(value) ? "month" : /\bweek\b/i.test(value) ? "week" : "today";
+      return { intent: "metrics", query: range, toolNames: ["get_order_metrics", "search_orders"] };
     }
 
     const smalltalk = this.routeSmalltalk(value);
@@ -70,6 +71,7 @@ export class AdminAgentRouterService {
   }
 
   private isPriceRequest(value: string) {
+    if (/\b(order|orders|sale|sales|revenue|income|business|metrics|analytics|performance|volume)\b/i.test(value)) return false;
     return /\b(price|prices|cost|costs|how much|how much is|how much does|pila|tag pila|magkano|magkano ang|presyo|presyo sa|tagpila)\b/i.test(value)
       || /\b(unsa|ano)\s+(ang\s+)?(?:presyo|price)\b/i.test(value);
   }
