@@ -52,6 +52,7 @@ export class MessengerController {
   @UseGuards(JwtAuthGuard) @Put("ai/customers/:customerId") setCustomerAiSettings(@Param("customerId") customerId: string, @Body() body: { enabled?: boolean | null }) { return this.aiControlService.setCustomerOverride(customerId, typeof body?.enabled === "boolean" ? body.enabled : null); }
   @UseGuards(JwtAuthGuard) @Post("send") sendManual(@Body() dto: SendMessageDto) { return this.messengerService.sendText(dto.recipientPsid, dto.text); }
   @UseGuards(JwtAuthGuard) @Post("sync") syncHistory(@Query("maxConversations") maxConversations?: string, @Query("maxMessagesPerConversation") maxMessagesPerConversation?: string) { return this.messengerService.syncFromMeta({ maxConversations: maxConversations ? Number(maxConversations) : undefined, maxMessagesPerConversation: maxMessagesPerConversation ? Number(maxMessagesPerConversation) : undefined }); }
-  @UseGuards(JwtAuthGuard) @Get("conversations") listConversations() { return this.messengerService.listConversations(); }
+  @UseGuards(JwtAuthGuard) @Get("messages/search") searchMessages(@Query("q") query: string) { return this.messengerService.searchMessages(query); }
+  @UseGuards(JwtAuthGuard) @Get("conversations") listConversations(@Query("search") search?: string) { return this.messengerService.listConversations(search); }
   @UseGuards(JwtAuthGuard) @Get("conversations/:id/messages") getConversationMessages(@Param("id") id: string) { return this.messengerService.getConversationMessages(id); }
 }

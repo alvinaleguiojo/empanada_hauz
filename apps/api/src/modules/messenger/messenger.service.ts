@@ -211,6 +211,32 @@ export class MessengerService {
     } finally { clearTimeout(timeout); }
   }
 
-  listConversations() { return this.prisma.conversation.findMany({ where: { channel: "messenger" }, orderBy: { updatedAt: "desc" }, include: { customer: true }, take: 100 }); }
+  listConversations(search?: string) {
+    const normalized = search?.trim();
+    return this.prisma.conversation.findMany({
+      where: {
+        channel: "messenger",
+        ...(normalized ? { customer: { OR: [{ name: { contains: normalized, mode: "insensitive" } }, { messengerPsid: { contains: normalized, mode: "insensitive" } }] } } : {})
+      },
+      orderBy: { updatedAt: "desc" },
+      include: { customer: true },
+      take: 100
+    });
+  }
+
+  async searchMessages(query: string) {
+    const normalized = query?.trim();
+    if (!normalized) return [];
+    return this.prisma.message.findMany({
+      where: {
+        conversation: { channel: "messenger" },
+        content: { contains: normalized, mode: "insensitive" }
+      },
+      orderBy: { createdAt: "desc" },
+      include: { conversation: { include: { customer: true } } },
+      take: 100
+    });
+  }
+
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
 }
