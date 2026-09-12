@@ -7,7 +7,7 @@ import { AdminAgentRouterService } from "./admin-agent-router.service";
 
 interface AdminAgentRequest {
   message: string;
-  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  history?: Array<{ role: "user"; content: string } | { role: "assistant"; content: string }>;
   adminId: string;
   conversationId: string;
 }
@@ -45,11 +45,7 @@ export class AdminAgentFacadeService {
 
     if (route.intent === "datetime") {
       const current = this.dateTime.now();
-      return {
-        reply: `Current date and time: ${current.date} ${current.time} (${current.timezone}).`,
-        snapshotAt: new Date().toISOString(),
-        data: current
-      };
+      return { reply: `Current date and time: ${current.date} ${current.time} (${current.timezone}).`, snapshotAt: new Date().toISOString(), data: current };
     }
 
     if (route.intent === "product_lookup") {
@@ -107,11 +103,9 @@ export class AdminAgentFacadeService {
 
     const sections: string[] = ["🥟 Empanada Hauz Price List"];
     for (const [category, items] of groups) {
-      const title = category
-        .replace(/[-_]+/g, " ")
-        .replace(/\b\w/g, (letter) => letter.toUpperCase());
-      sections.push(`\n**${title}**`);
-      sections.push(items.map((product) => `• ${product.name} — **₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}**`).join("\n"));
+      const title = category.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      sections.push(`\n${title}`);
+      sections.push(items.map((product) => `• ${product.name} — ₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`).join("\n"));
     }
 
     sections.push("\nPrices shown are for currently available products.");
