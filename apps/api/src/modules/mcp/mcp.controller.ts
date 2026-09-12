@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Request, Response } from "express";
 import { z } from "zod";
 import { DeliveryMethod, OrderStatus, PaymentMethod } from "../orders/dto";
+import { MessengerService } from "../messenger/messenger.service";
 import { McpExpensesService } from "./mcp-expenses.service";
 import { McpOrdersService } from "./mcp-orders.service";
 
@@ -34,7 +35,8 @@ type ToolRegistrar = (
 export class McpController {
   constructor(
     private readonly orders: McpOrdersService,
-    private readonly expenses: McpExpensesService
+    private readonly expenses: McpExpensesService,
+    private readonly messenger: MessengerService
   ) {}
 
   @All()
@@ -421,6 +423,112 @@ export class McpController {
       }
     );
 
+    registerTool(
+      "list_messenger_conversations",
+      {
+        title: "List Messenger conversations",
+        description: "Read the latest Empanada Hauz Facebook Messenger conversations, including customer details and the latest message.",
+        inputSchema: {},
+        annotations: { readOnlyHint: true, openWorldHint: false }
+      },
+      async () => ({
+        content: [{ type: "text", text: JSON.stringify(await this.messenger.listConversations(), null, 2) }]
+      })
+    );
+
+    registerTool(
+      "get_messenger_messages",
+      {
+        title: "Get Messenger messages",
+        description: "Read all stored messages for one Empanada Hauz Messenger conversation in chronological order.",
+        inputSchema: { conversationId: z.string().min(1) },
+        annotations: { readOnlyHint: true, openWorldHint: false }
+      },
+      async (args) => {
+        const conversationId = this.toOptionalString(args.conversationId);
+        if (!conversationId) return this.mcpError("conversationId is required.");
+        return {
+          content: [{ type: "text", text: JSON.stringify(await this.messenger.getConversationMessages(conversationId), null, 2) }]
+        };
+      }
+    );
+
+    registerTool(
+      "get_messenger_profile",
+      {
+        title: "Get Messenger profile",
+        description: "Read the public Messenger profile name available for a customer PSID through Meta Graph API.",
+        inputSchema: { psid: z.string().min(1) },
+        annotations: { readOnlyHint: true, openWorldHint: true }
+      },
+      async (args) => {
+        const psid = this.toOptionalString(args.psid);
+        if (!psid) return this.mcpError("psid is required.");
+        return {
+          content: [{ type: "text", text: JSON.stringify({ psid, name: await this.messenger.getMessengerProfileName(psid) }, null, 2) }]
+        };
+      }
+    );
+
+    registerTool(
+      "send_messenger_message",
+      {
+        title: "Send Messenger message",
+        description: "Send a text message to a Facebook Messenger customer by PSID and persist the outbound message in Empanada Hauz.",
+        inputSchema: { psid: z.string().min(1), text: z.string().min(1).max(2000) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+      },
+      async (args) => {
+        const psid = this.toOptionalString(args.psid);
+        const text = this.toOptionalString(args.text);
+        if (!psid || !text) return this.mcpError("psid and text are required.");
+        return {
+          content: [{ type: "text", text: JSON.stringify(await this.messenger.sendText(psid, text), null, 2) }]
+        };
+      }
+    );
+
+    registerTool(
+      "sync_messenger",
+      {
+        title: "Sync Messenger",
+        description: "Synchronize Messenger conversations and message history from the configured Facebook Page into Empanada Hauz.",
+        inputSchema: {
+          maxConversations: z.number().int().min(1).max(500).optional(),
+          maxMessagesPerConversation: z.number().int().min(1).max(5000).optional()
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+      },
+      async (args) => ({
+        content: [{
+          type: "text",
+          text: JSON.stringify(await this.messenger.syncFromMeta({
+            maxConversations: this.toOptionalNumber(args.maxConversations),
+            maxMessagesPerConversation: this.toOptionalNumber(args.maxMessagesPerConversation)
+          }), null, 2)
+        }]
+      })
+    );
+
+    registerTool(
+      "request_messenger_thread_control",
+      {
+        title: "Request Messenger thread control",
+        description: "Request control of a Messenger conversation from another app or Page inbox integration using Meta thread handover.",
+        inputSchema: { psid: z.string().min(1), metadata: z.string().max(1000).optional() },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+      },
+      async (args) => {
+        const psid = this.toOptionalString(args.psid);
+        if (!psid) return this.mcpError("psid is required.");
+        const result = await this.messenger.requestThreadControl(psid, this.toOptionalString(args.metadata));
+        return {
+          isError: !result,
+          content: [{ type: "text", text: JSON.stringify({ success: result, psid }, null, 2) }]
+        };
+      }
+    );
+
     return server;
   }
 
@@ -512,6 +620,17 @@ export class McpController {
 
   private toOptionalString(value: unknown) {
     return typeof value === "string" && value.trim() ? value : undefined;
+  }
+
+  private toOptionalNumber(value: unknown) {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  }
+
+  private mcpError(message: string): ToolResult {
+    return {
+      isError: true,
+      content: [{ type: "text", text: message }]
+    };
   }
 
   private toDeliveryMethod(value: unknown): DeliveryMethod | undefined {
