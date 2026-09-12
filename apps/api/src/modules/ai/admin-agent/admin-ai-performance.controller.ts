@@ -1,7 +1,10 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { AdminGuard } from '../../ai-instructions/admin.guard';
 import { AdminAiPerformanceService } from './admin-ai-performance.service';
 
 @Controller('ai/admin/performance')
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminAiPerformanceController {
   constructor(private readonly performance: AdminAiPerformanceService) {}
 
