@@ -10,7 +10,7 @@ import { AiControlService } from "./ai-control.service";
 export type AiModelProvider = "ollama" | "gemini" | "groq" | "openai" | "openrouter";
 export type AiModelSettings = { provider: AiModelProvider; model: string };
 export type GeneratedProduct = { name: string; description: string; category: string; price: number; aliases: string[]; tags: string[]; isFeatured: boolean; isNew: boolean };
-type RuntimeChat = (body: Record<string, unknown>, tools?: Array<Record<string, unknown>>) => Promise<unknown>;
+type RuntimeChat = (messages: Array<Record<string, unknown>>, tools: Array<Record<string, unknown>>) => Promise<unknown>;
 type ProviderChoice = { message?: { content?: string | null; tool_calls?: Array<{ type?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> } };
 type ProviderResponse = { choices?: ProviderChoice[] };
 
@@ -27,13 +27,14 @@ export class AiModelService {
     const runtime = new AiRuntimeService(this.config, stateService, toolRegistry, instructionsService, orchestrator);
     const runtimeWithChat = runtime as unknown as { chat: RuntimeChat };
     const ollamaChat = runtimeWithChat.chat.bind(runtime);
-    runtimeWithChat.chat = async (body, tools) => {
+    runtimeWithChat.chat = async (messages, tools) => {
       const settings = await this.aiControl.getGlobalModelSettings();
+      const body = { model: settings.model, messages, tools, tool_choice: "auto" };
       if (settings.provider === "gemini") return this.chatProvider(body, settings.model, "GEMINI_API_KEY", this.geminiBaseUrl, "Gemini");
       if (settings.provider === "groq") return this.chatProvider(body, settings.model, "GROQ_API_KEY", this.groqBaseUrl, "Groq");
       if (settings.provider === "openai") return this.chatOpenAi(body, settings.model);
       if (settings.provider === "openrouter") return this.chatOpenRouter(body, settings.model);
-      return ollamaChat(body, tools);
+      return ollamaChat(messages, tools);
     };
     return runtime;
   }
@@ -75,12 +76,10 @@ export class AiModelService {
     const category = typeof value.category === "string" ? value.category.trim() : "empanada";
     const price = Number(value.price);
     if (!name || !description || !Number.isFinite(price) || price < 0) throw new Error("AI returned incomplete product data.");
-    return {
-      name, description, category: category || "empanada", price: Math.round(price * 100) / 100,
+    return { name, description, category: category || "empanada", price: Math.round(price * 100) / 100,
       aliases: Array.isArray(value.aliases) ? value.aliases.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 8) : [],
       tags: Array.isArray(value.tags) ? value.tags.filter((item): item is string => typeof item === "string").map((item) => item.trim().toLowerCase()).filter(Boolean).slice(0, 8) : [],
-      isFeatured: value.isFeatured === true, isNew: value.isNew !== false
-    };
+      isFeatured: value.isFeatured === true, isNew: value.isNew !== false };
   }
 
   private async chatOllama(body: Record<string, unknown>, model: string) {
@@ -89,10 +88,11 @@ export class AiModelService {
     const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 1000 ? configuredTimeout : 120000;
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify({ model, messages: body.messages, temperature: 0.7, max_tokens: 700, response_format: body.format === "json" ? { type: "json_object" } : undefined }) });
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify({ ...body, model, messages: body.messages, tools: body.tools, tool_choice: "auto", temperature: 0.7, max_tokens: 700, response_format: body.format === "json" ? { type: "json_object" } : undefined }) });
       const responseBody = await response.text();
-      if (!response.ok) throw new Error(`Ollama product generation failed: ${response.status} ${responseBody}`);
-      const parsed = JSON.parse(responseBody) as ProviderResponse; return { message: { content: parsed.choices?.[0]?.message?.content ?? "" } };
+      if (!response.ok) throw new Error(`Ollama runtime request failed: ${response.status} ${responseBody}`);
+      const parsed = JSON.parse(responseBody) as ProviderResponse; const message = parsed.choices?.[0]?.message;
+      return { message: { content: message?.content ?? "", tool_calls: message?.tool_calls ?? [] } };
     } finally { clearTimeout(timeout); }
   }
 
@@ -100,22 +100,21 @@ export class AiModelService {
     const apiKey = this.config.get<string>(apiKeyName)?.trim();
     if (!apiKey) throw new BadRequestException(`${providerName} API key is not configured on the server.`);
     const options = body.options && typeof body.options === "object" ? body.options as Record<string, unknown> : {};
-    const payload: Record<string, unknown> = { model, messages: body.messages, tools: body.tools, tool_choice: "auto" };
+    const payload: Record<string, unknown> = { ...body, model, messages: body.messages, tools: body.tools, tool_choice: "auto" };
     if (typeof options.temperature === "number") payload.temperature = options.temperature;
     if (typeof options.num_predict === "number") payload.max_tokens = options.num_predict;
     if (body.format === "json") payload.response_format = { type: "json_object" };
     const response = await fetch(baseUrl, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey}` }, body: JSON.stringify(payload) });
-    const responseBody = await response.text();
-    if (!response.ok) throw new Error(`${providerName} runtime request failed: ${response.status} ${responseBody}`);
+    const responseBody = await response.text(); if (!response.ok) throw new Error(`${providerName} runtime request failed: ${response.status} ${responseBody}`);
     const parsed = JSON.parse(responseBody) as ProviderResponse; const message = parsed.choices?.[0]?.message;
-    return { message: { content: message?.content ?? "", tool_calls: (message?.tool_calls ?? []).map((call) => ({ ...call, function: call.function ? { ...call.function, arguments: typeof call.function.arguments === "string" ? call.function.arguments : JSON.stringify(call.function.arguments ?? {}) } : undefined })) } };
+    return { message: { content: message?.content ?? "", tool_calls: message?.tool_calls ?? [] } };
   }
 
   private async chatOpenAi(body: Record<string, unknown>, model: string) {
     const apiKey = this.config.get<string>("OPENAI_API_KEY")?.trim();
     if (!apiKey) throw new BadRequestException("OpenAI API key is not configured on the server.");
     const options = body.options && typeof body.options === "object" ? body.options as Record<string, unknown> : {};
-    const payload: Record<string, unknown> = { model, messages: body.messages, tools: body.tools, tool_choice: "auto", reasoning_effort: "none" };
+    const payload: Record<string, unknown> = { ...body, model, messages: body.messages, tools: body.tools, tool_choice: "auto", reasoning_effort: "none" };
     if (typeof options.num_predict === "number") payload.max_completion_tokens = options.num_predict;
     if (body.format === "json") payload.response_format = { type: "json_object" };
     const configuredTimeout = Number(this.config.get<string>("OPENAI_TIMEOUT_MS", "60000")); const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 1000 ? configuredTimeout : 60000;
@@ -124,7 +123,7 @@ export class AiModelService {
       const response = await fetch(this.openAiBaseUrl, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey}` }, signal: controller.signal, body: JSON.stringify(payload) });
       const responseBody = await response.text(); if (!response.ok) throw new Error(`OpenAI runtime request failed: ${response.status} ${responseBody}`);
       const parsed = JSON.parse(responseBody) as ProviderResponse; const message = parsed.choices?.[0]?.message;
-      return { message: { content: message?.content ?? "", tool_calls: (message?.tool_calls ?? []).map((call) => ({ ...call, function: call.function ? { ...call.function, arguments: typeof call.function.arguments === "string" ? call.function.arguments : JSON.stringify(call.function.arguments ?? {}) } : undefined })) } };
+      return { message: { content: message?.content ?? "", tool_calls: message?.tool_calls ?? [] } };
     } finally { clearTimeout(timeout); }
   }
 
@@ -132,14 +131,13 @@ export class AiModelService {
     const apiKey = this.config.get<string>("OPENROUTER_API_KEY")?.trim();
     if (!apiKey) throw new BadRequestException("OpenRouter API key is not configured on the server.");
     const options = body.options && typeof body.options === "object" ? body.options as Record<string, unknown> : {};
-    const payload: Record<string, unknown> = { model, messages: body.messages, tools: body.tools, tool_choice: "auto" };
+    const payload: Record<string, unknown> = { ...body, model, messages: body.messages, tools: body.tools, tool_choice: "auto" };
     if (typeof options.temperature === "number") payload.temperature = options.temperature;
     if (typeof options.num_predict === "number") payload.max_tokens = options.num_predict;
     if (body.format === "json") payload.response_format = { type: "json_object" };
-    const response = await fetch(this.openRouterBaseUrl, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey}`, "HTTP-Referer": this.config.get<string>("OPENROUTER_SITE_URL") ?? "https://www.empanadahauz.com", "X-Title": this.config.get<string>("OPENROUTER_APP_NAME") ?? "Empanada Hauz AI" }, body: JSON.stringify(payload) });
-    const responseBody = await response.text();
-    if (!response.ok) throw new Error(`OpenRouter runtime request failed: ${response.status} ${responseBody}`);
+    const response = await fetch(this.openRouterBaseUrl, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey}`, "HTTP-Referer": this.config.get<string>("OPENROUTER_HTTP_REFERER") ?? "https://www.empanadahauz.com", "X-Title": this.config.get<string>("OPENROUTER_APP_NAME") ?? "Empanada Hauz AI" }, body: JSON.stringify(payload) });
+    const responseBody = await response.text(); if (!response.ok) throw new Error(`OpenRouter runtime request failed: ${response.status} ${responseBody}`);
     const parsed = JSON.parse(responseBody) as ProviderResponse; const message = parsed.choices?.[0]?.message;
-    return { message: { content: message?.content ?? "", tool_calls: (message?.tool_calls ?? []).map((call) => ({ ...call, function: call.function ? { ...call.function, arguments: typeof call.function.arguments === "string" ? call.function.arguments : JSON.stringify(call.function.arguments ?? {}) } : undefined })) } };
+    return { message: { content: message?.content ?? "", tool_calls: message?.tool_calls ?? [] } };
   }
 }
