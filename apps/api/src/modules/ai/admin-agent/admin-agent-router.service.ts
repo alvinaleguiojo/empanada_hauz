@@ -32,8 +32,7 @@ export class AdminAgentRouterService {
       return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
     }
 
-    const datetime = this.isDateTimeRequest(value);
-    if (datetime) return { intent: "datetime", toolNames: ["get_current_datetime"] };
+    if (this.isDateTimeRequest(value)) return { intent: "datetime", toolNames: ["get_current_datetime"] };
 
     if (this.isMenuRequest(value)) {
       return { intent: "product_lookup", toolNames: ["list_products", "get_product"] };
@@ -53,15 +52,16 @@ export class AdminAgentRouterService {
       return { intent: "metrics", query: range, toolNames: ["get_order_metrics", "search_orders"] };
     }
 
-    const smalltalk = this.routeSmalltalk(value);
-    if (smalltalk) return smalltalk;
-
-    // A short noun phrase can be an exact product name (including names
-    // supplied by the database). The facade resolves it against ProductsService,
-    // so this deliberately does not contain product names or prices.
+    // Short noun phrases are potential product names. Keep this before smalltalk
+    // so database-backed product names such as "Pork regular" never get swallowed
+    // by the generic conversational fallback. The facade resolves the name against
+    // ProductsService, so no product names or prices are hardcoded here.
     if (this.isBareProductCandidate(value)) {
       return { intent: "product_lookup", query: value, toolNames: ["get_product", "list_products"] };
     }
+
+    const smalltalk = this.routeSmalltalk(value);
+    if (smalltalk) return smalltalk;
 
     if (this.isOrderRequest(value)) return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
     if (this.isCustomerRequest(value)) return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
@@ -112,8 +112,15 @@ export class AdminAgentRouterService {
   }
 
   private extractProductQuery(value: string) {
-    const match = value.match(/(?:availability|available|product|item)\s+(?:of|for|is|on)?\s*(?:the\s+)?(.+?)(?:\s+available)?[?!.]*$/i);
-    if (match?.[1]) return match[1].trim();
+    const patterns = [
+      /(?:availability|available)\s+(?:of|for|is|on)?\s*(?:the\s+)?(.+?)[?!.]*$/i,
+      /^(?:is|are)\s+(?:the\s+)?(.+?)\s+(?:available|in stock)\s*[?!.]*$/i,
+      /(?:product|item)\s+(?:of|for|is|on)?\s*(?:the\s+)?(.+?)[?!.]*$/i,
+    ];
+    for (const pattern of patterns) {
+      const query = value.match(pattern)?.[1]?.trim();
+      if (query) return query;
+    }
     return null;
   }
 
