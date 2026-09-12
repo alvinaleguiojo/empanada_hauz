@@ -219,11 +219,17 @@ export class AiApplicationToolsService {
   }
 
   private parseDeliveryMethod(value: unknown): DeliveryMethod | undefined {
-    return value === "pickup" || value === "maxim" ? value : undefined;
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (normalized === "pickup") return "pickup";
+    if (["maxim", "delivery", "deliver", "home delivery", "maxim delivery"].includes(normalized)) return "maxim";
+    return undefined;
   }
 
   private parsePaymentMethod(value: unknown): PaymentMethod | undefined {
-    return value === "cod" || value === "gcash" ? value : undefined;
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (normalized === "cod" || normalized === "cash on delivery" || normalized === "cash") return "cod";
+    if (normalized === "gcash" || normalized === "g-cash") return "gcash";
+    return undefined;
   }
 
   private stringArg(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : ""; }
