@@ -35,6 +35,15 @@ export class AdminAgentRouterService {
     const datetime = this.isDateTimeRequest(value);
     if (datetime) return { intent: "datetime", toolNames: ["get_current_datetime"] };
 
+    if (this.isMenuRequest(value)) {
+      return { intent: "product_lookup", toolNames: ["list_products", "get_product"] };
+    }
+
+    const priceQuery = this.extractPriceQuery(value);
+    if (this.isPriceRequest(value)) {
+      return { intent: "product_price", query: priceQuery ?? undefined, toolNames: ["get_product", "list_products"] };
+    }
+
     if (this.isProductRequest(value)) {
       return { intent: "product_lookup", query: this.extractProductQuery(value) ?? undefined, toolNames: ["list_products", "get_product"] };
     }
@@ -56,13 +65,45 @@ export class AdminAgentRouterService {
     return /\b(what(?:'s| is) the (?:current )?(?:date|time)|what time is it|current (?:date|time)|today(?:'s)? date|today's date|what day is it|date today|time now|current datetime)\b/i.test(value);
   }
 
+  private isMenuRequest(value: string) {
+    return /\b(menu|menus|pricelist|price\s*list|price-list|what do you sell|what can i order|what can we order|what's available|whats available|show me the menu|send me the menu|send the menu|list the menu|list products)\b/i.test(value);
+  }
+
+  private isPriceRequest(value: string) {
+    return /\b(price|prices|cost|costs|how much|how much is|how much does|pila|tag pila|magkano|magkano ang|presyo|presyo sa|tagpila)\b/i.test(value)
+      || /\b(unsa|ano)\s+(ang\s+)?(?:presyo|price)\b/i.test(value);
+  }
+
+  private extractPriceQuery(value: string) {
+    const normalized = value.replace(/[?!.]+$/g, "").trim();
+    const patterns = [
+      /^(?:how much)(?:\s+(?:is|does))?\s+(?:the\s+)?(.+)$/i,
+      /^(?:what(?:'s| is)\s+(?:the\s+)?(?:price|cost)(?:\s+of|\s+for)?)\s+(.+)$/i,
+      /^(?:price|cost)\s+(?:of|for|on)\s+(.+)$/i,
+      /^(?:pila|tag\s*pila|tagpila|magkano)(?:\s+(?:ang|sa|for|of))?\s+(.+)$/i,
+      /^(?:unsa|ano)\s+(?:ang\s+)?(?:presyo|price)(?:\s+(?:sa|of|for))?\s+(.+)$/i,
+      /^(?:presyo)(?:\s+(?:sa|ng|of|for))?\s+(.+)$/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = normalized.match(pattern);
+      const query = match?.[1]?.trim();
+      if (query && !this.isGenericPricePhrase(query)) return query;
+    }
+
+    return null;
+  }
+
+  private isGenericPricePhrase(value: string) {
+    return /^(?:it|that|this|the item|the product|something|anything|everything|all|all items|all products|menu|menus|price list|pricelist)$/i.test(value);
+  }
+
   private isProductRequest(value: string) {
-    return /\b(menu|menus|pricelist|price\s*list|price-list|product|products|item|items|flavor|flavours|flavors|price|prices|cost|costs|available|availability|what do you sell|what can i order|what can we order|what's available|whats available|show me the menu|send me the menu|send the menu|list the menu|list products)\b/i.test(value);
+    return /\b(product|products|item|items|flavor|flavours|flavors|available|availability)\b/i.test(value);
   }
 
   private extractProductQuery(value: string) {
-    if (/\b(menu|menus|pricelist|price\s*list|price-list|list products|what do you sell|what can i order|what can we order|show me the menu|send me the menu|send the menu)\b/i.test(value)) return null;
-    const match = value.match(/(?:price|cost|availability|available|product|item)\s+(?:of|for|is|on)?\s*(?:the\s+)?(.+?)(?:\s+available)?[?!.]*$/i);
+    const match = value.match(/(?:availability|available|product|item)\s+(?:of|for|is|on)?\s*(?:the\s+)?(.+?)(?:\s+available)?[?!.]*$/i);
     if (match?.[1]) return match[1].trim();
     return null;
   }
