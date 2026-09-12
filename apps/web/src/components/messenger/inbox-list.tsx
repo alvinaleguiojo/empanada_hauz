@@ -92,6 +92,148 @@ function MessageAttachments({ message }: { message: Message }) {
   );
 }
 
+const ALLOWED_FORMATTED_TAGS = new Set([
+  "A", "B", "BLOCKQUOTE", "BR", "CODE", "DEL", "EM", "H1", "H2", "H3", "H4", "H5", "H6",
+  "HR", "LI", "OL", "P", "PRE", "S", "STRONG", "TABLE", "TBODY", "TD", "TFOOT", "TH", "THEAD",
+  "TR", "UL",
+]);
+
+function escapeHtml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function markdownToHtml(value: string) {
+  const lines = value.replace(/\r\n?/g, "\n").split("\n");
+  const output: string[] = [];
+  let inUl = false;
+  let inOl = false;
+  let inCode = false;
+  let codeLines: string[] = [];
+
+  const closeLists = () => {
+    if (inUl) { output.push("</ul>"); inUl = false; }
+    if (inOl) { output.push("</ol>"); inOl = false; }
+  };
+
+  const inline = (text: string) => {
+    let result = escapeHtml(text);
+    result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
+    result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    result = result.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    result = result.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+    result = result.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    result = result.replace(/_([^_]+)_/g, "<em>$1</em>");
+    result = result.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "<a href=\"$2\" target=\"_blank\" rel=\"noreferrer\">$1</a>");
+    return result;
+  };
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```") ) {
+      if (inCode) {
+        output.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        codeLines = [];
+        inCode = false;
+      } else {
+        closeLists();
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+
+    const heading = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      closeLists();
+      const level = heading[1].length;
+      output.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-*•]\s+(.+)$/);
+    if (unordered) {
+      if (!inUl) { closeLists(); output.push("<ul>"); inUl = true; }
+      output.push(`<li>${inline(unordered[1])}</li>`);
+      continue;
+    }
+
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      if (!inOl) { closeLists(); output.push("<ol>"); inOl = true; }
+      output.push(`<li>${inline(ordered[1])}</li>`);
+      continue;
+    }
+
+    if (!line.trim()) {
+      closeLists();
+      continue;
+    }
+
+    closeLists();
+    output.push(`<p>${inline(line)}</p>`);
+  }
+
+  if (inCode) output.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+  closeLists();
+  return output.join("");
+}
+
+function sanitizeFormattedHtml(value: string) {
+  if (typeof window === "undefined") return escapeHtml(value).replace(/\n/g, "<br />");
+
+  const parser = new DOMParser();
+  const document = parser.parseFromString(value, "text/html");
+  const clean = document.createElement("div");
+
+  const appendNode = (node: Node, parent: HTMLElement) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parent.appendChild(document.createTextNode(node.textContent ?? ""));
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const element = node as HTMLElement;
+    if (!ALLOWED_FORMATTED_TAGS.has(element.tagName)) {
+      element.childNodes.forEach((child) => appendNode(child, parent));
+      return;
+    }
+
+    const safe = document.createElement(element.tagName.toLowerCase());
+    if (element.tagName === "A") {
+      const href = element.getAttribute("href") ?? "";
+      try {
+        const url = new URL(href, window.location.origin);
+        if (url.protocol === "http:" || url.protocol === "https:") {
+          safe.setAttribute("href", url.href);
+          safe.setAttribute("target", "_blank");
+          safe.setAttribute("rel", "noreferrer noopener");
+        }
+      } catch {
+        // Ignore unsafe/invalid links.
+      }
+    }
+    element.childNodes.forEach((child) => appendNode(child, safe));
+    parent.appendChild(safe);
+  };
+
+  document.body.childNodes.forEach((node) => appendNode(node, clean));
+  return clean.innerHTML;
+}
+
+function FormattedMessage({ content }: { content: string }) {
+  const html = useMemo(() => {
+    const hasSupportedHtml = /<\/?(?:h[1-6]|p|ul|ol|li|strong|b|em|i|code|pre|table|thead|tbody|tfoot|tr|th|td|a|br|hr|blockquote|del|s)\b/i.test(content);
+    const source = hasSupportedHtml ? content : markdownToHtml(content);
+    return sanitizeFormattedHtml(source);
+  }, [content]);
+
+  return (
+    <div
+      className="formatted-message break-words leading-relaxed [&_a]:underline [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-current/20 [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-bold [&_h3]:mb-1.5 [&_h3]:text-sm [&_h3]:font-bold [&_h4]:mb-1 [&_h4]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_ol]:my-2 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:text-xs [&_strong]:font-semibold [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-current/10 [&_td]:px-2 [&_td]:py-1.5 [&_th]:border [&_th]:border-current/10 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_thead]:bg-black/5 [&_ul]:my-2"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 export function InboxList({ initialConversations }: { initialConversations: Conversation[] }) {
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
   const [selectedId, setSelectedId] = useState(initialConversations[0]?.id ?? "");
@@ -255,7 +397,7 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5">
             {loadingMessages ? <div className="flex justify-center p-8"><Loader2 className="animate-spin text-foreground/40" size={20} /></div> : null}
             {!loadingMessages && !messages.length ? <div className="flex h-full min-h-[220px] flex-col items-center justify-center text-center"><span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 text-accent"><MessageCircle size={22} /></span><p className="text-sm font-medium">No messages yet</p><p className="mt-1 text-xs text-foreground/45">Send a message to start the conversation.</p></div> : null}
-            {messages.map((message) => { const mine = message.direction === "outbound"; return <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm sm:max-w-[72%] sm:px-4 ${mine ? "rounded-br-md bg-accent text-black" : "rounded-bl-md bg-foreground/[0.07] text-foreground"}`}><MessageAttachments message={message}/>{message.content && message.content !== "[Attachment]" ? <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p> : null}<p className="mt-1.5 text-[10px] opacity-50">{new Date(message.createdAt).toLocaleString()}{message.aiIntent ? ` · ${message.aiIntent}` : ""}</p></div></div>; })}
+            {messages.map((message) => { const mine = message.direction === "outbound"; return <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm sm:max-w-[72%] sm:px-4 ${mine ? "rounded-br-md bg-accent text-black" : "rounded-bl-md bg-foreground/[0.07] text-foreground"}`}><MessageAttachments message={message}/>{message.content && message.content !== "[Attachment]" ? <FormattedMessage content={message.content} /> : null}<p className="mt-1.5 text-[10px] opacity-50">{new Date(message.createdAt).toLocaleString()}{message.aiIntent ? ` · ${message.aiIntent}` : ""}</p></div></div>; })}
           </div>
           <div className="shrink-0 border-t border-line bg-background/95 p-3 backdrop-blur sm:p-4">{syncMessage ? <p className="mb-2 px-1 text-xs text-accent">{syncMessage}</p> : null}{error ? <p className="mb-2 px-1 text-xs text-danger">{error}</p> : null}<div className="flex items-end gap-2"><Input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={selected ? "Reply to this customer..." : "Select a conversation..."} disabled={!selected?.customer.messengerPsid || sending} className="h-11 min-w-0" /><Button type="button" onClick={() => void send()} disabled={!draft.trim() || !selected?.customer.messengerPsid || sending} className="h-11 shrink-0 px-3 sm:px-4" aria-label="Send message">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}<span className="hidden sm:inline">Send</span></Button></div><p className="mt-1.5 hidden px-1 text-[10px] text-foreground/30 sm:block">Press Enter to send</p></div>
         </section>
