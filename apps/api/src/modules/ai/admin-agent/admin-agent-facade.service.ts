@@ -52,6 +52,10 @@ export class AdminAgentFacadeService {
       return this.resolveProductRequest(route.query);
     }
 
+    if (route.intent === "product_price") {
+      return this.resolveProductPrice(route.query);
+    }
+
     if (route.intent === "metrics") {
       const range = /\bmonth\b/i.test(message) ? "month" : /\bweek\b/i.test(message) ? "week" : "today";
       const data = await this.analytics.getOrderMetrics(range);
@@ -78,6 +82,29 @@ export class AdminAgentFacadeService {
 
     const products = await this.products.list({ availableOnly: true });
     return { reply: this.formatProducts(products), snapshotAt: new Date().toISOString(), data: products };
+  }
+
+  private async resolveProductPrice(query?: string) {
+    if (!query) {
+      return {
+        reply: "Sure — which empanada would you like the price for?",
+        snapshotAt: new Date().toISOString()
+      };
+    }
+
+    const product = await this.products.resolveByName(query, { requireAvailable: false });
+    if (!product) {
+      return {
+        reply: `I couldn't find a product matching "${query}". Try the menu or give me the product name.`,
+        snapshotAt: new Date().toISOString()
+      };
+    }
+
+    return {
+      reply: `${product.name} — ₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}${product.available ? " — available" : " — currently unavailable"}`,
+      snapshotAt: new Date().toISOString(),
+      data: product
+    };
   }
 
   private formatProduct(product: { name: string; price: number; available: boolean; description?: string | null }) {
