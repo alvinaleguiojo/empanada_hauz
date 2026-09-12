@@ -28,8 +28,22 @@ export class AdminAgentFacadeService {
 
     const route = this.router.route(message);
 
+    // Resolve an exact database-backed product before conversational fallbacks.
+    // This makes follow-ups such as "mango please" deterministic without putting
+    // product names or prices in the router.
+    if (this.isShortProductCandidate(message)) {
+      const product = await this.products.resolveByName(message, { requireAvailable: false });
+      if (product) return this.formatProduct(product);
+    }
+
     if (route.intent === "smalltalk" && route.reply) return { reply: route.reply, snapshotAt: new Date().toISOString() };
     if (route.intent === "confirmation") return this.legacyAgent.process(request);
+
+    // Quantity + product phrases are order intent, not product lookup. Let the
+    // existing order agent handle customer context, delivery details and confirmation.
+    if (route.intent === "product_lookup" && route.query && this.isQuantityOrderRequest(route.query)) {
+      return this.legacyAgent.process(request);
+    }
 
     if (route.intent === "order_lookup" && route.query) {
       const status = this.parseStatusQuery(route.query);
@@ -62,19 +76,27 @@ export class AdminAgentFacadeService {
       return { reply: this.formatMetrics(range, data), snapshotAt: new Date().toISOString(), data };
     }
 
-    // Exact product names do not need an LLM classification step. This keeps
-    // natural inputs such as "pork regular" deterministic while preserving
-    // the legacy agent for genuinely ambiguous requests.
-    if (message.split(/\s+/).length <= 6) {
-      const product = await this.products.resolveByName(message, { requireAvailable: false });
-      if (product) return this.formatProduct(product);
-    }
-
     return this.legacyAgent.process(request);
+  }
+
+  private isShortProductCandidate(message: string) {
+    const normalized = message.replace(/[?!.]+$/g, "").replace(/\s+/g, " ").trim();
+    const words = normalized.split(" ");
+    return words.length >= 1 && words.length <= 6 && normalized.length <= 80 && !/\b(order|orders|customer|customers|price|cost|pila|presyo|magkano|menu|menus|sales|revenue)\b/i.test(normalized);
+  }
+
+  private isQuantityOrderRequest(value: string) {
+    return /\b\d+\s*(?:pcs?|pieces?)\b/i.test(value) || /\b(?:pcs?|pieces?)\s*\d+\b/i.test(value);
   }
 
   private async resolveProductRequest(query?: string) {
     if (query) {
+      const normalized = query.replace(/[?!.]+$/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      if (/^(all|tanan|everything|all items|all products)$/.test(normalized)) {
+        const products = await this.products.list({ availableOnly: true });
+        return { reply: this.formatProducts(products), snapshotAt: new Date().toISOString(), data: products };
+      }
+
       const product = await this.products.resolveByName(query, { requireAvailable: false });
       if (!product) return { reply: `I couldn't find a product matching "${query}".`, snapshotAt: new Date().toISOString() };
       return this.formatProduct(product);
