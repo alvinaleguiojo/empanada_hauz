@@ -2,7 +2,7 @@ import { Body, Controller, Logger, Post, Req, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AdminGuard } from "../ai-instructions/admin.guard";
-import { AdminAgentFacadeService } from "./admin-agent/admin-agent-facade.service";
+import { AiAdminAgentService } from "./ai-admin-agent.service";
 
 type AuthenticatedRequest = Request & { user?: { id?: string; email?: string; name?: string; role?: string } };
 
@@ -11,7 +11,7 @@ type AuthenticatedRequest = Request & { user?: { id?: string; email?: string; na
 export class AiAdminAgentController {
   private readonly logger = new Logger(AiAdminAgentController.name);
 
-  constructor(private readonly agent: AdminAgentFacadeService) {}
+  constructor(private readonly agent: AiAdminAgentService) {}
 
   @Post("chat")
   async chat(
