@@ -32,8 +32,11 @@ export class AdminAgentRouterService {
       return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
     }
 
+    const datetime = this.isDateTimeRequest(value);
+    if (datetime) return { intent: "datetime", toolNames: ["get_current_datetime"] };
+
     if (this.isProductRequest(value)) {
-      return { intent: "product_lookup", toolNames: ["list_products", "get_product"] };
+      return { intent: "product_lookup", query: this.extractProductQuery(value) ?? undefined, toolNames: ["list_products", "get_product"] };
     }
 
     if (this.isMetricsRequest(value)) {
@@ -49,8 +52,19 @@ export class AdminAgentRouterService {
     return { intent: "complex" };
   }
 
+  private isDateTimeRequest(value: string) {
+    return /\b(what(?:'s| is) the (?:current )?(?:date|time)|what time is it|current (?:date|time)|today(?:'s)? date|today's date|what day is it|date today|time now|current datetime)\b/i.test(value);
+  }
+
   private isProductRequest(value: string) {
     return /\b(menu|menus|product|products|item|items|flavor|flavours|flavors|price|prices|cost|costs|available|availability|what do you sell|what can i order|what can we order|what's available|whats available|show me the menu|send me the menu|send the menu|list the menu|list products)\b/i.test(value);
+  }
+
+  private extractProductQuery(value: string) {
+    if (/\b(menu|menus|list products|what do you sell|what can i order|what can we order|show me the menu|send me the menu|send the menu)\b/i.test(value)) return null;
+    const match = value.match(/(?:price|cost|availability|available|product|item)\s+(?:of|for|is|on)?\s*(?:the\s+)?(.+?)(?:\s+available)?[?!.]*$/i);
+    if (match?.[1]) return match[1].trim();
+    return null;
   }
 
   private isMetricsRequest(value: string) {
