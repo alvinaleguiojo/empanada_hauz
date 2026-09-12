@@ -58,18 +58,27 @@ export class AdminAgentRouterService {
     if (!normalized || normalized.length > 120) return null;
     if (this.isGreeting(normalized)) return { intent: "smalltalk", reply: "Hello! How can I help with Empanada Hauz today?" };
     if (this.isThanks(normalized)) return { intent: "smalltalk", reply: "You're welcome! Happy to help." };
-    if (/^(bye|goodbye|good night|see you|see ya|talk to you later)$/.test(normalized)) return { intent: "smalltalk", reply: "Goodbye! Have a great day." };
-    if (/^(how are you|how are you doing|how is it going)$/.test(normalized)) return { intent: "smalltalk", reply: "I'm doing well and ready to help!" };
-    if (/^(nice|great|awesome|perfect|great job|well done)$/.test(normalized)) return { intent: "smalltalk", reply: "Thank you! Let's keep things moving." };
+    if (/^(bye|goodbye|good night|see you|see ya|talk to you later|paalam|salamat bye)$/.test(normalized)) return { intent: "smalltalk", reply: "Goodbye! Have a great day." };
+    if (/^(how are you|how are you doing|how is it going|kumusta ka|kumusta kayo|kamusta ka)$/.test(normalized)) return { intent: "smalltalk", reply: "I'm doing well and ready to help!" };
+    if (/^(nice|great|awesome|perfect|great job|well done|sige|ayos|okay|ok|got it|i see)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm ready for the next thing." };
+    if (/^(i(?:'| a)m home|i am home|nasa bahay ako|nandito ako sa bahay|i am really at home|i'm really at home)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm here with you. What would you like me to check?" };
+
+    // Voice conversations often produce a short casual sentence that is not an exact greeting.
+    // Keep those turns off the slow Ollama/tool loop unless they clearly mention business data.
+    const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
+    if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) {
+      return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
+    }
+
     return null;
   }
 
   private isGreeting(value: string) {
-    return /^(hi|hello|hey|hey there|good morning|good afternoon|good evening|kumusta)(?: empanada hauz| empanada| there| team)?$/.test(value);
+    return /^(hi|hello|hey|hey there|good morning|good afternoon|good evening|kumusta|kamusta|helo)(?: empanada hauz| empanada| there| team)?$/.test(value);
   }
 
   private isThanks(value: string) {
-    return /^(thanks|thank you|thank you so much|thanks a lot|salamat|salamat kaayo)(?: empanada hauz| everyone| all)?$/.test(value);
+    return /^(thanks|thank you|thank you so much|thanks a lot|salamat|salamat kaayo|daghang salamat)(?: empanada hauz| everyone| all)?$/.test(value);
   }
 
   private isConfirmation(value: string) {
