@@ -6,6 +6,7 @@ import { AiToolDefinition } from "./ai-tool.types";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 import { CustomersService } from "../customers/customers.service";
 import { ExpensesService } from "../expenses/expenses.service";
+import { McpOrdersService } from "../mcp/mcp-orders.service";
 
 export interface AdminToolContext { adminId: string; conversationId: string; message: string; }
 
@@ -19,7 +20,8 @@ export class AiAdminToolRegistryService {
     private readonly actionState: AiAdminActionStateService,
     private readonly registry: AiToolRegistryService,
     private readonly customersService: CustomersService,
-    private readonly expensesService: ExpensesService
+    private readonly expensesService: ExpensesService,
+    private readonly mcpOrdersService: McpOrdersService
   ) {}
 
   async getTools(): Promise<AiToolDefinition[]> {
@@ -31,7 +33,7 @@ export class AiAdminToolRegistryService {
       { name: "get_expenses", description: "Read the business expense ledger for a requested date range. Returns individual expenses, the range total, today's total, month-to-date total, and totals grouped by category. Use this whenever the administrator asks to review, list, inspect, or analyze recorded business expenses.", risk: "read", inputSchema: { type: "object", properties: { startDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to today." }, endDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to startDate." } }, additionalProperties: false } },
       { name: "get_expense_summary", description: "Read an aggregated business expense summary for a requested date range without returning every ledger row. Returns total spend, transaction count, and totals by category. Use this for questions about total spending, category breakdowns, biggest expense categories, or comparing spending periods.", risk: "read", inputSchema: { type: "object", properties: { startDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to today." }, endDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to startDate." } }, additionalProperties: false } },
       { name: "search_customers", description: "Find customer records by name, phone number, or Messenger identifier. Use this for customer identification before using a customer id.", risk: "read", inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false } },
-      { name: "search_orders", description: "Find orders by order number, customer, phone number, location, date, or status.", risk: "read", inputSchema: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, required: [], additionalProperties: false } },
+      { name: "search_orders", description: "Find orders by order number, customer, phone number, location, date, or status.", risk: "read", inputSchema: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false } },
       { name: "create_customer", description: "Create a customer after search_customers finds no matching record and the administrator explicitly confirms the exact details.", risk: "write", requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { name: { type: "string" }, phoneNumber: { type: "string" }, defaultAddress: { type: "string" }, confirmed: { type: "boolean" } }, required: ["name", "confirmed"], additionalProperties: false } },
       { name: "create_order", description: "Create a real order after all required checkout information is known and the administrator explicitly confirms it.", risk: "write", requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false } },
       { name: "update_order", description: "Update an existing order by a verified order id or order number. Use preferredSchedule to reschedule an order. Requires administrator confirmation. Do not use customerId as the order identifier.", risk: "write", requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { orderNumber: { type: "string", description: "Public order number such as EMP-1789200044139." }, id: { type: "string", description: "Internal Mongo order id when available." }, status: { type: "string" }, notes: { type: "string" }, preferredSchedule: { type: "string", description: "New scheduled date/time as an ISO-8601 datetime with timezone offset." }, confirmed: { type: "boolean" } }, additionalProperties: false } },
@@ -63,7 +65,7 @@ export class AiAdminToolRegistryService {
     let result: unknown;
     switch (action) {
       case "create_customer": result = await this.customersService.createCustomer(args as { name?: string; phoneNumber?: string; defaultAddress?: string }); break;
-      case "update_order": result = await this.analyticsTools.updateOrder(args as { id?: string; orderNumber?: string; status?: string; notes?: string; preferredSchedule?: string }); break;
+      case "update_order": result = await this.mcpOrdersService.updateOrder({ id: optionalString(args.id), orderNumber: optionalString(args.orderNumber), status: optionalString(args.status) as any, notes: optionalString(args.notes), preferredSchedule: optionalString(args.preferredSchedule) }); break;
       case "create_order":
       case "cancel_order": result = await this.applicationTools.execute(action as AiApplicationToolName, { ...args, confirmed: true }); break;
       default: result = await this.registry.execute(action, { ...args, confirmed: true }, { customerId: String(args.customerId ?? "admin"), conversationId: context.conversationId, channel: "admin" });
@@ -82,7 +84,7 @@ export class AiAdminToolRegistryService {
   private async confirmPendingDirect(name: string, args: Record<string, unknown>, context: AdminToolContext) {
     switch (name) {
       case "create_customer": return this.customersService.createCustomer(args as { name?: string; phoneNumber?: string; defaultAddress?: string });
-      case "update_order": return this.analyticsTools.updateOrder(args as { id?: string; orderNumber?: string; status?: string; notes?: string; preferredSchedule?: string });
+      case "update_order": return this.mcpOrdersService.updateOrder({ id: optionalString(args.id), orderNumber: optionalString(args.orderNumber), status: optionalString(args.status) as any, notes: optionalString(args.notes), preferredSchedule: optionalString(args.preferredSchedule) });
       case "create_order":
       case "cancel_order": return this.applicationTools.execute(name as AiApplicationToolName, { ...args, confirmed: true });
       default: return this.registry.execute(name, { ...args, confirmed: true }, { customerId: String(args.customerId ?? "admin"), conversationId: context.conversationId, channel: "admin" });
