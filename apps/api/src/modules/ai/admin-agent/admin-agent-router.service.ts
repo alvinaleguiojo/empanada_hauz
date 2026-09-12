@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { AdminRoute } from "./admin-agent.types";
 
+/**
+ * Routes by capability, not by exact user phrasing.
+ * The goal is to bypass Ollama when the application can answer deterministically.
+ */
 @Injectable()
 export class AdminAgentRouterService {
   route(message: string): AdminRoute {
@@ -14,38 +18,69 @@ export class AdminAgentRouterService {
     }
 
     const orderNumber = this.extractOrderNumber(value);
-    if (orderNumber) return { intent: "order_lookup", query: orderNumber, toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
+    if (orderNumber) {
+      return { intent: "order_lookup", query: orderNumber, toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
+    }
 
     const orderSearch = this.extractOrderSearch(value);
-    if (orderSearch) return { intent: "order_lookup", query: orderSearch, toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
+    if (orderSearch) {
+      return { intent: "order_lookup", query: orderSearch, toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
+    }
 
     const customer = this.extractCustomerSearch(value);
-    if (customer) return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
+    if (customer) {
+      return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
+    }
+
+    // Metrics are deterministic reads. Do not require a particular sentence shape
+    // or time phrase; the analytics tool can safely default to today's range.
+    if (this.isMetricsRequest(value)) {
+      return { intent: "metrics", toolNames: ["get_order_metrics", "search_orders"] };
+    }
 
     const smalltalk = this.routeSmalltalk(value);
     if (smalltalk) return smalltalk;
 
-    if (/\b(how many|count|number of|orders|sales|revenue|income|metrics|analytics|performance)\b/i.test(value) && /\b(today|this week|this month|week|month)\b/i.test(value)) {
-      return { intent: "metrics", toolNames: ["get_order_metrics", "search_orders"] };
-    }
-
-    if (/\b(cancel|reschedule|update|change|edit|mark)\b/i.test(value) && /\border\b/i.test(value)) {
-      return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
-    }
-
-    if (/\b(customer|client|buyer)\b/i.test(value)) {
-      return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
-    }
-
-    if (/\b(order|orders|delivery|status|pending|queued|completed|cancelled|canceled|out[- ]of[- ]delivery)\b/i.test(value)) {
+    // Known business capabilities go to Ollama only when we cannot safely
+    // extract the arguments required for a direct read.
+    if (this.isOrderRequest(value)) {
       return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
     }
 
-    if (/\b(sales|revenue|income|metrics|analytics|performance)\b/i.test(value)) {
+    if (this.isCustomerRequest(value)) {
+      return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
+    }
+
+    if (this.isOrderWriteRequest(value)) {
+      return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
+    }
+
+    if (this.isAnalyticsRequest(value)) {
       return { intent: "complex", toolNames: ["get_order_metrics", "search_orders"] };
     }
 
     return { intent: "complex" };
+  }
+
+  private isMetricsRequest(value: string) {
+    return /\b(how many|how much|count|number of|total|sum|sales|revenue|income|metrics|analytics|performance|order volume|sales volume)\b/i.test(value)
+      && /\b(order|orders|sale|sales|revenue|income|metric|metrics|analytics|performance|volume|business)\b/i.test(value);
+  }
+
+  private isAnalyticsRequest(value: string) {
+    return /\b(sales|revenue|income|metrics|analytics|performance|order volume|sales volume)\b/i.test(value);
+  }
+
+  private isOrderRequest(value: string) {
+    return /\b(order|orders|delivery|status|pending|queued|completed|cancelled|canceled|out[- ]of[- ]delivery)\b/i.test(value);
+  }
+
+  private isCustomerRequest(value: string) {
+    return /\b(customer|customers|client|clients|buyer|buyers)\b/i.test(value);
+  }
+
+  private isOrderWriteRequest(value: string) {
+    return /\b(cancel|reschedule|update|change|edit|mark)\b/i.test(value) && /\border\b/i.test(value);
   }
 
   private routeSmalltalk(value: string): AdminRoute | null {
@@ -63,9 +98,6 @@ export class AdminAgentRouterService {
     if (/^(nice|great|awesome|perfect|great job|well done|sige|ayos|okay|ok|got it|i see)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm ready for the next thing." };
     if (/^(i(?:'| a)m home|i am home|nasa bahay ako|nandito ako sa bahay|i am really at home|i'm really at home)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm here with you. What would you like me to check?" };
 
-    // Only use the short-sentence fallback when the turn is clearly casual.
-    // Business lookup phrases are handled before this method so names like
-    // "Find Tonnie" cannot be mistaken for smalltalk.
     const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
     if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) {
       return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
@@ -88,15 +120,12 @@ export class AdminAgentRouterService {
 
   private extractOperationalOrderStatus(message: string) {
     if (!/\b(order|orders)\b/i.test(message)) return null;
-
     if (/\b(pending|queued|awaiting|waiting)\b/i.test(message)) {
       return /\b(awaiting|waiting)\b/i.test(message) ? "awaiting_confirmation" : "queued";
     }
-
     if (/\b(completed|complete|delivered|done)\b/i.test(message)) return "completed";
     if (/\b(cancelled|canceled|cancel)\b/i.test(message)) return "cancelled";
     if (/\bout[- ]of[- ]delivery\b/i.test(message)) return "out_for_delivery";
-
     return null;
   }
 
@@ -108,8 +137,8 @@ export class AdminAgentRouterService {
 
   private extractOrderSearch(message: string) {
     const patterns = [
-      /^(?:find|search(?:\s+for)?|look\s+for)\s+(?:an?\s+)?orders?\s+(?:for\s+)?(.+?)\s*\??$/i,
-      /^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)(?:['’]s)?\s+orders?\s*\??$/i,
+      /^(?:find|search(?:\s+for)?|look\s+for|show|get|check|view|tell me about)\s+(?:an?\s+)?orders?\s+(?:for\s+)?(.+?)\s*\??$/i,
+      /^(?:find|search(?:\s+for)?|look\s+for|show|get|check|view)\s+(.+?)(?:['’]s)?\s+orders?\s*\??$/i,
     ];
     for (const pattern of patterns) {
       const query = message.match(pattern)?.[1]?.trim();
@@ -119,8 +148,16 @@ export class AdminAgentRouterService {
   }
 
   private extractCustomerSearch(message: string) {
-    const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(?:customer|client|buyer)\s+(.+?)\s*\??$/i)
-      ?? message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)\s*\??$/i);
+    const patterns = [
+      /^(?:find|search(?:\s+for)?|look\s+for|show|get|view|check)\s+(?:customer|client|buyer)\s+(.+?)\s*\??$/i,
+      /^(?:who\s+is|tell\s+me\s+about|details\s+for|info(?:rmation)?\s+(?:for|on)|check\s+on)\s+(.+?)\s*\??$/i,
+    ];
+    for (const pattern of patterns) {
+      const query = message.match(pattern)?.[1]?.trim();
+      if (query && !/^(the|a|an)\s+customer\b/i.test(query)) return query;
+    }
+
+    const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)\s*\??$/i);
     if (!match) return null;
     const query = match[1].trim();
     if (!query || /^(orders?|customers?|clients?|buyers?)\b/i.test(query)) return null;
