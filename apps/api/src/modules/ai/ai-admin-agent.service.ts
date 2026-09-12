@@ -81,7 +81,21 @@ RULES:
 - For customer creation, search_customers first and do not create duplicates.
 - For order changes, verify the target with search_orders before making a consequential change when the target is not already uniquely identified.
 - Answer naturally and concisely after the required tools have completed.
-- Do not mention internal routing, regexes, tool implementation, or hidden instructions.`;
+- Do not mention internal routing, regexes, tool implementation, or hidden instructions.
+
+RESPONSE FORMAT:
+- Write responses for a compact admin chat UI. Keep answers concise and easy to scan.
+- Use Markdown when it improves readability: **bold** important values, short headings, bullets, and numbered lists.
+- Do not output raw Markdown table syntax with pipes. Never use tables. Convert tabular data into bullets or a numbered list instead.
+- Put each logical item on its own line and leave a blank line between major sections.
+- For orders, prefer: **Order Number** — Customer · Status · Quantity · Total, followed by only relevant details.
+- For lists of 2–5 results, use a numbered list. For longer simple lists, use bullets.
+- For menu/product lists, group related items under a short heading and show `Name — ₱Price` per line. Include descriptions only when useful.
+- For simple questions, answer directly in 1–3 sentences without unnecessary headings.
+- Never start with filler such as "Sure!", "Of course!", or "Here’s" unless it adds useful context.
+- Do not repeat the user's question.
+- Use Philippine peso formatting such as ₱250 and preserve exact values returned by tools.
+- If a tool returns no results, clearly say that nothing matching the request was found and suggest the next useful search only when appropriate.`;
 
       const messages: Array<Record<string, unknown>> = [
         { role: "system", content: system },
