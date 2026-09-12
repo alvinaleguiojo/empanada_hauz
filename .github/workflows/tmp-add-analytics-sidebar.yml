@@ -1,0 +1,33 @@
+name: Temporary add analytics sidebar
+
+on:
+  push:
+    branches:
+      - feat/add-analytics-sidebar
+
+permissions:
+  contents: write
+
+jobs:
+  update-sidebar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add Analytics navigation item
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/src/components/layout/app-shell.tsx')
+          text = path.read_text()
+          text = text.replace('Bell, ChevronLeft, ClipboardList,', 'BarChart3, Bell, ChevronLeft, ClipboardList,')
+          text = text.replace('  { href: "/documents", label: "Documents", icon: FileText },\n  { href: "/settings",', '  { href: "/documents", label: "Documents", icon: FileText },\n  { href: "/analytics", label: "Analytics", icon: BarChart3 },\n  { href: "/settings",')
+          path.write_text(text)
+          PY
+      - name: Commit changes and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/components/layout/app-shell.tsx
+          git rm .github/workflows/tmp-add-analytics-sidebar.yml
+          git commit -m "feat(web): add analytics sidebar item"
+          git push
