@@ -9,6 +9,7 @@ export class AiAdminModelService {
   private readonly geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
   private readonly groqBaseUrl = "https://api.groq.com/openai/v1/chat/completions";
   private readonly openAiBaseUrl = "https://api.openai.com/v1/chat/completions";
+  private readonly openRouterBaseUrl = "https://openrouter.ai/api/v1/chat/completions";
   private cachedSettings?: { value: ModelSettings; expiresAt: number };
   private readonly settingsTtlMs = 30_000;
 
@@ -20,6 +21,7 @@ export class AiAdminModelService {
     if (settings.provider === "gemini") return this.chatProvider(body, this.geminiBaseUrl, "GEMINI_API_KEY", "Gemini");
     if (settings.provider === "groq") return this.chatProvider(body, this.groqBaseUrl, "GROQ_API_KEY", "Groq");
     if (settings.provider === "openai") return this.chatProvider(body, this.openAiBaseUrl, "OPENAI_API_KEY", "OpenAI");
+    if (settings.provider === "openrouter") return this.chatOpenRouter(body);
     return this.chatOllama(body);
   }
 
@@ -57,6 +59,25 @@ export class AiAdminModelService {
     const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify(body) });
     const text = await response.text();
     if (!response.ok) throw new Error(`${provider} admin agent request failed: ${response.status} ${text}`);
+    const parsed = JSON.parse(text) as { choices?: Array<{ message?: unknown }> };
+    return parsed.choices?.[0]?.message ?? { content: "" };
+  }
+
+  private async chatOpenRouter(body: Record<string, unknown>) {
+    const key = this.config.get<string>("OPENROUTER_API_KEY")?.trim();
+    if (!key) throw new Error("OpenRouter API key is not configured on the server.");
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "application/json",
+      authorization: `Bearer ${key}`
+    };
+    const referer = this.config.get<string>("OPENROUTER_HTTP_REFERER")?.trim();
+    const title = this.config.get<string>("OPENROUTER_APP_NAME")?.trim();
+    if (referer) headers["HTTP-Referer"] = referer;
+    if (title) headers["X-Title"] = title;
+    const response = await fetch(this.openRouterBaseUrl, { method: "POST", headers, body: JSON.stringify(body) });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`OpenRouter admin agent request failed: ${response.status} ${text}`);
     const parsed = JSON.parse(text) as { choices?: Array<{ message?: unknown }> };
     return parsed.choices?.[0]?.message ?? { content: "" };
   }
