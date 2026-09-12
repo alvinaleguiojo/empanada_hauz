@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 
@@ -38,6 +38,42 @@ export class CustomersService {
       },
       orderBy: [{ isVip: "desc" }, { totalSpent: "desc" }, { name: "asc" }],
       take: safeLimit
+    });
+  }
+
+  async createCustomer(input: { name?: string; phoneNumber?: string; defaultAddress?: string }) {
+    const name = input.name?.trim();
+    const phoneNumber = input.phoneNumber?.trim() || undefined;
+    const defaultAddress = input.defaultAddress?.trim() || undefined;
+
+    if (!name) throw new BadRequestException("Customer name is required.");
+    if (name.length > 120) throw new BadRequestException("Customer name is too long.");
+    if (phoneNumber && phoneNumber.length > 30) throw new BadRequestException("Customer phone number is too long.");
+    if (defaultAddress && defaultAddress.length > 500) throw new BadRequestException("Customer address is too long.");
+
+    if (phoneNumber) {
+      const existingByPhone = await this.prisma.customer.findFirst({
+        where: { phoneNumber },
+        select: { id: true, name: true, phoneNumber: true }
+      });
+      if (existingByPhone) throw new BadRequestException(`A customer already exists with phone number ${phoneNumber}.`);
+    }
+
+    return this.prisma.customer.create({
+      data: {
+        name,
+        ...(phoneNumber ? { phoneNumber } : {}),
+        ...(defaultAddress ? { defaultAddress } : {})
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        defaultAddress: true,
+        totalOrders: true,
+        totalSpent: true,
+        isVip: true
+      }
     });
   }
 
