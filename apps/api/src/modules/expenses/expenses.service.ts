@@ -62,6 +62,42 @@ export class ExpensesService {
     };
   }
 
+  async summary(query: ListExpensesDto) {
+    const range = getExpenseRange(query);
+    const where = {
+      expenseDate: {
+        gte: range.start,
+        lt: range.end
+      }
+    };
+
+    const [total, categoryTotals, transactionCount] = await Promise.all([
+      this.prisma.expense.aggregate({ where, _sum: { amount: true } }),
+      this.prisma.expense.groupBy({
+        by: ["category"],
+        where,
+        _sum: { amount: true },
+        _count: { _all: true },
+        orderBy: { _sum: { amount: "desc" } }
+      }),
+      this.prisma.expense.count({ where })
+    ]);
+
+    return {
+      total: Number(total._sum.amount ?? 0),
+      transactionCount,
+      categoryTotals: categoryTotals.map((item) => ({
+        category: item.category,
+        total: Number(item._sum.amount ?? 0),
+        transactionCount: item._count._all
+      })),
+      range: {
+        startDate: toDateInputValue(range.start),
+        endDate: toDateInputValue(addDays(range.end, -1))
+      }
+    };
+  }
+
   create(dto: CreateExpenseDto) {
     const category = dto.category.trim();
     const name = dto.name.trim();

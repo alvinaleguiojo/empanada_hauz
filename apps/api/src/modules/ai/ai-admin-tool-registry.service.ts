@@ -5,10 +5,11 @@ import { AiAdminActionStateService } from "./ai-admin-action-state.service";
 import { AiToolDefinition } from "./ai-tool.types";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 import { CustomersService } from "../customers/customers.service";
+import { ExpensesService } from "../expenses/expenses.service";
 
 export interface AdminToolContext { adminId: string; conversationId: string; message: string; }
 
-const ADMIN_OWNED_TOOLS = new Set(["capture_order_draft", "clear_order_draft", "create_order", "update_order", "cancel_order", "create_customer", "get_order_metrics", "search_customers", "search_orders"]);
+const ADMIN_OWNED_TOOLS = new Set(["capture_order_draft", "clear_order_draft", "create_order", "update_order", "cancel_order", "create_customer", "get_order_metrics", "search_customers", "search_orders", "get_expenses", "get_expense_summary"]);
 
 @Injectable()
 export class AiAdminToolRegistryService {
@@ -17,7 +18,8 @@ export class AiAdminToolRegistryService {
     private readonly analyticsTools: AiAdminAnalyticsToolsService,
     private readonly actionState: AiAdminActionStateService,
     private readonly registry: AiToolRegistryService,
-    private readonly customersService: CustomersService
+    private readonly customersService: CustomersService,
+    private readonly expensesService: ExpensesService
   ) {}
 
   async getTools(): Promise<AiToolDefinition[]> {
@@ -26,6 +28,8 @@ export class AiAdminToolRegistryService {
     return [
       ...genericTools,
       { name: "get_order_metrics", description: "Read order metrics for today, this week, or this month.", risk: "read", inputSchema: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false } },
+      { name: "get_expenses", description: "Read the business expense ledger for a requested date range. Returns individual expenses, the range total, today's total, month-to-date total, and totals grouped by category. Use this whenever the administrator asks to review, list, inspect, or analyze recorded business expenses.", risk: "read", inputSchema: { type: "object", properties: { startDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to today." }, endDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to startDate." } }, additionalProperties: false } },
+      { name: "get_expense_summary", description: "Read an aggregated business expense summary for a requested date range without returning every ledger row. Returns total spend, transaction count, and totals by category. Use this for questions about total spending, category breakdowns, biggest expense categories, or comparing spending periods.", risk: "read", inputSchema: { type: "object", properties: { startDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to today." }, endDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to startDate." } }, additionalProperties: false } },
       { name: "search_customers", description: "Find customer records by name, phone number, or Messenger identifier. Use this for customer identification before using a customer id.", risk: "read", inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false } },
       { name: "search_orders", description: "Find orders by order number, customer, phone number, location, date, or status.", risk: "read", inputSchema: { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false } },
       { name: "create_customer", description: "Create a customer after search_customers finds no matching record and the administrator explicitly confirms the exact details.", risk: "write", requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { name: { type: "string" }, phoneNumber: { type: "string" }, defaultAddress: { type: "string" }, confirmed: { type: "boolean" } }, required: ["name", "confirmed"], additionalProperties: false } },
@@ -37,6 +41,8 @@ export class AiAdminToolRegistryService {
 
   async execute(name: string, args: Record<string, unknown>, context: AdminToolContext) {
     if (name === "get_order_metrics") return this.analyticsTools.getOrderMetrics(args.range === "week" || args.range === "month" ? args.range : "today");
+    if (name === "get_expenses") return this.expensesService.list({ startDate: optionalString(args.startDate), endDate: optionalString(args.endDate) });
+    if (name === "get_expense_summary") return this.expensesService.summary({ startDate: optionalString(args.startDate), endDate: optionalString(args.endDate) });
     if (name === "search_customers") return this.analyticsTools.searchCustomers(String(args.query ?? ""), Number(args.limit ?? 10));
     if (name === "search_orders") return this.analyticsTools.searchOrders(typeof args.query === "string" ? args.query : undefined, typeof args.date === "string" ? args.date : undefined, typeof args.status === "string" ? args.status : undefined, Number(args.limit ?? 20));
 
@@ -82,6 +88,10 @@ export class AiAdminToolRegistryService {
       default: return this.registry.execute(name, { ...args, confirmed: true }, { customerId: String(args.customerId ?? "admin"), conversationId: context.conversationId, channel: "admin" });
     }
   }
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function isExplicitConfirmation(message: string) { return /^(yes|yeah|yep|ok|okay|sure|confirm|confirmed|approve|approved|go ahead|do it|proceed|please do|please proceed)([.!\s]|$)/i.test(message.trim()); }

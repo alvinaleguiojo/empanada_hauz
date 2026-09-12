@@ -2,6 +2,7 @@ import { forwardRef, Module } from "@nestjs/common";
 import { DeliveryNetworkModule } from "../delivery-network/delivery-network.module";
 import { DatabaseModule } from "../../database/database.module";
 import { CustomersModule } from "../customers/customers.module";
+import { ExpensesModule } from "../expenses/expenses.module";
 import { McpModule } from "../mcp/mcp.module";
 import { AiInstructionsModule } from "../ai-instructions/ai-instructions.module";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
@@ -28,7 +29,7 @@ import { AdminAiPerformanceService } from "./admin-agent/admin-ai-performance.se
 import { AdminAiPerformanceController } from "./admin-agent/admin-ai-performance.controller";
 
 @Module({
-  imports: [DatabaseModule, CustomersModule, DeliveryNetworkModule, forwardRef(() => McpModule), AiInstructionsModule, ProductsModule],
+  imports: [DatabaseModule, CustomersModule, ExpensesModule, DeliveryNetworkModule, forwardRef(() => McpModule), AiInstructionsModule, ProductsModule],
   controllers: [AiActionsController, AiPublicAgentController, AiAdminAgentController, AdminAiPerformanceController],
   providers: [
     AiApplicationToolsService,
