@@ -6,9 +6,6 @@ export class AdminAgentRouterService {
   route(message: string): AdminRoute {
     const value = message.trim();
 
-    const smalltalk = this.routeSmalltalk(value);
-    if (smalltalk) return smalltalk;
-
     if (this.isConfirmation(value)) return { intent: "confirmation" };
 
     const operationalStatus = this.extractOperationalOrderStatus(value);
@@ -24,6 +21,9 @@ export class AdminAgentRouterService {
 
     const customer = this.extractCustomerSearch(value);
     if (customer) return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
+
+    const smalltalk = this.routeSmalltalk(value);
+    if (smalltalk) return smalltalk;
 
     if (/\b(how many|count|number of|orders|sales|revenue|income|metrics|analytics|performance)\b/i.test(value) && /\b(today|this week|this month|week|month)\b/i.test(value)) {
       return { intent: "metrics", toolNames: ["get_order_metrics", "search_orders"] };
@@ -63,8 +63,9 @@ export class AdminAgentRouterService {
     if (/^(nice|great|awesome|perfect|great job|well done|sige|ayos|okay|ok|got it|i see)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm ready for the next thing." };
     if (/^(i(?:'| a)m home|i am home|nasa bahay ako|nandito ako sa bahay|i am really at home|i'm really at home)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm here with you. What would you like me to check?" };
 
-    // Voice conversations often produce a short casual sentence that is not an exact greeting.
-    // Keep those turns off the slow Ollama/tool loop unless they clearly mention business data.
+    // Only use the short-sentence fallback when the turn is clearly casual.
+    // Business lookup phrases are handled before this method so names like
+    // "Find Tonnie" cannot be mistaken for smalltalk.
     const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
     if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) {
       return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
