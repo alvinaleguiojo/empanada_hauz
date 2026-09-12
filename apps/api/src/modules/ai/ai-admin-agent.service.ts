@@ -4,6 +4,7 @@ import { AiAdminModelService } from "./ai-admin-model.service";
 import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service";
 import { AiAdminActionStateService } from "./ai-admin-action-state.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
+import { CustomersService } from "../customers/customers.service";
 
 interface AdminAgentRequest {
   message: string;
@@ -20,6 +21,7 @@ export class AiAdminAgentService {
     private readonly analyticsTools: AiAdminAnalyticsToolsService,
     private readonly actionState: AiAdminActionStateService,
     private readonly registry: AiToolRegistryService,
+    private readonly customersService: CustomersService,
     private readonly aiModel: AiAdminModelService
   ) {}
 
@@ -49,6 +51,7 @@ export class AiAdminAgentService {
     const tools = registryTools.filter((tool) => !tool.requiresCustomerContext && tool.name !== "get_current_datetime" && tool.name !== "delete_order").map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } }));
     tools.push(...this.applicationToolDefinitions());
     tools.push(...this.adminReadToolDefinitions());
+    tools.push(this.createCustomerToolDefinition());
 
     const system = `You are the private Empanada Hauz Admin AI Agent. You assist an authenticated administrator, not a customer.
 
@@ -62,6 +65,13 @@ GROUNDING RULES:
 - Never claim that records were found or that none were found unless a tool actually returned that result.
 - If the available tools cannot retrieve the requested information, say so clearly.
 - Never guess customerId, order id, or order number. Use an identifier explicitly provided by the administrator or returned by a search tool.
+
+CUSTOMER CREATION:
+- When an administrator asks to create a new customer, first use search_customers with the provided name and/or phone number.
+- Only use create_customer after the search shows that no matching customer exists.
+- Before creating, present the exact customer details that will be stored and ask for explicit confirmation.
+- Never use create_customer with confirmed=true unless the administrator has explicitly confirmed the exact pending creation.
+- If a phone number already belongs to a customer, do not create a duplicate; use the existing customer record.
 
 WRITE SAFETY:
 - Read actions may execute normally.
@@ -123,7 +133,7 @@ TOOL USE:
       throw new BadRequestException("The pending admin action is invalid. Please repeat the action.");
     }
 
-    const result = await executePendingWrite(pending.action, pending.arguments, this.applicationTools, this.analyticsTools, this.registry);
+    const result = await executePendingWrite(pending.action, pending.arguments, this.applicationTools, this.analyticsTools, this.registry, this.customersService);
     await this.actionState.clear(adminId, conversationId);
     return {
       reply: formatConfirmedWriteReply(pending.action, result),
@@ -153,6 +163,10 @@ TOOL USE:
     ];
   }
 
+  private createCustomerToolDefinition() {
+    return { type: "function", function: { name: "create_customer", description: "Create a new customer record only after no existing customer matches and the administrator explicitly confirms the exact details.", parameters: { type: "object", properties: { name: { type: "string" }, phoneNumber: { type: "string" }, defaultAddress: { type: "string" }, confirmed: { type: "boolean" } }, required: ["name", "confirmed"], additionalProperties: false } } };
+  }
+
   private async executeTool(name: string, args: Record<string, unknown>, currentMessage: string, adminId: string, conversationId: string, registryToolMap: Map<string, any>, executedWrites: Set<string>) {
     if (name === "get_order_metrics") {
       const range = args.range === "week" || args.range === "month" ? args.range : "today";
@@ -160,6 +174,7 @@ TOOL USE:
     }
     if (name === "search_customers") return this.analyticsTools.searchCustomers(String(args.query ?? ""), Number(args.limit ?? 10));
     if (name === "search_orders") return this.analyticsTools.searchOrders(typeof args.query === "string" ? args.query : undefined, typeof args.date === "string" ? args.date : undefined, typeof args.status === "string" ? args.status : undefined, Number(args.limit ?? 20));
+    if (name === "create_customer") return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites);
 
     const applicationNames = new Set<string>(["get_current_datetime", "get_order_summary", "get_my_orders", "create_order", "cancel_order"]);
     if (name === "update_order") return this.executeConfirmedWrite(name, args, currentMessage, adminId, conversationId, executedWrites);
@@ -196,7 +211,7 @@ TOOL USE:
     if (executedWrites.has(executionFingerprint)) return { ok: true, deduplicated: true, message: "This write action was already executed during the current request." };
     executedWrites.add(executionFingerprint);
 
-    const result = await executePendingWrite(name, pending.arguments, this.applicationTools, this.analyticsTools, this.registry);
+    const result = await executePendingWrite(name, pending.arguments, this.applicationTools, this.analyticsTools, this.registry, this.customersService);
     await this.actionState.clear(adminId, conversationId);
     return result;
   }
@@ -225,9 +240,10 @@ TOOL USE:
   }
 }
 
-async function executePendingWrite(name: string, pendingArgs: Record<string, unknown>, applicationTools: AiApplicationToolsService, analyticsTools: AiAdminAnalyticsToolsService, registry: AiToolRegistryService) {
+async function executePendingWrite(name: string, pendingArgs: Record<string, unknown>, applicationTools: AiApplicationToolsService, analyticsTools: AiAdminAnalyticsToolsService, registry: AiToolRegistryService, customersService: CustomersService) {
   const args = { ...pendingArgs, confirmed: true };
   if (name === "update_order") return analyticsTools.updateOrder(pendingArgs);
+  if (name === "create_customer") return customersService.createCustomer(pendingArgs as { name?: string; phoneNumber?: string; defaultAddress?: string });
   const applicationNames = new Set(["create_order", "cancel_order"]);
   if (applicationNames.has(name)) return applicationTools.execute(name as AiApplicationToolName, args);
   return registry.execute(name, args, { customerId: "admin", channel: "admin" });
@@ -236,7 +252,11 @@ async function executePendingWrite(name: string, pendingArgs: Record<string, unk
 function formatConfirmedWriteReply(name: string, result: unknown) {
   if (name === "update_order" && result && typeof result === "object") {
     const order = result as { orderNumber?: string; status?: string };
-    if (order.orderNumber && order.status) return `Order ${order.orderNumber} successfully updated to "${order.status}".`;
+    if (order.orderNumber && order.status) return `Order ${order.orderNumber} successfully updated to \"${order.status}\".`;
+  }
+  if (name === "create_customer" && result && typeof result === "object") {
+    const customer = result as { id?: string; name?: string; phoneNumber?: string | null };
+    if (customer.id && customer.name) return `Customer ${customer.name} was created successfully${customer.phoneNumber ? ` (${customer.phoneNumber})` : ""}. Customer ID: ${customer.id}.`;
   }
   return `${formatPendingAction(name)} successfully executed.`;
 }
@@ -245,6 +265,7 @@ function formatPendingAction(name: string) {
   if (name === "update_order") return "order update";
   if (name === "create_order") return "order creation";
   if (name === "cancel_order") return "order cancellation";
+  if (name === "create_customer") return "customer creation";
   return name.replace(/_/g, " ");
 }
 
