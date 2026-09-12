@@ -3,14 +3,14 @@ import { ConfigService } from "@nestjs/config";
 import { AiConversationStateService } from "./ai-conversation-state.service";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
-import { ProductsService } from "../products/products.service";
+import { AiAgentOrchestratorService } from "./ai-agent-orchestrator.service";
 import { AiRuntimeService } from "./ai-runtime.service";
 import { AiControlService } from "./ai-control.service";
 
 export type AiModelProvider = "ollama" | "gemini" | "groq" | "openai" | "openrouter";
 export type AiModelSettings = { provider: AiModelProvider; model: string };
 export type GeneratedProduct = { name: string; description: string; category: string; price: number; aliases: string[]; tags: string[]; isFeatured: boolean; isNew: boolean };
-type RuntimeChat = (body: Record<string, unknown>) => Promise<unknown>;
+type RuntimeChat = (body: Record<string, unknown>, tools?: Array<Record<string, unknown>>) => Promise<unknown>;
 type ProviderChoice = { message?: { content?: string | null; tool_calls?: Array<{ type?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }> } };
 type ProviderResponse = { choices?: ProviderChoice[] };
 
@@ -23,17 +23,17 @@ export class AiModelService {
 
   constructor(private readonly config: ConfigService, private readonly aiControl: AiControlService) {}
 
-  createRuntime(stateService: AiConversationStateService, toolRegistry: AiToolRegistryService, instructionsService: AiInstructionsService, productsService: ProductsService) {
-    const runtime = new AiRuntimeService(this.config, stateService, toolRegistry, instructionsService, productsService);
+  createRuntime(stateService: AiConversationStateService, toolRegistry: AiToolRegistryService, instructionsService: AiInstructionsService, orchestrator: AiAgentOrchestratorService) {
+    const runtime = new AiRuntimeService(this.config, stateService, toolRegistry, instructionsService, orchestrator);
     const runtimeWithChat = runtime as unknown as { chat: RuntimeChat };
     const ollamaChat = runtimeWithChat.chat.bind(runtime);
-    runtimeWithChat.chat = async (body) => {
+    runtimeWithChat.chat = async (body, tools) => {
       const settings = await this.aiControl.getGlobalModelSettings();
       if (settings.provider === "gemini") return this.chatProvider(body, settings.model, "GEMINI_API_KEY", this.geminiBaseUrl, "Gemini");
       if (settings.provider === "groq") return this.chatProvider(body, settings.model, "GROQ_API_KEY", this.groqBaseUrl, "Groq");
       if (settings.provider === "openai") return this.chatOpenAi(body, settings.model);
       if (settings.provider === "openrouter") return this.chatOpenRouter(body, settings.model);
-      return ollamaChat(body);
+      return ollamaChat(body, tools);
     };
     return runtime;
   }
@@ -136,7 +136,7 @@ export class AiModelService {
     if (typeof options.temperature === "number") payload.temperature = options.temperature;
     if (typeof options.num_predict === "number") payload.max_tokens = options.num_predict;
     if (body.format === "json") payload.response_format = { type: "json_object" };
-    const response = await fetch(this.openRouterBaseUrl, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey}`, "HTTP-Referer": this.config.get<string>("OPENROUTER_SITE_URL") ?? "https://www.empanadahauz.com", "X-Title": this.config.get<string>("OPENROUTER_APP_NAME") ?? "Empanada Hauz Admin AI" }, body: JSON.stringify(payload) });
+    const response = await fetch(this.openRouterBaseUrl, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${apiKey}`, "HTTP-Referer": this.config.get<string>("OPENROUTER_SITE_URL") ?? "https://www.empanadahauz.com", "X-Title": this.config.get<string>("OPENROUTER_APP_NAME") ?? "Empanada Hauz AI" }, body: JSON.stringify(payload) });
     const responseBody = await response.text();
     if (!response.ok) throw new Error(`OpenRouter runtime request failed: ${response.status} ${responseBody}`);
     const parsed = JSON.parse(responseBody) as ProviderResponse; const message = parsed.choices?.[0]?.message;
