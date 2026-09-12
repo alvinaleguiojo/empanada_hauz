@@ -65,6 +65,7 @@ export function FloatingAiAgent() {
     if (!trimmed) return { reply: "", fastLane: false };
 
     const history = messages.slice(-12);
+    console.info("[Admin AI voice] Sending transcript to agent:", trimmed);
     setMessages((current) => [...current, { role: "user", content: trimmed }]);
     setInput("");
     setLoading(true);
@@ -75,6 +76,7 @@ export function FloatingAiAgent() {
         method: "POST",
         body: JSON.stringify({ message: trimmed, history })
       });
+      console.info("[Admin AI voice] Agent reply received:", result.reply);
       setMessages((current) => [...current, { role: "assistant", content: result.reply }]);
       return { reply: result.reply, fastLane: result.fastLane === true };
     } catch (err) {
@@ -224,7 +226,6 @@ export function FloatingAiAgent() {
 
     if (!voiceModeRef.current) return;
 
-    // Keep the agent audible even when local Cebuano TTS is still loading or unavailable.
     const browserSpoke = await speakInstantReply(text);
     if (browserSpoke) return;
 
@@ -241,6 +242,7 @@ export function FloatingAiAgent() {
     setVoiceState("transcribing");
     setLoading(true);
     setError("");
+    console.info("[Admin AI voice] Transcribing recording:", { bytes: blob.size, type: blob.type });
 
     try {
       const formData = new FormData();
@@ -251,10 +253,15 @@ export function FloatingAiAgent() {
         body: formData
       });
       const transcript = (result.text ?? result.transcript ?? "").trim();
+      console.info("[Admin AI voice] Transcript received:", transcript || "<empty>");
       setLoading(false);
 
-      if (!transcript || !voiceModeRef.current) {
-        if (voiceModeRef.current) setVoiceState("listening");
+      if (!voiceModeRef.current) return;
+
+      if (!transcript) {
+        setError("I didn't catch that. Please speak again.");
+        setVoiceState("listening");
+        beginRecordingCycle();
         return;
       }
 
@@ -409,7 +416,6 @@ export function FloatingAiAgent() {
       setVoiceState("listening");
       setLoading(false);
 
-      // Load the Cebuano voice while the user is speaking their first turn.
       void apiFetch<{ ok?: boolean }>("/tts/warmup", { method: "POST" }).catch(() => {
         // Playback has a browser-speech fallback if the local model is unavailable.
       });
@@ -498,7 +504,7 @@ export function FloatingAiAgent() {
                 <button type="submit" disabled={!input.trim() || loading || voiceMode} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition hover:brightness-110 disabled:opacity-50" aria-label="Send message"><Send size={16} /></button>
               </div>
             </div>
-            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · Cebuano TTS with browser voice fallback" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
+            <p className="mt-1.5 px-1 text-[10px] text-foreground/30">{voiceMode ? "Continuous voice mode · pauses trigger messages · Cebuano TTS responses · automatically listens again" : "Enter to send · Shift+Enter for a new line · Mic to speak continuously"}</p>
           </form>
         </div>
       ) : null}
