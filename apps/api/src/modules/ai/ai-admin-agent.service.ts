@@ -5,6 +5,7 @@ import { AiAdminAnalyticsToolsService } from "./ai-admin-analytics-tools.service
 import { AiAdminActionStateService } from "./ai-admin-action-state.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 import { CustomersService } from "../customers/customers.service";
+import { AdminAiPerformanceService } from "./admin-agent/admin-ai-performance.service";
 
 interface AdminAgentRequest {
   message: string;
@@ -23,47 +24,50 @@ export class AiAdminAgentService {
     private readonly actionState: AiAdminActionStateService,
     private readonly registry: AiToolRegistryService,
     private readonly customersService: CustomersService,
-    private readonly aiModel: AiAdminModelService
+    private readonly aiModel: AiAdminModelService,
+    private readonly performance: AdminAiPerformanceService
   ) {}
 
   async process(request: AdminAgentRequest) {
     const message = request.message?.trim();
     if (!message) throw new BadRequestException("A message is required.");
+    const perf = this.performance.start(request.adminId);
 
-    const pending = await this.actionState.get(request.adminId, request.conversationId);
-    if (pending && isExplicitRejection(message)) {
-      await this.actionState.clear(request.adminId, request.conversationId);
-      return { reply: "The pending admin action was cancelled.", snapshotAt: new Date().toISOString() };
-    }
-    if (pending && isExplicitConfirmation(message)) {
-      const expected = `${pending.action}:${stableArguments(pending.arguments)}`;
-      if (pending.fingerprint !== expected) {
+    try {
+      const pending = await this.actionState.get(request.adminId, request.conversationId);
+      if (pending && isExplicitRejection(message)) {
         await this.actionState.clear(request.adminId, request.conversationId);
-        throw new BadRequestException("The pending admin action is invalid. Please repeat the action.");
+        return { reply: "The pending admin action was cancelled.", snapshotAt: new Date().toISOString() };
       }
-      const result = await this.executePendingWrite(pending.action, pending.arguments, request);
-      await this.actionState.clear(request.adminId, request.conversationId);
-      return { reply: `Confirmed. ${formatWriteResult(pending.action, result)}`, snapshotAt: new Date().toISOString(), data: result };
-    }
+      if (pending && isExplicitConfirmation(message)) {
+        const expected = `${pending.action}:${stableArguments(pending.arguments)}`;
+        if (pending.fingerprint !== expected) {
+          await this.actionState.clear(request.adminId, request.conversationId);
+          throw new BadRequestException("The pending admin action is invalid. Please repeat the action.");
+        }
+        const result = await this.executePendingWrite(pending.action, pending.arguments, request);
+        await this.actionState.clear(request.adminId, request.conversationId);
+        return { reply: `Confirmed. ${formatWriteResult(pending.action, result)}`, snapshotAt: new Date().toISOString(), data: result };
+      }
 
-    const registryTools = await this.registry.getTools();
-    const toolMap = new Map(registryTools.map((tool) => [tool.name, tool]));
-    const tools = [
-      ...registryTools.filter((tool) => !tool.requiresCustomerContext).map((tool) => modelTool(tool.name, tool.description, tool.inputSchema)),
-      modelTool("get_order_metrics", "Read order metrics for today, this week, or this month.", { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false }),
-      modelTool("search_customers", "Find customer records by name, phone number, or Messenger identifier. Use this for any customer lookup.", { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false }),
-      modelTool("search_orders", "Find orders by order number, customer, phone number, location, date, or status.", { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false }),
-      modelTool("get_current_datetime", "Read the current date and time in Asia/Manila. Use for relative dates and schedules.", { type: "object", properties: {}, additionalProperties: false }),
-      modelTool("get_order_summary", "Read a specific order using a verified order id or order number.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }),
-      modelTool("get_my_orders", "Read recent orders for a verified customer id.", { type: "object", properties: { customerId: { type: "string" }, limit: { type: "number" } }, required: ["customerId"], additionalProperties: false }),
-      modelTool("check_order_status", "Read the current status of a specific order.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }),
-      modelTool("create_customer", "Create a customer only after search_customers finds no matching record and the administrator explicitly confirms the exact details.", { type: "object", properties: { name: { type: "string" }, phoneNumber: { type: "string" }, defaultAddress: { type: "string" }, confirmed: { type: "boolean" } }, required: ["name", "confirmed"], additionalProperties: false }),
-      modelTool("create_order", "Create a real order only after all required checkout information is known and the administrator explicitly confirms it.", { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false }),
-      modelTool("update_order", "Update an existing order by verified order id or order number. Requires confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }),
-      modelTool("cancel_order", "Cancel an order only after confirmation and verification of its id or order number.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false })
-    ];
+      const registryTools = await this.registry.getTools();
+      const toolMap = new Map(registryTools.map((tool) => [tool.name, tool]));
+      const tools = [
+        ...registryTools.filter((tool) => !tool.requiresCustomerContext).map((tool) => modelTool(tool.name, tool.description, tool.inputSchema)),
+        modelTool("get_order_metrics", "Read order metrics for today, this week, or this month.", { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false }),
+        modelTool("search_customers", "Find customer records by name, phone number, or Messenger identifier. Use this for any customer lookup.", { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"], additionalProperties: false }),
+        modelTool("search_orders", "Find orders by order number, customer, phone number, location, date, or status.", { type: "object", properties: { query: { type: "string" }, date: { type: "string" }, status: { type: "string" }, limit: { type: "number" } }, additionalProperties: false }),
+        modelTool("get_current_datetime", "Read the current date and time in Asia/Manila. Use for relative dates and schedules.", { type: "object", properties: {}, additionalProperties: false }),
+        modelTool("get_order_summary", "Read a specific order using a verified order id or order number.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }),
+        modelTool("get_my_orders", "Read recent orders for a verified customer id.", { type: "object", properties: { customerId: { type: "string" }, limit: { type: "number" } }, required: ["customerId"], additionalProperties: false }),
+        modelTool("check_order_status", "Read the current status of a specific order.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" } }, additionalProperties: false }),
+        modelTool("create_customer", "Create a customer only after search_customers finds no matching record and the administrator explicitly confirms the exact details.", { type: "object", properties: { name: { type: "string" }, phoneNumber: { type: "string" }, defaultAddress: { type: "string" }, confirmed: { type: "boolean" } }, required: ["name", "confirmed"], additionalProperties: false }),
+        modelTool("create_order", "Create a real order only after all required checkout information is known and the administrator explicitly confirms it.", { type: "object", properties: { customerId: { type: "string" }, customerName: { type: "string" }, phoneNumber: { type: "string" }, quantity: { type: "number" }, deliveryMethod: { type: "string" }, paymentMethod: { type: "string" }, location: { type: "string" }, address: { type: "string" }, preferredSchedule: { type: "string" }, items: { type: "array" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, required: ["customerName", "quantity", "deliveryMethod", "paymentMethod", "items", "confirmed"], additionalProperties: false }),
+        modelTool("update_order", "Update an existing order by verified order id or order number. Requires confirmation.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, status: { type: "string" }, preferredSchedule: { type: "string" }, notes: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false }),
+        modelTool("cancel_order", "Cancel an order only after confirmation and verification of its id or order number.", { type: "object", properties: { customerId: { type: "string" }, orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false })
+      ];
 
-    const system = `You are the Empanada Hauz Admin AI Agent. You are the reasoning brain for an authenticated administrator.
+      const system = `You are the Empanada Hauz Admin AI Agent. You are the reasoning brain for an authenticated administrator.
 
 The application provides tools as capabilities. Decide yourself whether a tool is needed, which tool is appropriate, what arguments it needs, and whether another tool is needed after seeing a result. Do not rely on keywords, intent labels, routing rules, or fixed user phrasing.
 
@@ -79,31 +83,40 @@ RULES:
 - Answer naturally and concisely after the required tools have completed.
 - Do not mention internal routing, regexes, tool implementation, or hidden instructions.`;
 
-    const messages: Array<Record<string, unknown>> = [
-      { role: "system", content: system },
-      ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })),
-      { role: "user", content: message }
-    ];
+      const messages: Array<Record<string, unknown>> = [
+        { role: "system", content: system },
+        ...(request.history ?? []).slice(-12).map((item) => ({ role: item.role, content: item.content })),
+        { role: "user", content: message }
+      ];
 
-    for (let step = 0; step < 8; step += 1) {
-      const response = await this.aiModel.chat(messages, tools);
-      const content = readContent(response);
-      const calls = readToolCalls(response);
-      if (!calls.length) return { reply: content || "I couldn't produce a response.", snapshotAt: new Date().toISOString() };
+      for (let step = 0; step < 8; step += 1) {
+        perf.iterations += 1;
+        const llmStarted = process.hrtime.bigint();
+        const response = await this.aiModel.chat(messages, tools);
+        this.performance.recordLlm(perf, Number(process.hrtime.bigint() - llmStarted) / 1_000_000);
+        const content = readContent(response);
+        const calls = readToolCalls(response);
+        if (!calls.length) return { reply: content || "I couldn't produce a response.", snapshotAt: new Date().toISOString() };
 
-      messages.push({ role: "assistant", content, tool_calls: calls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
-      for (const call of calls) {
-        try {
-          if (call.parseError) throw new BadRequestException(call.parseError);
-          const result = await this.executeTool(call.name, call.arguments, request, toolMap);
-          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
-        } catch (error) {
-          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Tool execution failed." }) });
+        messages.push({ role: "assistant", content, tool_calls: calls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
+        for (const call of calls) {
+          const toolStarted = process.hrtime.bigint();
+          try {
+            if (call.parseError) throw new BadRequestException(call.parseError);
+            const result = await this.executeTool(call.name, call.arguments, request, toolMap);
+            this.performance.recordTool(perf, call.name, Number(process.hrtime.bigint() - toolStarted) / 1_000_000);
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+          } catch (error) {
+            this.performance.recordTool(perf, call.name, Number(process.hrtime.bigint() - toolStarted) / 1_000_000);
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Tool execution failed." }) });
+          }
         }
       }
-    }
 
-    return { reply: "I reached the tool execution limit before completing that request.", snapshotAt: new Date().toISOString() };
+      return { reply: "I reached the tool execution limit before completing that request.", snapshotAt: new Date().toISOString() };
+    } finally {
+      this.performance.finish(perf);
+    }
   }
 
   private async executeTool(name: string, args: Record<string, unknown>, request: AdminAgentRequest, toolMap: Map<string, any>) {
