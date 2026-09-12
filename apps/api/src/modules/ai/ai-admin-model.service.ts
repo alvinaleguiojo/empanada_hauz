@@ -37,7 +37,8 @@ export class AiAdminModelService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs);
     try {
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(body) });
+      const requestBody = { ...body, think: false, options: { temperature: 0, num_ctx: 4096 } };
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(requestBody) });
       const text = await response.text();
       if (!response.ok) throw new Error(`Ollama admin agent request failed: ${response.status} ${text}`);
       const parsed = JSON.parse(text) as { choices?: Array<{ message?: unknown }> };
