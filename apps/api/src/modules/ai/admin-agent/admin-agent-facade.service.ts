@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AiAdminAgentService } from "../ai-admin-agent.service";
 import { AiAdminAnalyticsToolsService } from "../ai-admin-analytics-tools.service";
+import { ProductsService } from "../../products/products.service";
 import { AdminAgentRouterService } from "./admin-agent-router.service";
 
 interface AdminAgentRequest {
@@ -15,7 +16,8 @@ export class AdminAgentFacadeService {
   constructor(
     private readonly legacyAgent: AiAdminAgentService,
     private readonly router: AdminAgentRouterService,
-    private readonly analytics: AiAdminAnalyticsToolsService
+    private readonly analytics: AiAdminAnalyticsToolsService,
+    private readonly products: ProductsService
   ) {}
 
   async process(request: AdminAgentRequest) {
@@ -24,32 +26,24 @@ export class AdminAgentFacadeService {
 
     const route = this.router.route(message);
 
-    if (route.intent === "smalltalk" && route.reply) {
-      return { reply: route.reply, snapshotAt: new Date().toISOString() };
-    }
-
-    if (route.intent === "confirmation") {
-      return this.legacyAgent.process(request);
-    }
+    if (route.intent === "smalltalk" && route.reply) return { reply: route.reply, snapshotAt: new Date().toISOString() };
+    if (route.intent === "confirmation") return this.legacyAgent.process(request);
 
     if (route.intent === "order_lookup" && route.query) {
       const status = this.parseStatusQuery(route.query);
       const query = status ? undefined : route.query;
       const orders = await this.analytics.searchOrders(query, undefined, status ?? undefined, 20);
-      return {
-        reply: orders.length ? this.formatOrders(route.query, orders, status) : this.formatNoOrderMatch(route.query, status),
-        snapshotAt: new Date().toISOString(),
-        data: orders
-      };
+      return { reply: orders.length ? this.formatOrders(route.query, orders, status) : this.formatNoOrderMatch(route.query, status), snapshotAt: new Date().toISOString(), data: orders };
     }
 
     if (route.intent === "customer_lookup" && route.query) {
       const customers = await this.analytics.searchCustomers(route.query, 10);
-      return {
-        reply: customers.length ? this.formatCustomers(route.query, customers) : `No customer record found for "${route.query}".`,
-        snapshotAt: new Date().toISOString(),
-        data: customers
-      };
+      return { reply: customers.length ? this.formatCustomers(route.query, customers) : `No customer record found for "${route.query}".`, snapshotAt: new Date().toISOString(), data: customers };
+    }
+
+    if (route.intent === "product_lookup") {
+      const products = await this.products.list({ availableOnly: true });
+      return { reply: this.formatProducts(products), snapshotAt: new Date().toISOString(), data: products };
     }
 
     if (route.intent === "metrics") {
@@ -67,9 +61,7 @@ export class AdminAgentFacadeService {
     return status === "queued" || status === "awaiting_confirmation" || status === "completed" || status === "cancelled" ? status : null;
   }
 
-  private formatNoOrderMatch(query: string, status: string | null) {
-    return status ? `No ${status.replace(/_/g, " ")} orders found.` : `No order found for "${query}".`;
-  }
+  private formatNoOrderMatch(query: string, status: string | null) { return status ? `No ${status.replace(/_/g, " ")} orders found.` : `No order found for "${query}".`; }
 
   private formatOrders(query: string, orders: Array<{ orderNumber: string; status: string; quantity: number; totalAmount: unknown; customer?: { name: string; phoneNumber?: string | null } | null }>, status: string | null) {
     const title = status ? `${status.replace(/_/g, " ").replace(/^\w/, (value) => value.toUpperCase())} orders` : `Order matches for "${query}"`;
@@ -80,6 +72,12 @@ export class AdminAgentFacadeService {
   private formatCustomers(query: string, customers: Array<{ name: string; phoneNumber?: string | null; totalOrders: number; totalSpent: unknown; isVip: boolean }>) {
     const lines = customers.map((customer, index) => `${index + 1}. ${customer.name}${customer.phoneNumber ? ` — ${customer.phoneNumber}` : ""} · ${customer.totalOrders} orders · ₱${Number(customer.totalSpent).toLocaleString("en-PH")}${customer.isVip ? " · VIP" : ""}`);
     return `Customer matches for "${query}":\n${lines.join("\n")}`;
+  }
+
+  private formatProducts(products: Array<{ name: string; description?: string | null; price: number; available: boolean }>) {
+    if (!products.length) return "No products are currently available.";
+    const lines = products.map((product) => `${product.name} — ₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}${product.description ? ` — ${product.description}` : ""}`);
+    return `Current menu:\n${lines.join("\n")}`;
   }
 
   private formatMetrics(range: string, data: unknown) {
