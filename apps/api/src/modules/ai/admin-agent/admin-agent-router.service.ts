@@ -1,16 +1,18 @@
 import { Injectable } from "@nestjs/common";
 import { AdminRoute } from "./admin-agent.types";
 
-/**
- * Routes by capability, not by exact user phrasing.
- * The goal is to bypass Ollama when the application can answer deterministically.
- */
+/** Routes by capability, not by exact user phrasing. */
 @Injectable()
 export class AdminAgentRouterService {
   route(message: string): AdminRoute {
     const value = message.trim();
-
     if (this.isConfirmation(value)) return { intent: "confirmation" };
+
+    // A write must win over a status read: "cancel order 123" is an action,
+    // while "cancelled orders" is a status query.
+    if (this.isOrderWriteRequest(value)) {
+      return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
+    }
 
     const operationalStatus = this.extractOperationalOrderStatus(value);
     if (operationalStatus) {
@@ -32,8 +34,6 @@ export class AdminAgentRouterService {
       return { intent: "customer_lookup", query: customer, toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
     }
 
-    // Metrics are deterministic reads. Do not require a particular sentence shape
-    // or time phrase; the analytics tool can safely default to today's range.
     if (this.isMetricsRequest(value)) {
       return { intent: "metrics", toolNames: ["get_order_metrics", "search_orders"] };
     }
@@ -41,24 +41,15 @@ export class AdminAgentRouterService {
     const smalltalk = this.routeSmalltalk(value);
     if (smalltalk) return smalltalk;
 
-    // Known business capabilities go to Ollama only when we cannot safely
-    // extract the arguments required for a direct read.
     if (this.isOrderRequest(value)) {
       return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status"] };
     }
-
     if (this.isCustomerRequest(value)) {
       return { intent: "complex", toolNames: ["search_customers", "get_my_orders", "get_order_summary", "check_order_status"] };
     }
-
-    if (this.isOrderWriteRequest(value)) {
-      return { intent: "complex", toolNames: ["search_orders", "get_order_summary", "check_order_status", "update_order", "cancel_order"] };
-    }
-
     if (this.isAnalyticsRequest(value)) {
       return { intent: "complex", toolNames: ["get_order_metrics", "search_orders"] };
     }
-
     return { intent: "complex" };
   }
 
@@ -84,12 +75,7 @@ export class AdminAgentRouterService {
   }
 
   private routeSmalltalk(value: string): AdminRoute | null {
-    const normalized = value
-      .toLowerCase()
-      .replace(/[!?.,;:]+$/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
+    const normalized = value.toLowerCase().replace(/[!?.,;:]+$/g, "").replace(/\s+/g, " ").trim();
     if (!normalized || normalized.length > 120) return null;
     if (this.isGreeting(normalized)) return { intent: "smalltalk", reply: "Hello! How can I help with Empanada Hauz today?" };
     if (this.isThanks(normalized)) return { intent: "smalltalk", reply: "You're welcome! Happy to help." };
@@ -99,10 +85,7 @@ export class AdminAgentRouterService {
     if (/^(i(?:'| a)m home|i am home|nasa bahay ako|nandito ako sa bahay|i am really at home|i'm really at home)$/.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm here with you. What would you like me to check?" };
 
     const businessKeyword = /\b(order|orders|customer|customers|sales|sale|revenue|income|inventory|product|products|delivery|deliveries|rider|riders|kitchen|expense|expenses|analytics|metrics|performance|refund|cancel|reschedule|schedule|stock|business)\b/i;
-    if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) {
-      return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
-    }
-
+    if (normalized.split(" ").length <= 8 && !businessKeyword.test(normalized)) return { intent: "smalltalk", reply: "Got it! I'm listening. Tell me what you'd like me to do." };
     return null;
   }
 
@@ -120,19 +103,16 @@ export class AdminAgentRouterService {
 
   private extractOperationalOrderStatus(message: string) {
     if (!/\b(order|orders)\b/i.test(message)) return null;
-    if (/\b(pending|queued|awaiting|waiting)\b/i.test(message)) {
-      return /\b(awaiting|waiting)\b/i.test(message) ? "awaiting_confirmation" : "queued";
-    }
+    if (/\b(pending|queued|awaiting|waiting)\b/i.test(message)) return /\b(awaiting|waiting)\b/i.test(message) ? "awaiting_confirmation" : "queued";
     if (/\b(completed|complete|delivered|done)\b/i.test(message)) return "completed";
-    if (/\b(cancelled|canceled|cancel)\b/i.test(message)) return "cancelled";
     if (/\bout[- ]of[- ]delivery\b/i.test(message)) return "out_for_delivery";
+    if (/\b(cancelled|canceled)\b/i.test(message)) return "cancelled";
     return null;
   }
 
   private extractOrderNumber(message: string) {
     if (!/\border\b|^#/i.test(message)) return null;
-    const match = message.match(/(?:order\s*#?\s*|#\s*)([0-9]{4,})\b/i);
-    return match?.[1] ?? null;
+    return message.match(/(?:order\s*#?\s*|#\s*)([0-9]{4,})\b/i)?.[1] ?? null;
   }
 
   private extractOrderSearch(message: string) {
@@ -156,7 +136,6 @@ export class AdminAgentRouterService {
       const query = message.match(pattern)?.[1]?.trim();
       if (query && !/^(the|a|an)\s+customer\b/i.test(query)) return query;
     }
-
     const match = message.match(/^(?:find|search(?:\s+for)?|look\s+for)\s+(.+?)\s*\??$/i);
     if (!match) return null;
     const query = match[1].trim();
