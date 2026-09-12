@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 
-export type AiModelProvider = "ollama" | "gemini" | "groq" | "openai";
+export type AiModelProvider = "ollama" | "gemini" | "groq" | "openai" | "openrouter";
 type SettingDocument = { key?: string; customerId?: string; enabled?: boolean; provider?: AiModelProvider; model?: string };
 type MongoFindResult = { cursor?: { firstBatch?: SettingDocument[] } };
 
@@ -83,7 +83,7 @@ export class AiControlService {
       limit: 1
     })) as unknown as MongoFindResult;
     const setting = result.cursor?.firstBatch?.[0];
-    const provider: AiModelProvider = setting?.provider === "gemini" || setting?.provider === "groq" || setting?.provider === "openai"
+    const provider: AiModelProvider = setting?.provider === "gemini" || setting?.provider === "groq" || setting?.provider === "openai" || setting?.provider === "openrouter"
       ? setting.provider
       : "ollama";
     const defaultModel = provider === "gemini"
@@ -92,7 +92,9 @@ export class AiControlService {
         ? "openai/gpt-oss-20b"
         : provider === "openai"
           ? "gpt-5.6-luna"
-          : "qwen3:4b-instruct";
+          : provider === "openrouter"
+            ? "openrouter/free"
+            : "qwen3:4b-instruct";
     return { provider, model: setting?.model?.trim() || defaultModel };
   }
 
