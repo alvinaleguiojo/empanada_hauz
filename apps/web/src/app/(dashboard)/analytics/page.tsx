@@ -1,4 +1,5 @@
 import { AnalyticsPanels } from "@/components/analytics/analytics-panels";
+import { AdminAiPerformance } from "@/components/dashboard/admin-ai-performance";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { apiFetch } from "@/lib/api";
 
@@ -73,6 +74,7 @@ export default async function AnalyticsPage() {
         <StatCard label="Cancelled Today" value={String(data.cancelledOrders ?? 0)} hint="Orders removed from production" tone="danger" />
       </div>
       <AnalyticsPanels data={data} />
+      <AdminAiPerformance />
     </div>
   );
 }
