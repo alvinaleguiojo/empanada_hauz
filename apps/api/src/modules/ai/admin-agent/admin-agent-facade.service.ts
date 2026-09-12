@@ -49,17 +49,7 @@ export class AdminAgentFacadeService {
     }
 
     if (route.intent === "product_lookup") {
-      if (route.query) {
-        const product = await this.products.resolveByName(route.query, { requireAvailable: false });
-        if (!product) return { reply: `I couldn't find a product matching "${route.query}".`, snapshotAt: new Date().toISOString() };
-        return {
-          reply: `${product.name} — ₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}${product.available ? " — available" : " — currently unavailable"}${product.description ? ` — ${product.description}` : ""}`,
-          snapshotAt: new Date().toISOString(),
-          data: product
-        };
-      }
-      const products = await this.products.list({ availableOnly: true });
-      return { reply: this.formatProducts(products), snapshotAt: new Date().toISOString(), data: products };
+      return this.resolveProductRequest(route.query);
     }
 
     if (route.intent === "metrics") {
@@ -68,7 +58,34 @@ export class AdminAgentFacadeService {
       return { reply: this.formatMetrics(range, data), snapshotAt: new Date().toISOString(), data };
     }
 
+    // Exact product names do not need an LLM classification step. This keeps
+    // natural inputs such as "pork regular" deterministic while preserving
+    // the legacy agent for genuinely ambiguous requests.
+    if (message.split(/\s+/).length <= 6) {
+      const product = await this.products.resolveByName(message, { requireAvailable: false });
+      if (product) return this.formatProduct(product);
+    }
+
     return this.legacyAgent.process(request);
+  }
+
+  private async resolveProductRequest(query?: string) {
+    if (query) {
+      const product = await this.products.resolveByName(query, { requireAvailable: false });
+      if (!product) return { reply: `I couldn't find a product matching "${query}".`, snapshotAt: new Date().toISOString() };
+      return this.formatProduct(product);
+    }
+
+    const products = await this.products.list({ availableOnly: true });
+    return { reply: this.formatProducts(products), snapshotAt: new Date().toISOString(), data: products };
+  }
+
+  private formatProduct(product: { name: string; price: number; available: boolean; description?: string | null }) {
+    return {
+      reply: `${product.name} — ₱${Number(product.price).toLocaleString("en-PH", { minimumFractionDigits: 2 })}${product.available ? " — available" : " — currently unavailable"}${product.description ? ` — ${product.description}` : ""}`,
+      snapshotAt: new Date().toISOString(),
+      data: product
+    };
   }
 
   private parseStatusQuery(query: string) {
