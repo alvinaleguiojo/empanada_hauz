@@ -25,7 +25,7 @@ const aiModelOptions = [
   { value: "gemini:gemini-3.6-flash", label: "Gemini 3.6 Flash", provider: "gemini" as const, model: "gemini-3.6-flash" },
   { value: "gemini:gemini-3.5-flash", label: "Gemini 3.5 Flash", provider: "gemini" as const, model: "gemini-3.5-flash" },
   { value: "gemini:gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "gemini" as const, model: "gemini-2.5-flash" },
-  { value: "gemini:gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", provider: "gemini" as const, model: "gemini-2.5-flash-lite" },
+  { value: "gemini:gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite", provider: "gemini" as const, model: "gemini-3.5-flash-lite" },
   { value: "groq:openai/gpt-oss-20b", label: "GPT-OSS 20B (Groq)", provider: "groq" as const, model: "openai/gpt-oss-20b" },
   { value: "groq:openai/gpt-oss-120b", label: "GPT-OSS 120B (Groq)", provider: "groq" as const, model: "openai/gpt-oss-120b" },
   { value: "openrouter:openrouter/free", label: "OpenRouter Free (auto-select)", provider: "openrouter" as const, model: "openrouter/free" }
