@@ -25,17 +25,7 @@ export class AdminAiPerformanceService {
   constructor(private readonly prisma: PrismaService) {}
 
   start(adminId?: string, model?: string): PerformanceContext {
-    return {
-      requestId: randomUUID(),
-      startedAt: process.hrtime.bigint(),
-      adminId,
-      model,
-      llmMs: 0,
-      toolMs: 0,
-      toolCalls: 0,
-      iterations: 0,
-      tools: [],
-    };
+    return { requestId: randomUUID(), startedAt: process.hrtime.bigint(), adminId, model, llmMs: 0, toolMs: 0, toolCalls: 0, iterations: 0, tools: [] };
   }
 
   recordLlm(context: PerformanceContext, durationMs: number) { context.llmMs += durationMs; }
@@ -61,7 +51,6 @@ export class AdminAiPerformanceService {
       tools: context.tools.map((tool) => ({ ...tool, durationMs: Math.round(tool.durationMs) })),
       createdAt: new Date(),
     };
-
     await this.prisma.$runCommandRaw({ insert: this.collection, documents: [document] });
     return document;
   }
@@ -77,23 +66,22 @@ export class AdminAiPerformanceService {
 
   async summary() {
     const result = await this.prisma.$runCommandRaw<{
-      cursor?: { firstBatch?: Array<{ count: number; averageMs: number; maxMs: number }> };
+      cursor?: { firstBatch?: Array<{ count: number; averageMs: number; maxMs: number; values: number[] }> };
     }>({
       aggregate: this.collection,
-      pipeline: [{ $group: { _id: null, count: { $sum: 1 }, averageMs: { $avg: '$totalMs' }, maxMs: { $max: '$totalMs' } } }],
+      pipeline: [
+        { $sort: { totalMs: 1 } },
+        { $group: { _id: null, count: { $sum: 1 }, averageMs: { $avg: '$totalMs' }, maxMs: { $max: '$totalMs' }, values: { $push: '$totalMs' } } },
+      ],
       cursor: {},
     });
 
     const aggregate = result.cursor?.firstBatch?.[0];
     if (!aggregate) return { count: 0, averageMs: 0, p50Ms: 0, p95Ms: 0, maxMs: 0 };
 
-    const valuesResult = await this.prisma.$runCommandRaw<MongoFindResult<{ totalMs: number }>>({
-      find: this.collection,
-      projection: { _id: 0, totalMs: 1 },
-      sort: { totalMs: 1 },
-    });
-    const values = (valuesResult.cursor?.firstBatch ?? []).map((item) => item.totalMs);
-    const percentile = (p: number) => values.length ? values[Math.min(values.length - 1, Math.ceil(values.length * p) - 1)] : 0;
+    const percentile = (p: number) => aggregate.values.length
+      ? aggregate.values[Math.min(aggregate.values.length - 1, Math.ceil(aggregate.values.length * p) - 1)]
+      : 0;
 
     return {
       count: aggregate.count,
