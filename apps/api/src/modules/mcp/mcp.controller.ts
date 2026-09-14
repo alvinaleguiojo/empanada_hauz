@@ -1,4 +1,4 @@
-import { All, Controller, Req, Res, UnauthorizedException, UseInterceptors } from "@nestjs/common";
+import { All, Controller, Logger, Req, Res, UnauthorizedException, UseInterceptors } from "@nestjs/common";
 import { NoCacheInterceptor } from "./no-cache.interceptor";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -34,6 +34,8 @@ type ToolRegistrar = (
 @UseInterceptors(NoCacheInterceptor)
 @Controller("mcp")
 export class McpController {
+  private readonly logger = new Logger(McpController.name);
+
   constructor(
     private readonly orders: McpOrdersService,
     private readonly expenses: McpExpensesService,
@@ -55,8 +57,19 @@ export class McpController {
       void server.close();
     });
 
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      this.logger.error(`MCP transport failed: ${this.errorMessage(error)}`);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: { code: -32603, message: "MCP transport failed" },
+          id: null
+        });
+      }
+    }
   }
 
   private createServer() {
@@ -537,7 +550,10 @@ export class McpController {
   private async assertAuthorized(req: Request, res: Response) {
     try {
       await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"));
-    } catch {
+      this.logger.log(`MCP auth accepted for ${req.method} ${req.path}`);
+    } catch (error) {
+      const reason = error instanceof UnauthorizedException ? error.message : this.errorMessage(error);
+      this.logger.warn(`MCP auth rejected for ${req.method} ${req.path}: ${reason}`);
       const baseUrl = this.baseUrl(req);
       res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
       throw new UnauthorizedException("Sign in with Empanada Hauz to use MCP");
@@ -548,6 +564,10 @@ export class McpController {
     const proto = req.header("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
     const host = req.header("x-forwarded-host")?.split(",")[0]?.trim() || req.get("host");
     return `${proto}://${host}`;
+  }
+
+  private errorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
   }
 
   private toListOrdersArgs(args: Record<string, unknown>) {
