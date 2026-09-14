@@ -16,7 +16,11 @@ export class FraudOrderInterceptor implements NestInterceptor {
 
     if (path === "/api/orders/public") {
       return from(this.checkPublicOrder(request.body)).pipe(
-        mergeMap(() => next.handle())
+        mergeMap(() => next.handle()),
+        mergeMap((result: any) => from(this.detect(result)).pipe(
+          catchError(() => from(Promise.resolve(result))),
+          mergeMap(() => from(Promise.resolve(result)))
+        ))
       );
     }
 
