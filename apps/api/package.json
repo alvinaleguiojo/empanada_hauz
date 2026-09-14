@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "prisma generate && nest build",
+    "build:compile": "nest build",
     "start": "node dist/main",
     "postinstall": "prisma generate",
     "lint": "tsc -p tsconfig.json --noEmit",
@@ -41,7 +42,7 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
-    "@nestjs/testing": "^11.0.1",
+    "@nestjs/testing": "^11.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.1",
