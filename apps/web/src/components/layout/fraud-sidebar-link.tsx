@@ -4,13 +4,33 @@ import { useEffect } from "react";
 
 const FRAUD_LINK_MARKER = "data-fraud-sidebar-link";
 
+function applyCollapsedState(link: HTMLAnchorElement) {
+  const collapsed = window.localStorage.getItem("empanada-sidebar-collapsed") === "true";
+  link.classList.toggle("lg:justify-center", collapsed);
+  link.classList.toggle("lg:px-0", collapsed);
+  link.classList.toggle("lg:gap-3", !collapsed);
+  link.classList.toggle("lg:px-3.5", !collapsed);
+
+  const label = Array.from(link.querySelectorAll<HTMLElement>("span")).find((element) => element.textContent?.trim() === "Fraud Center");
+  if (label) {
+    label.classList.toggle("lg:sr-only", collapsed);
+  }
+}
+
 export function FraudSidebarLink() {
   useEffect(() => {
     let cancelled = false;
     let observer: MutationObserver | null = null;
+    let stateInterval: number | null = null;
 
     const install = () => {
-      if (cancelled || document.querySelector(`[${FRAUD_LINK_MARKER}]`)) return;
+      if (cancelled) return;
+
+      const existing = document.querySelector<HTMLAnchorElement>(`[${FRAUD_LINK_MARKER}]`);
+      if (existing) {
+        applyCollapsedState(existing);
+        return;
+      }
 
       const deliveryLink = document.querySelector<HTMLAnchorElement>('a[href="/delivery-network"]');
       if (!deliveryLink || !deliveryLink.parentElement) return;
@@ -44,15 +64,18 @@ export function FraudSidebarLink() {
       }
 
       deliveryLink.insertAdjacentElement("afterend", fraudLink);
+      applyCollapsedState(fraudLink);
     };
 
     install();
     observer = new MutationObserver(install);
     observer.observe(document.body, { childList: true, subtree: true });
+    stateInterval = window.setInterval(install, 250);
 
     return () => {
       cancelled = true;
       observer?.disconnect();
+      if (stateInterval) window.clearInterval(stateInterval);
       document.querySelector(`[${FRAUD_LINK_MARKER}]`)?.remove();
     };
   }, []);
