@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { CalendarDays, ShieldAlert } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
@@ -72,24 +73,51 @@ export default function OrdersPage() {
 
       <div className="relative" onClickCapture={handleKanbanClick}>
         <OrdersView orders={orders} />
-
         {canTagFraud && selectedOrder ? (
-          <div className="pointer-events-none fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] items-end p-4 sm:p-6">
-            <div className="pointer-events-auto flex w-full items-center justify-between gap-3 rounded-xl border border-red-500/25 bg-panel/95 px-4 py-3 shadow-2xl backdrop-blur-md">
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-red-500/70">Customer Risk Action</p>
-                <p className="truncate text-sm font-medium text-foreground">{selectedOrder.customer?.name || "Customer"}</p>
-              </div>
-              <Button type="button" className="h-9 shrink-0 gap-2 bg-red-600 px-3 text-white hover:bg-red-700" onClick={() => setFraudOrder(selectedOrder)}>
-                <ShieldAlert size={15} />
-                Tag as Fraud
-              </Button>
-            </div>
-          </div>
+          <KanbanFraudDrawerAction order={selectedOrder} onTag={() => setFraudOrder(selectedOrder)} />
         ) : null}
       </div>
 
       {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} /> : null}
     </div>
+  );
+}
+
+function KanbanFraudDrawerAction({ order, onTag }: { order: any; onTag: () => void }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const findTarget = () => {
+      const labels = Array.from(document.querySelectorAll("p"));
+      const label = labels.find((element) => element.textContent?.trim() === "Order details");
+      const actionRow = label?.parentElement?.children.item(1);
+      if (active) setTarget(actionRow instanceof HTMLElement ? actionRow : null);
+    };
+
+    findTarget();
+    const observer = new MutationObserver(findTarget);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [order?.id]);
+
+  if (!target) return null;
+
+  return createPortal(
+    <Button
+      type="button"
+      variant="ghost"
+      className="gap-1.5 px-3 text-red-500 hover:text-red-500"
+      onClick={onTag}
+      title={`Tag ${order?.customer?.name || "customer"} as fraud`}
+    >
+      <ShieldAlert size={14} />
+      Tag as Fraud
+    </Button>,
+    target
   );
 }
