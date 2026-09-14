@@ -21,6 +21,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
+import { socket } from "@/lib/socket";
 
 type Customer = {
   id: string;
@@ -249,6 +250,8 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   const [customerAiState, setCustomerAiState] = useState<CustomerAiState | null>(null);
   const [savingAi, setSavingAi] = useState(false);
   const messagesRequestId = useRef(0);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
   const selected = useMemo(() => conversations.find((item) => item.id === selectedId), [conversations, selectedId]);
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -275,6 +278,26 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
     const timer = window.setInterval(() => void loadMessages(selectedId, true), 3000);
     return () => window.clearInterval(timer);
   }, [selectedId]);
+
+  // Polling above is a fallback; new Messenger messages already arrive over the shared
+  // socket (the webhook path calls NotificationsService.notify, which emits
+  // "notifications.created"), so react to that immediately instead of waiting for the
+  // next 3-5s poll tick.
+  useEffect(() => {
+    const handleNotification = (payload: unknown) => {
+      if (!isMessengerNotification(payload)) return;
+      void loadConversations(true);
+      const conversationId = payload.payload?.conversationId;
+      if (conversationId && conversationId === selectedIdRef.current) {
+        void loadMessages(conversationId, true);
+      }
+    };
+
+    socket.on("notifications.created", handleNotification);
+    return () => {
+      socket.off("notifications.created", handleNotification);
+    };
+  }, []);
 
   async function loadConversations(silent = false) {
     try {
@@ -404,4 +427,12 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
       </div>
     </Card>
   );
+}
+
+function isMessengerNotification(
+  value: unknown
+): value is { type: string; payload?: { conversationId?: string } } {
+  if (typeof value !== "object" || value === null || !("type" in value)) return false;
+  const type = (value as { type?: unknown }).type;
+  return type === "messenger.message_received" || type === "messenger.message_sent";
 }
