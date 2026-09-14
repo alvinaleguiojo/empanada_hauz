@@ -193,13 +193,20 @@ export class FraudService {
 
   private matchCustomerCase(fraudCase: FraudCaseRecord, customer: { id?: string | null; name?: string | null; phoneNumber?: string | null; defaultAddress?: string | null; messengerPsid?: string | null }, order: { address?: string | null; location?: string | null }): Match | null {
     const matchedOn: string[] = [];
+    const phoneMatches = this.samePhone(fraudCase.phoneNumber, customer.phoneNumber);
+
+    // Customer fraud requires phone + at least one corroborating identifier.
+    // This avoids false positives from a phone-only, name-only, or address-only match.
+    if (!phoneMatches) return null;
+    matchedOn.push("phone");
+
     if (fraudCase.subjectId && customer.id && fraudCase.subjectId === customer.id) matchedOn.push("customerId");
-    if (this.samePhone(fraudCase.phoneNumber, customer.phoneNumber)) matchedOn.push("phone");
     if (this.sameText(fraudCase.name, customer.name)) matchedOn.push("name");
     if (this.sameText(fraudCase.messengerPsid, customer.messengerPsid)) matchedOn.push("messenger");
     const orderAddress = order.address || order.location || customer.defaultAddress;
     if (this.sameAddress(fraudCase.address, orderAddress)) matchedOn.push("address");
-    if (!matchedOn.length) return null;
+
+    if (matchedOn.length < 2) return null;
     return { caseId: fraudCase.id, severity: fraudCase.severity as FraudSeverity, score: this.score(matchedOn), matchedOn, reason: fraudCase.reason, name: fraudCase.name };
   }
 
