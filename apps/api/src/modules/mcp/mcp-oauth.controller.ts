@@ -184,7 +184,8 @@ export class McpOAuthController {
           codeChallenge: body.code_challenge,
           codeChallengeMethod: body.code_challenge_method,
           accessToken: login.accessToken,
-          expiresAt
+          expiresAt,
+          consumedAt: null
         }
       });
 
