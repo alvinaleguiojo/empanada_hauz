@@ -8,9 +8,6 @@ const outputFileTracingRoot = fs.existsSync(path.join(monorepoRoot, "package-loc
 const nextConfig: NextConfig = {
   outputFileTracingRoot,
   typedRoutes: true,
-  experimental: {
-    turbopackPersistentCaching: true,
-  },
   images: {
     formats: ["image/avif", "image/webp"],
     deviceSizes: [640, 750, 828, 1080, 1200],
