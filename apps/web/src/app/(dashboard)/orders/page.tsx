@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, Plus, ShieldAlert } from "lucide-react";
+import { CalendarDays, Plus } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
@@ -15,7 +15,6 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
-  const [fraudOrder, setFraudOrder] = useState<any | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
 
   useEffect(() => {
@@ -56,10 +55,6 @@ export default function OrdersPage() {
     if (match) setSelectedOrder(match);
   }
 
-  function closeFraudDialog() {
-    setFraudOrder(null);
-  }
-
   function openManualOrder() {
     const trigger = document.querySelector<HTMLButtonElement>('[aria-label="New Order"]');
     trigger?.click();
@@ -91,19 +86,12 @@ export default function OrdersPage() {
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
 
       <div onClick={handleKanbanClick}>
-        <OrdersView orders={orders} onFraudOrder={canTagFraud ? setFraudOrder : undefined} />
+        <OrdersView orders={orders} />
       </div>
 
       {typeof document !== "undefined" && selectedOrder
         ? createPortal(
             <OrderFraudTagDialog order={selectedOrder} onClose={() => setSelectedOrder(null)} />,
-            document.body
-          )
-        : null}
-
-      {typeof document !== "undefined" && fraudOrder
-        ? createPortal(
-            <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} />,
             document.body
           )
         : null}
