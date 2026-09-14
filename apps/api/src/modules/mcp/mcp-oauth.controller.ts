@@ -54,6 +54,7 @@ export class McpOAuthController {
       grant_types_supported: ["authorization_code"],
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
+      authorization_response_iss_parameter_supported: true,
       scopes_supported: ["mcp"]
     };
   }
@@ -183,6 +184,7 @@ export class McpOAuthController {
       if (body.state) {
         redirect.searchParams.set("state", body.state);
       }
+      redirect.searchParams.set("iss", this.baseUrl(request));
 
       response.redirect(redirect.toString());
     } catch (error) {
