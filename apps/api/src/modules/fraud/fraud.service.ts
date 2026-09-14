@@ -49,8 +49,6 @@ export class FraudService {
       take: 500
     });
 
-    // The dashboard historically expects `_id`; Prisma exposes Mongo `_id` as `id`.
-    // Keep both fields during the API transition so deletes/keys cannot resolve to undefined.
     return cases.map((fraudCase) => ({ ...fraudCase, _id: fraudCase.id }));
   }
 
@@ -183,6 +181,11 @@ export class FraudService {
     const cases = await this.prisma.fraudCase.findMany({ where: { entityType: "customer", status: "open" }, take: 500 });
     const matches = cases.map((fraudCase) => this.matchCustomerCase(fraudCase, customer, order)).filter(Boolean) as Match[];
     await Promise.all(matches.map((match) => this.writeLog({ entityType: "customer", caseId: match.caseId, orderId: order.id, matchedOn: match.matchedOn, score: match.score, severity: match.severity })));
+
+    if (matches.length > 0) {
+      await this.tagOrderWithFraud(matches, order.id);
+    }
+
     return { matched: matches.length > 0, highestSeverity: this.highestSeverity(matches.map((match) => match.severity)), matches };
   }
 
@@ -203,6 +206,28 @@ export class FraudService {
     const matches = cases.map((fraudCase) => this.matchRiderCase(fraudCase, rider, plateNumber, input.riderId)).filter(Boolean) as Match[];
     await Promise.all(matches.map((match) => this.writeLog({ entityType: "rider", caseId: match.caseId, riderId: input.riderId, deliveryJobId: input.deliveryJobId, matchedOn: match.matchedOn, score: match.score, severity: match.severity })));
     return { matched: matches.length > 0, highestSeverity: this.highestSeverity(matches.map((match) => match.severity)), matches };
+  }
+
+  private async tagOrderWithFraud(matches: Match[], orderId: string) {
+    const primary = matches.reduce((current, match) => {
+      return this.severityRank(match.severity) > this.severityRank(current.severity) ? match : current;
+    }, matches[0]);
+
+    const marker = `[FRAUD_CASE:${primary.caseId}]`;
+    const existingNotes = await this.prisma.orderNote.findMany({
+      where: { orderId },
+      select: { body: true },
+      take: 50
+    });
+
+    if (existingNotes.some((note) => note.body.startsWith(marker))) return;
+
+    await this.prisma.orderNote.create({
+      data: {
+        orderId,
+        body: `${marker} 🚨 CUSTOMER FRAUD TAG · ${primary.severity.toUpperCase()} · Matched on: ${primary.matchedOn.join(", ")} · ${primary.reason}`
+      }
+    });
   }
 
   private async resolveCaseIdentity(input: {
@@ -262,7 +287,6 @@ export class FraudService {
       };
     }
 
-    // Accept legacy Fraud Center entries that used User.id for a rider, but normalize them to Rider.id.
     const legacyRider = await this.prisma.rider.findUnique({
       where: { userId: input.subjectId.trim() },
       include: {
