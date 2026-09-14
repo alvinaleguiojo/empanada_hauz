@@ -40,11 +40,10 @@ export default function OrdersPage() {
     const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
     if (!text || /fraud|edit|save|delete|copy|track|hide details|calendar/i.test(text)) return;
 
-    const orderedMatches = orders
-      .filter((order) => {
-        const orderNumber = String(order.orderNumber ?? "").trim();
-        return orderNumber && text.includes(orderNumber);
-      });
+    const orderedMatches = orders.filter((order) => {
+      const orderNumber = String(order.orderNumber ?? "").trim();
+      return orderNumber && text.includes(orderNumber);
+    });
 
     const match = orderedMatches[0] ?? (() => {
       const namedMatches = orders.filter((order) => {
@@ -96,48 +95,55 @@ function KanbanFraudDrawerAction({ order, onTag }: { order: any; onTag: () => vo
 
   useEffect(() => {
     let active = true;
+    let frame = 0;
+    let attempts = 0;
 
     const findTarget = () => {
+      if (!active) return;
       const orderNumber = String(order?.orderNumber ?? "").trim();
       if (!orderNumber) {
-        if (active) setTarget(null);
+        setTarget(null);
         return;
       }
 
       const orderNode = Array.from(document.querySelectorAll("p")).find(
         (element) => element.textContent?.trim() === orderNumber
       );
-      if (!orderNode) {
-        if (active) setTarget(null);
-        return;
-      }
 
-      let current: HTMLElement | null = orderNode instanceof HTMLElement ? orderNode : null;
-      let actionRow: HTMLElement | null = null;
-      while (current) {
-        const detailsLabel = Array.from(current.querySelectorAll("p")).find(
-          (element) => element.textContent?.trim() === "Order details"
-        );
-        if (detailsLabel?.parentElement) {
-          const candidate = detailsLabel.parentElement.children.item(1);
-          if (candidate instanceof HTMLElement) {
-            actionRow = candidate;
-            break;
+      if (orderNode) {
+        let current: HTMLElement | null = orderNode instanceof HTMLElement ? orderNode : null;
+        let actionRow: HTMLElement | null = null;
+        while (current) {
+          const detailsLabel = Array.from(current.querySelectorAll("p")).find(
+            (element) => element.textContent?.trim() === "Order details"
+          );
+          if (detailsLabel?.parentElement) {
+            const candidate = detailsLabel.parentElement.children.item(1);
+            if (candidate instanceof HTMLElement) {
+              actionRow = candidate;
+              break;
+            }
           }
+          current = current.parentElement;
         }
-        current = current.parentElement;
+
+        if (actionRow) {
+          setTarget(actionRow);
+          return;
+        }
       }
 
-      if (active) setTarget(actionRow);
+      attempts += 1;
+      if (attempts < 20) {
+        frame = window.requestAnimationFrame(findTarget);
+      }
     };
 
-    findTarget();
-    const observer = new MutationObserver(findTarget);
-    observer.observe(document.body, { childList: true, subtree: true });
+    frame = window.requestAnimationFrame(findTarget);
 
     return () => {
       active = false;
-      observer.disconnect();
+      window.cancelAnimationFrame(frame);
     };
   }, [order?.id, order?.orderNumber]);
 
