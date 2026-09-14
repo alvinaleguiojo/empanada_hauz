@@ -28,6 +28,7 @@ import { ProductsModule } from "./modules/products/products.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { TranscriptionModule } from "./modules/transcription/transcription.module";
 import { CacheModule } from "./common/cache/cache.module";
+import { FraudModule } from "./modules/fraud/fraud.module";
 
 @Module({
   imports: [
@@ -59,7 +60,8 @@ import { CacheModule } from "./common/cache/cache.module";
     ChatModule,
     McpModule,
     GoogleMapsModule,
-    TranscriptionModule
+    TranscriptionModule,
+    FraudModule
   ]
 })
 export class AppModule {}

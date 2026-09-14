@@ -5,7 +5,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     "admin.only", "dashboard.view", "customers.view", "customers.manage", "orders.view", "orders.manage",
     "inbox.view", "inbox.manage", "expenses.view", "expenses.manage", "inventory.view", "inventory.manage",
     "kitchen.view", "kitchen.manage", "batches.view", "batches.manage", "deliveries.view", "deliveries.manage",
-    "delivery-network.view", "delivery-network.manage", "riders.view", "riders.manage", "analytics.view",
+    "delivery-network.view", "delivery-network.manage", "riders.view", "riders.manage", "fraud.view", "fraud.manage", "analytics.view",
     "referrals.view", "referrals.manage", "chat.view", "chat.manage", "notifications.view", "settings.view",
     "users.manage", "roles.manage", "ai-instructions.manage", "products.view", "products.manage"
   ],
@@ -13,7 +13,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     "dashboard.view", "customers.view", "customers.manage", "orders.view", "orders.manage",
     "inbox.view", "inbox.manage", "expenses.view", "expenses.manage", "inventory.view",
     "deliveries.view", "deliveries.manage", "analytics.view", "referrals.view", "referrals.manage",
-    "chat.view", "chat.manage", "notifications.view", "settings.view", "products.view"
+    "chat.view", "chat.manage", "notifications.view", "settings.view", "products.view", "fraud.view"
   ],
   kitchen: [
     "dashboard.view", "orders.view", "kitchen.view", "kitchen.manage", "inventory.view",
@@ -21,7 +21,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   ],
   dispatcher: [
     "dashboard.view", "orders.view", "deliveries.view", "deliveries.manage", "delivery-network.view",
-    "delivery-network.manage", "riders.view", "riders.manage", "chat.view", "chat.manage", "notifications.view"
+    "delivery-network.manage", "riders.view", "riders.manage", "fraud.view", "fraud.manage", "chat.view", "chat.manage", "notifications.view"
   ],
   rider: ["dashboard.view", "deliveries.view", "deliveries.manage", "chat.view", "chat.manage", "notifications.view"]
 };
@@ -32,7 +32,8 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "expenses.view": "View expenses", "expenses.manage": "Manage expenses", "inventory.view": "View inventory", "inventory.manage": "Manage inventory",
   "kitchen.view": "View kitchen", "kitchen.manage": "Manage kitchen", "batches.view": "View batches", "batches.manage": "Manage batches",
   "deliveries.view": "View deliveries", "deliveries.manage": "Manage deliveries", "delivery-network.view": "View delivery network", "delivery-network.manage": "Manage delivery network",
-  "riders.view": "View riders", "riders.manage": "Manage riders", "analytics.view": "View analytics", "referrals.view": "View referrals", "referrals.manage": "Manage referrals",
+  "riders.view": "View riders", "riders.manage": "Manage riders", "fraud.view": "View fraud detection", "fraud.manage": "Manage fraud cases",
+  "analytics.view": "View analytics", "referrals.view": "View referrals", "referrals.manage": "Manage referrals",
   "chat.view": "View staff chat", "chat.manage": "Send staff chat messages", "notifications.view": "View notifications", "settings.view": "View settings",
   "users.manage": "Manage users", "roles.manage": "Manage roles and permissions", "ai-instructions.manage": "Manage AI instructions",
   "products.view": "View products", "products.manage": "Manage products"
@@ -56,6 +57,7 @@ export function permissionForRequest(method: string, path: string): string | nul
   if (normalizedPath.startsWith("/deliveries")) return view ? "deliveries.view" : manage ? "deliveries.manage" : "admin.only";
   if (normalizedPath.startsWith("/delivery-network")) return view ? "delivery-network.view" : manage ? "delivery-network.manage" : "admin.only";
   if (normalizedPath.startsWith("/rider")) return view ? "riders.view" : manage ? "riders.manage" : "admin.only";
+  if (normalizedPath.startsWith("/fraud")) return view ? "fraud.view" : manage ? "fraud.manage" : "admin.only";
   if (normalizedPath.startsWith("/analytics")) return "analytics.view";
   if (normalizedPath.startsWith("/referrals")) return view ? "referrals.view" : manage ? "referrals.manage" : "admin.only";
   if (normalizedPath.startsWith("/notifications")) return "notifications.view";
