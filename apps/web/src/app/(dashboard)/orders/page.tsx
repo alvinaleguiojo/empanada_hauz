@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, ShieldAlert, X } from "lucide-react";
+import { CalendarDays, ShieldAlert } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
@@ -50,7 +50,6 @@ export default function OrdersPage() {
 
   function closeFraudDialog() {
     setFraudOrder(null);
-    setSelectedOrder(null);
   }
 
   return (
@@ -71,26 +70,23 @@ export default function OrdersPage() {
       <ManualOrderForm />
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
 
-      {canTagFraud && selectedOrder ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-red-500/70">Selected Kanban Order</p>
-            <p className="truncate text-sm font-medium">{selectedOrder.customer?.name || "Customer"} · {selectedOrder.orderNumber || selectedOrder.id}</p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <Button type="button" className="h-9 gap-2 bg-red-600 px-3 text-white hover:bg-red-700" onClick={() => setFraudOrder(selectedOrder)}>
-              <ShieldAlert size={15} />
-              Tag as Fraud
-            </Button>
-            <Button type="button" variant="ghost" className="h-9 w-9 p-0" onClick={() => setSelectedOrder(null)} aria-label="Clear selected order">
-              <X size={16} />
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <div onClickCapture={handleKanbanClick}>
+      <div className="relative" onClickCapture={handleKanbanClick}>
         <OrdersView orders={orders} />
+
+        {canTagFraud && selectedOrder ? (
+          <div className="pointer-events-none fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] items-end p-4 sm:p-6">
+            <div className="pointer-events-auto flex w-full items-center justify-between gap-3 rounded-xl border border-red-500/25 bg-panel/95 px-4 py-3 shadow-2xl backdrop-blur-md">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-red-500/70">Customer Risk Action</p>
+                <p className="truncate text-sm font-medium text-foreground">{selectedOrder.customer?.name || "Customer"}</p>
+              </div>
+              <Button type="button" className="h-9 shrink-0 gap-2 bg-red-600 px-3 text-white hover:bg-red-700" onClick={() => setFraudOrder(selectedOrder)}>
+                <ShieldAlert size={15} />
+                Tag as Fraud
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} /> : null}
