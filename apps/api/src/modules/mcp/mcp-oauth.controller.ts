@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Header, Post, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
+import { PrismaService } from "../../database/prisma.service";
 import { AuthService } from "../auth/auth.service";
 
 type ClientRegistration = {
@@ -15,15 +16,15 @@ type AuthorizationCode = {
   codeChallenge?: string;
   codeChallengeMethod?: string;
   accessToken: string;
-  expiresAt: number;
+  expiresAt: Date;
 };
-
-const registeredClients = new Map<string, ClientRegistration>();
-const authorizationCodes = new Map<string, AuthorizationCode>();
 
 @Controller()
 export class McpOAuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly prisma: PrismaService
+  ) {}
 
   @Get(".well-known/oauth-protected-resource")
   protectedResource(@Req() request: Request) {
@@ -47,22 +48,28 @@ export class McpOAuthController {
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code"],
       token_endpoint_auth_methods_supported: ["none"],
-      code_challenge_methods_supported: ["S256", "plain"],
+      code_challenge_methods_supported: ["S256"],
       scopes_supported: ["mcp"]
     };
   }
 
   @Post("oauth/register")
-  registerClient(@Body() body: { redirect_uris?: string[]; client_name?: string }) {
+  async registerClient(@Body() body: { redirect_uris?: string[]; client_name?: string }) {
     const redirectUris = Array.isArray(body.redirect_uris)
-      ? body.redirect_uris.filter((value) => typeof value === "string" && value.startsWith("https://"))
+      ? body.redirect_uris.filter((value) => typeof value === "string" && this.isAllowedRedirectUri(value))
       : [];
 
+    if (redirectUris.length === 0) {
+      throw new UnauthorizedException("At least one valid OAuth redirect URI is required");
+    }
+
     const clientId = `empanada_mcp_${randomUUID()}`;
-    registeredClients.set(clientId, {
-      client_id: clientId,
-      redirect_uris: redirectUris,
-      client_name: body.client_name
+    await this.prisma.mcpOAuthClient.create({
+      data: {
+        clientId,
+        clientName: typeof body.client_name === "string" ? body.client_name : undefined,
+        redirectUris
+      }
     });
 
     return {
@@ -78,7 +85,7 @@ export class McpOAuthController {
 
   @Get("oauth/authorize")
   @Header("Content-Type", "text/html; charset=utf-8")
-  authorizeForm(
+  async authorizeForm(
     @Query("client_id") clientId: string,
     @Query("redirect_uri") redirectUri: string,
     @Query("state") state: string | undefined,
@@ -86,7 +93,7 @@ export class McpOAuthController {
     @Query("code_challenge_method") codeChallengeMethod: string | undefined,
     @Res() response: Response
   ) {
-    this.assertRegisteredRedirectUri(clientId, redirectUri);
+    await this.assertRegisteredRedirectUri(clientId, redirectUri);
     response.send(this.renderSignInForm({ clientId, redirectUri, state, codeChallenge, codeChallengeMethod }));
   }
 
@@ -106,18 +113,27 @@ export class McpOAuthController {
   ) {
     const clientId = body.client_id ?? "";
     const redirectUri = body.redirect_uri ?? "";
-    this.assertRegisteredRedirectUri(clientId, redirectUri);
+    await this.assertRegisteredRedirectUri(clientId, redirectUri);
+
+    if (body.code_challenge && body.code_challenge_method !== "S256") {
+      throw new UnauthorizedException("OAuth PKCE S256 is required");
+    }
 
     try {
       const login = await this.auth.login({ email: body.email ?? "", password: body.password ?? "" });
       const code = randomUUID();
-      authorizationCodes.set(code, {
-        clientId,
-        redirectUri,
-        codeChallenge: body.code_challenge,
-        codeChallengeMethod: body.code_challenge_method,
-        accessToken: login.accessToken,
-        expiresAt: Date.now() + 5 * 60_000
+      const expiresAt = new Date(Date.now() + 5 * 60_000);
+
+      await this.prisma.mcpOAuthAuthorizationCode.create({
+        data: {
+          code,
+          clientId,
+          redirectUri,
+          codeChallenge: body.code_challenge,
+          codeChallengeMethod: body.code_challenge_method,
+          accessToken: login.accessToken,
+          expiresAt
+        }
       });
 
       const redirect = new URL(redirectUri);
@@ -142,7 +158,7 @@ export class McpOAuthController {
   }
 
   @Post("oauth/token")
-  token(
+  async token(
     @Body()
     body: {
       grant_type?: string;
@@ -156,9 +172,11 @@ export class McpOAuthController {
       throw new UnauthorizedException("Unsupported OAuth grant");
     }
 
-    const entry = authorizationCodes.get(body.code);
-    authorizationCodes.delete(body.code);
-    if (!entry || entry.expiresAt < Date.now()) {
+    const entry = await this.prisma.mcpOAuthAuthorizationCode.findUnique({
+      where: { code: body.code }
+    });
+
+    if (!entry || entry.expiresAt.getTime() < Date.now()) {
       throw new UnauthorizedException("Authorization code is invalid or expired");
     }
 
@@ -170,6 +188,22 @@ export class McpOAuthController {
       throw new UnauthorizedException("OAuth PKCE verification failed");
     }
 
+    const consumedAt = new Date();
+    const consumed = await this.prisma.mcpOAuthAuthorizationCode.updateMany({
+      where: {
+        code: body.code,
+        consumedAt: null,
+        expiresAt: { gt: consumedAt }
+      },
+      data: { consumedAt }
+    });
+
+    if (consumed.count !== 1) {
+      throw new UnauthorizedException("Authorization code is invalid or already used");
+    }
+
+    await this.prisma.mcpOAuthAuthorizationCode.delete({ where: { code: body.code } });
+
     return {
       access_token: entry.accessToken,
       token_type: "Bearer",
@@ -178,14 +212,32 @@ export class McpOAuthController {
     };
   }
 
-  private assertRegisteredRedirectUri(clientId: string, redirectUri: string) {
-    const client = registeredClients.get(clientId);
+  private async assertRegisteredRedirectUri(clientId: string, redirectUri: string) {
+    const client = await this.prisma.mcpOAuthClient.findUnique({
+      where: { clientId }
+    });
+
     if (!client) {
       throw new UnauthorizedException("Unknown OAuth client");
     }
 
-    if (!redirectUri || (client.redirect_uris.length > 0 && !client.redirect_uris.includes(redirectUri))) {
+    const redirectUris = Array.isArray(client.redirectUris)
+      ? client.redirectUris.filter((value): value is string => typeof value === "string")
+      : [];
+
+    if (!redirectUri || !redirectUris.includes(redirectUri)) {
       throw new UnauthorizedException("OAuth redirect URI is not registered");
+    }
+  }
+
+  private isAllowedRedirectUri(value: string) {
+    try {
+      const url = new URL(value);
+      if (url.protocol === "https:") return true;
+      if (url.protocol !== "http:") return false;
+      return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+    } catch {
+      return false;
     }
   }
 
@@ -194,16 +246,12 @@ export class McpOAuthController {
       return true;
     }
 
-    if (!codeVerifier) {
+    if (!codeVerifier || entry.codeChallengeMethod !== "S256") {
       return false;
     }
 
-    if (entry.codeChallengeMethod === "S256") {
-      const hash = createHash("sha256").update(codeVerifier).digest("base64url");
-      return hash === entry.codeChallenge;
-    }
-
-    return codeVerifier === entry.codeChallenge;
+    const hash = createHash("sha256").update(codeVerifier).digest("base64url");
+    return hash === entry.codeChallenge;
   }
 
   private jwtExpiresInSeconds() {
