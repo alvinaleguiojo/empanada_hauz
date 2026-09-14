@@ -1,3 +1,4 @@
+import express from "express";
 import { RequestMethod, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
@@ -28,9 +29,9 @@ async function bootstrap() {
   });
 
   // OAuth clients such as Claude send token and authorization form submissions
-  // as application/x-www-form-urlencoded. Use Nest's parser so rawBody remains
-  // available for webhook HMAC verification.
-  app.useBodyParser("urlencoded", { extended: false, limit: "100kb" });
+  // as application/x-www-form-urlencoded. Use Express's parser while keeping
+  // rawBody enabled for webhook HMAC verification.
+  app.use(express.urlencoded({ extended: false, limit: "100kb" }));
 
   const httpServer = app.getHttpAdapter().getInstance();
 
