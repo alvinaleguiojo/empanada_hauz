@@ -15,6 +15,7 @@ const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
 @Injectable()
 export class FraudService {
   constructor(private readonly prisma: PrismaService) {}
+
   async listCases(filters: { entityType?: FraudEntityType; status?: FraudCaseStatus } = {}) { const cases = await this.prisma.fraudCase.findMany({ where: { ...(filters.entityType ? { entityType: filters.entityType } : {}), ...(filters.status ? { status: filters.status } : {}) }, orderBy: { updatedAt: "desc" }, take: 500 }); return cases.map((fraudCase) => ({ ...fraudCase, _id: fraudCase.id })); }
   async listLogs(limit = 200) { const logs = await this.prisma.fraudDetectionLog.findMany({ orderBy: { createdAt: "desc" }, take: Math.min(Math.max(limit, 1), 500) }); return logs.map((log) => ({ ...log, _id: log.id })); }
   async stats() { const [openCustomers, openRiders, critical, recentMatches] = await Promise.all([this.prisma.fraudCase.count({ where: { entityType: "customer", status: "open" } }), this.prisma.fraudCase.count({ where: { entityType: "rider", status: "open" } }), this.prisma.fraudCase.count({ where: { status: "open", severity: "critical" } }), this.prisma.fraudDetectionLog.count({ where: { createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } })]); return { openCustomers, openRiders, critical, recentMatches }; }
