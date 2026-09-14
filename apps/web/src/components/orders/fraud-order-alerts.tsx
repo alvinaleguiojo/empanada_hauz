@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 
@@ -8,16 +11,84 @@ function severityTone(severity: string) {
   return "border-yellow-500/30 bg-yellow-500/10 text-yellow-200";
 }
 
+function fraudBadgeTone(severity: string) {
+  if (severity === "critical") return "border-red-400/50 bg-red-500/20 text-red-100";
+  if (severity === "high") return "border-orange-400/50 bg-orange-500/20 text-orange-100";
+  if (severity === "medium") return "border-amber-400/50 bg-amber-500/20 text-amber-100";
+  return "border-yellow-400/50 bg-yellow-500/20 text-yellow-100";
+}
+
 export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: Array<any> }) {
   const ordersById = new Map(orders.map((order) => [order.id, order]));
-  const alerts = logs
-    .filter((log) => log.entityType === "customer" && log.orderId && ordersById.has(log.orderId))
-    .map((log) => ({ ...log, order: ordersById.get(log.orderId) }))
-    .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0));
 
-  if (alerts.length === 0) return null;
+  const flaggedOrders = useMemo(
+    () => orders.filter((order) => order?.fraud?.matched && order?.orderNumber),
+    [orders]
+  );
 
-  const uniqueAlerts = Array.from(new Map(alerts.map((alert) => [alert.orderId, alert])).values());
+  const alerts = [
+    ...logs
+      .filter((log) => log.entityType === "customer" && log.orderId && ordersById.has(log.orderId))
+      .map((log) => ({ ...log, order: ordersById.get(log.orderId) })),
+    ...flaggedOrders.flatMap((order) =>
+      (Array.isArray(order.fraud?.matches) ? order.fraud.matches : []).map((match: any) => ({
+        orderId: order.id,
+        order,
+        score: match.score,
+        matchedOn: match.matchedOn,
+        severity: match.severity ?? order.fraud.severity
+      }))
+    )
+  ];
+
+  const uniqueAlerts = Array.from(
+    new Map(
+      alerts
+        .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))
+        .map((alert) => [alert.orderId, alert])
+    ).values()
+  );
+
+  useEffect(() => {
+    const syncInlineBadges = () => {
+      const activeOrderNumbers = new Set(flaggedOrders.map((order) => String(order.orderNumber)));
+
+      document.querySelectorAll<HTMLElement>('[data-fraud-order-badge]').forEach((badge) => {
+        if (!activeOrderNumbers.has(badge.dataset.orderNumber ?? "")) badge.remove();
+      });
+
+      flaggedOrders.forEach((order) => {
+        const orderNumber = String(order.orderNumber);
+        const severity = String(order.fraud?.severity ?? "medium");
+        const existing = document.querySelector<HTMLElement>(`[data-fraud-order-badge][data-order-number="${CSS.escape(orderNumber)}"]`);
+        if (existing) return;
+
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
+        const orderCard = buttons.find((button) => button.textContent?.includes(orderNumber));
+        if (!orderCard) return;
+
+        const badge = document.createElement("span");
+        badge.dataset.fraudOrderBadge = "true";
+        badge.dataset.orderNumber = orderNumber;
+        badge.className = `mb-2 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${fraudBadgeTone(severity)}`;
+        badge.innerHTML = `<span aria-hidden="true">⚠</span> FRAUD · ${severity}`;
+        orderCard.prepend(badge);
+      });
+    };
+
+    syncInlineBadges();
+    const observer = new MutationObserver(syncInlineBadges);
+    observer.observe(document.body, { childList: true, subtree: true });
+    const interval = window.setInterval(syncInlineBadges, 1000);
+
+    return () => {
+      observer.disconnect();
+      window.clearInterval(interval);
+      document.querySelectorAll('[data-fraud-order-badge]').forEach((badge) => badge.remove());
+    };
+  }, [flaggedOrders]);
+
+  if (uniqueAlerts.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-red-500/25 bg-red-500/[0.04] p-3 sm:p-4">
@@ -36,7 +107,7 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
 
       <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {uniqueAlerts.map((alert) => (
-          <div key={alert.orderId} className={`rounded-lg border px-3 py-2.5 ${severityTone(alert.severity)}`}>
+          <div key={`${alert.orderId}-${alert.score}`} className={`rounded-lg border px-3 py-2.5 ${severityTone(alert.severity)}`}>
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold">FRAUD · {String(alert.severity ?? "unknown").toUpperCase()}</span>
               <span className="text-[10px] font-semibold opacity-70">Score {alert.score}</span>
