@@ -40,49 +40,52 @@ export function OrderFraudTagDialog({ order, onClose, onSuccess }: { order: any;
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-2xl">
-        <div className="flex shrink-0 items-start justify-between border-b border-line/70 px-5 py-4">
-          <div>
-            <div className="flex items-center gap-2 text-red-500"><ShieldAlert size={18} /><span className="text-[10px] font-semibold uppercase tracking-[0.18em]">Fraud Tag</span></div>
-            <h3 className="mt-1 text-xl font-semibold">Tag {order.customer?.name || "Customer"}</h3>
-            <p className="mt-1 text-xs text-foreground/45">This creates an open customer risk case used by the backend fraud checks.</p>
-          </div>
-          <Button type="button" variant="ghost" className="h-9 w-9 p-0" onClick={onClose}><X size={18} /></Button>
-        </div>
-
-        <div className="min-h-0 space-y-4 overflow-y-auto p-5">
-          <div className="grid gap-2 rounded-lg border border-line/70 bg-black/[0.04] p-3 text-sm">
-            <div><span className="text-foreground/45">Customer:</span> {order.customer?.name || "Unknown"}</div>
-            <div><span className="text-foreground/45">Phone:</span> {order.customer?.phoneNumber || "—"}</div>
-            <div><span className="text-foreground/45">Address:</span> {order.address || order.location || order.customer?.defaultAddress || "—"}</div>
+    <div className="fixed inset-0 z-[60] bg-black/25 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="absolute inset-y-0 right-0 w-full max-w-[480px] p-2 sm:p-4">
+        <div className="flex h-full max-h-screen flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
+          <div className="flex shrink-0 items-start justify-between border-b border-line/70 px-5 py-4">
+            <div>
+              <div className="flex items-center gap-2 text-red-500"><ShieldAlert size={18} /><span className="text-[10px] font-semibold uppercase tracking-[0.18em]">Fraud Tag</span></div>
+              <h3 className="mt-1 text-xl font-semibold">Tag {order.customer?.name || "Customer"}</h3>
+              <p className="mt-1 text-xs text-foreground/45">This creates an open customer risk case used by the backend fraud checks.</p>
+            </div>
+            <Button type="button" variant="ghost" className="h-9 w-9 p-0" onClick={onClose}><X size={18} /></Button>
           </div>
 
-          <label className="block text-sm font-medium">Severity
-            <select value={severity} onChange={(event) => setSeverity(event.target.value as typeof severity)} className="mt-1.5 w-full rounded-lg border border-line bg-background px-3 py-2.5 text-sm outline-none focus:border-accent">
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
-            </select>
-          </label>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+            <div className="grid gap-2 rounded-lg border border-line/70 bg-black/[0.04] p-3 text-sm">
+              <div><span className="text-foreground/45">Order:</span> {order.orderNumber || "—"}</div>
+              <div><span className="text-foreground/45">Customer:</span> {order.customer?.name || "Unknown"}</div>
+              <div><span className="text-foreground/45">Phone:</span> {order.customer?.phoneNumber || "—"}</div>
+              <div><span className="text-foreground/45">Address:</span> {order.address || order.location || order.customer?.defaultAddress || "—"}</div>
+            </div>
 
-          <label className="block text-sm font-medium">Reason
-            <Input value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1.5" placeholder="Why is this customer being tagged?" />
-          </label>
+            <label className="block text-sm font-medium">Severity
+              <select value={severity} onChange={(event) => setSeverity(event.target.value as typeof severity)} className="mt-1.5 w-full rounded-lg border border-line bg-background px-3 py-2.5 text-sm outline-none focus:border-accent">
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
 
-          <label className="block text-sm font-medium">Internal notes
-            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional notes for the team" className="mt-1.5 min-h-24 w-full rounded-lg border border-line bg-background px-3 py-2.5 text-sm outline-none focus:border-accent" />
-          </label>
+            <label className="block text-sm font-medium">Reason
+              <Input value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1.5" placeholder="Why is this customer being tagged?" />
+            </label>
 
-          {error ? <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-sm text-red-500"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div> : null}
-        </div>
+            <label className="block text-sm font-medium">Internal notes
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional notes for the team" className="mt-1.5 min-h-24 w-full rounded-lg border border-line bg-background px-3 py-2.5 text-sm outline-none focus:border-accent" />
+            </label>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-line/70 p-4">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button type="button" className="gap-2 bg-red-600 text-white hover:bg-red-700" onClick={() => void submit()} disabled={saving || !reason.trim()}>
-            <ShieldAlert size={15} />
-            {saving ? "Tagging..." : "Tag Customer as Fraud"}
-          </Button>
+            {error ? <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-sm text-red-500"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div> : null}
+          </div>
+
+          <div className="flex shrink-0 justify-end gap-2 border-t border-line/70 p-4">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="button" className="gap-2 bg-red-600 text-white hover:bg-red-700" onClick={() => void submit()} disabled={saving || !reason.trim()}>
+              <ShieldAlert size={15} />
+              {saving ? "Tagging..." : "Tag Customer as Fraud"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
