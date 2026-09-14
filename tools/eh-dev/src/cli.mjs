@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const CACHE_DIR = join(ROOT, '.eh-dev');
 const FILE_CACHE = join(CACHE_DIR, 'file-hashes.json');
-const PACKAGE_CACHE = join(CACHE_DIR, 'package-fingerprints.json');
 const PRISMA_CACHE = join(CACHE_DIR, 'prisma-fingerprint.json');
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -31,6 +30,7 @@ const workspaces = {
     name: '@empanada-hauz/shared',
     paths: [...sharedDependencyPaths, 'tsconfig.base.json', 'package-lock.json'],
     output: 'packages/shared/dist',
+    cacheFile: 'shared-build.json',
     command: ['run', 'build', '--workspace', '@empanada-hauz/shared'],
   },
   api: {
@@ -48,6 +48,7 @@ const workspaces = {
       'apps/api/.env.local',
     ],
     output: 'apps/api/dist/main.js',
+    cacheFile: 'api-build.json',
     command: ['run', 'build:compile', '--workspace', '@empanada-hauz/api'],
   },
   web: {
@@ -67,6 +68,7 @@ const workspaces = {
       'apps/web/.env.local',
     ],
     output: 'apps/web/.next/BUILD_ID',
+    cacheFile: 'web-build.json',
     command: ['run', 'build', '--workspace', '@empanada-hauz/web'],
   },
 };
@@ -97,6 +99,10 @@ function loadJson(file, fallback) {
 function saveJson(file, value) {
   ensureCacheDir();
   writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8');
+}
+
+function workspaceCacheFile(key) {
+  return join(CACHE_DIR, workspaces[key].cacheFile);
 }
 
 function sha256(text) {
@@ -217,8 +223,8 @@ async function ensurePrismaGenerated(options = {}) {
 async function buildWorkspace(key, options = {}) {
   const spec = workspaces[key];
   const { fingerprint, changedCount } = packageFingerprint(key);
-  const packageCache = loadJson(PACKAGE_CACHE, {});
-  const cached = packageCache[key];
+  const cacheFile = workspaceCacheFile(key);
+  const cached = loadJson(cacheFile, {});
   const hit = !options.clean && cached?.fingerprint === fingerprint && outputExists(key);
 
   if (hit) {
@@ -231,23 +237,19 @@ async function buildWorkspace(key, options = {}) {
   await execute(npmCommand, spec.command);
   const duration = Date.now() - started;
 
-  packageCache[key] = {
+  saveJson(cacheFile, {
     fingerprint,
     builtAt: new Date().toISOString(),
     durationMs: duration,
-  };
-  saveJson(PACKAGE_CACHE, packageCache);
+  });
   console.log(`[eh-dev] ${key}: built in ${(duration / 1000).toFixed(2)}s`);
   return { key, cached: false, durationMs: duration };
 }
 
 async function buildApi(options = {}) {
   const { fingerprint, changedCount } = packageFingerprint('api');
-  const packageCache = loadJson(PACKAGE_CACHE, {});
-  const cached = packageCache.api;
-
-  await ensurePrismaGenerated(options);
-
+  const cacheFile = workspaceCacheFile('api');
+  const cached = loadJson(cacheFile, {});
   const hit = !options.clean && cached?.fingerprint === fingerprint && outputExists('api');
 
   if (hit) {
@@ -255,17 +257,17 @@ async function buildApi(options = {}) {
     return { key: 'api', cached: true };
   }
 
+  await ensurePrismaGenerated(options);
   console.log(`[eh-dev] api: building${cached ? ' (cache miss)' : '...'}`);
   const started = Date.now();
   await execute(npmCommand, workspaces.api.command);
   const duration = Date.now() - started;
 
-  packageCache.api = {
+  saveJson(cacheFile, {
     fingerprint,
     builtAt: new Date().toISOString(),
     durationMs: duration,
-  };
-  saveJson(PACKAGE_CACHE, packageCache);
+  });
   console.log(`[eh-dev] api: built in ${(duration / 1000).toFixed(2)}s`);
   return { key: 'api', cached: false, durationMs: duration };
 }
@@ -315,13 +317,12 @@ function dev() {
 }
 
 function stats() {
-  const cache = loadJson(PACKAGE_CACHE, {});
-  const prisma = loadJson(PRISMA_CACHE, {});
   console.log('EH-DEV BUILD CACHE');
   for (const key of Object.keys(workspaces)) {
-    const item = cache[key];
-    console.log(`${key.padEnd(8)} ${item ? `${new Date(item.builtAt).toLocaleString()} ${item.durationMs}ms` : 'no cached build'}`);
+    const item = loadJson(workspaceCacheFile(key), {});
+    console.log(`${key.padEnd(8)} ${item.builtAt ? `${new Date(item.builtAt).toLocaleString()} ${item.durationMs}ms` : 'no cached build'}`);
   }
+  const prisma = loadJson(PRISMA_CACHE, {});
   console.log(`prisma   ${prisma.generatedAt ? `${new Date(prisma.generatedAt).toLocaleString()} ${prisma.durationMs}ms` : 'no cached generate'}`);
 }
 
