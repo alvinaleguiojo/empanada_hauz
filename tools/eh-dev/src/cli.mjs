@@ -4,8 +4,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(dirname(new URL(import.meta.url).pathname), '../../..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const CACHE_DIR = join(ROOT, '.eh-dev');
 const FILE_CACHE = join(CACHE_DIR, 'file-hashes.json');
 const PACKAGE_CACHE = join(CACHE_DIR, 'package-fingerprints.json');
