@@ -4,6 +4,8 @@ import { catchError, mergeMap } from "rxjs/operators";
 import { PrismaService } from "../../database/prisma.service";
 import { FraudService } from "./fraud.service";
 
+const FRAUD_SEVERITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+
 @Injectable()
 export class FraudOrderInterceptor implements NestInterceptor {
   constructor(
@@ -56,14 +58,40 @@ export class FraudOrderInterceptor implements NestInterceptor {
 
   private async checkAuthenticatedCustomer(customerId?: string) {
     if (!customerId?.trim()) return { matched: false, blocked: false, highestSeverity: null, matches: [] };
+
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) return { matched: false, blocked: false, highestSeverity: null, matches: [] };
-    return this.fraudService.checkPublicCustomer({
+
+    const directCases = await this.prisma.fraudCase.findMany({
+      where: { entityType: "customer", status: "open", subjectId: customer.id },
+      take: 50
+    });
+    const directMatches = directCases.map((fraudCase) => ({
+      caseId: fraudCase.id,
+      severity: fraudCase.severity,
+      score: 100,
+      matchedOn: ["customerId"],
+      reason: fraudCase.reason
+    }));
+
+    const identity = await this.fraudService.checkPublicCustomer({
       name: customer.name,
       phoneNumber: customer.phoneNumber,
       address: customer.defaultAddress,
       location: null
     });
+
+    const matches = [...directMatches, ...(identity.matches ?? [])];
+    const highestSeverity = matches
+      .map((match) => match.severity)
+      .sort((a, b) => (FRAUD_SEVERITY_RANK[b] ?? 0) - (FRAUD_SEVERITY_RANK[a] ?? 0))[0] ?? null;
+
+    return {
+      matched: matches.length > 0,
+      blocked: matches.some((match) => (FRAUD_SEVERITY_RANK[match.severity] ?? 0) >= FRAUD_SEVERITY_RANK.high),
+      highestSeverity,
+      matches
+    };
   }
 
   private async detect(result: any) {
