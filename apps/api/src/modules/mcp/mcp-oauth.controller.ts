@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Post, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Header, Logger, Post, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
@@ -21,6 +21,8 @@ type AuthorizationCode = {
 
 @Controller()
 export class McpOAuthController {
+  private readonly logger = new Logger(McpOAuthController.name);
+
   constructor(
     private readonly auth: AuthService,
     private readonly prisma: PrismaService
@@ -119,8 +121,29 @@ export class McpOAuthController {
       throw new UnauthorizedException("OAuth PKCE S256 is required");
     }
 
+    let login: Awaited<ReturnType<AuthService["login"]>>;
     try {
-      const login = await this.auth.login({ email: body.email ?? "", password: body.password ?? "" });
+      login = await this.auth.login({ email: body.email ?? "", password: body.password ?? "" });
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        response.status(401).send(
+          this.renderSignInForm({
+            clientId,
+            redirectUri,
+            state: body.state,
+            codeChallenge: body.code_challenge,
+            codeChallengeMethod: body.code_challenge_method,
+            error: "Invalid Empanada Hauz email or password."
+          })
+        );
+        return;
+      }
+
+      this.logger.error(`OAuth login failed unexpectedly: ${this.errorMessage(error)}`);
+      throw error;
+    }
+
+    try {
       const code = randomUUID();
       const expiresAt = new Date(Date.now() + 5 * 60_000);
 
@@ -143,21 +166,15 @@ export class McpOAuthController {
       }
 
       response.redirect(redirect.toString());
-    } catch {
-      response.status(401).send(
-        this.renderSignInForm({
-          clientId,
-          redirectUri,
-          state: body.state,
-          codeChallenge: body.code_challenge,
-          codeChallengeMethod: body.code_challenge_method,
-          error: "Invalid Empanada Hauz email or password."
-        })
-      );
+    } catch (error) {
+      this.logger.error(`OAuth authorization code creation failed: ${this.errorMessage(error)}`);
+      throw error;
     }
   }
 
   @Post("oauth/token")
+  @Header("Cache-Control", "no-store")
+  @Header("Pragma", "no-cache")
   async token(
     @Body()
     body: {
@@ -271,6 +288,10 @@ export class McpOAuthController {
     const proto = request.header("x-forwarded-proto")?.split(",")[0]?.trim() || request.protocol;
     const host = request.header("x-forwarded-host")?.split(",")[0]?.trim() || request.get("host");
     return `${proto}://${host}`;
+  }
+
+  private errorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
   }
 
   private renderSignInForm(input: {
