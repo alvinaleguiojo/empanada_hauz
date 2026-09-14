@@ -27,13 +27,12 @@ async function bootstrap() {
     ]
   });
 
-  const express = require("express");
-  const httpServer = app.getHttpAdapter().getInstance();
-
   // OAuth clients such as Claude send token and authorization form submissions
-  // as application/x-www-form-urlencoded. Keep this parser before Nest routes.
-  httpServer.use(express.urlencoded({ extended: false, limit: "100kb" }));
-  httpServer.use(express.json({ limit: "15mb" }));
+  // as application/x-www-form-urlencoded. Use Nest's parser so rawBody remains
+  // available for webhook HMAC verification.
+  app.useBodyParser("urlencoded", { extended: false, limit: "100kb" });
+
+  const httpServer = app.getHttpAdapter().getInstance();
 
   // Safe diagnostics for remote MCP/OAuth connectivity. We intentionally log
   // only the method/path/content type, body field names, and header names/presence,
