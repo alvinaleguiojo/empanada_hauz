@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ShieldAlert } from "lucide-react";
+import { ArrowRight, ShieldAlert } from "lucide-react";
 
 function severityTone(severity: string) {
   if (severity === "critical") return "border-red-500/40 bg-red-500/10 text-red-200";
@@ -36,7 +36,11 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
 
       <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {uniqueAlerts.map((alert) => (
-          <div key={alert.orderId} className={`rounded-lg border px-3 py-2.5 ${severityTone(alert.severity)}`}>
+          <Link
+            key={alert.orderId}
+            href={`/orders?order=${encodeURIComponent(String(alert.orderId))}`}
+            className={`group rounded-lg border px-3 py-2.5 transition hover:border-red-400/60 hover:bg-white/[0.03] ${severityTone(alert.severity)}`}
+          >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold">FRAUD · {String(alert.severity ?? "unknown").toUpperCase()}</span>
               <span className="text-[10px] font-semibold opacity-70">Score {alert.score}</span>
@@ -44,7 +48,10 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
             <p className="mt-1 text-sm font-semibold">{alert.order?.customer?.name ?? "Unknown customer"}</p>
             <p className="text-xs opacity-70">{alert.order?.orderNumber ?? alert.orderId}</p>
             <p className="mt-1 text-[11px] opacity-65">Matched: {Array.isArray(alert.matchedOn) ? alert.matchedOn.join(", ") : "customer"}</p>
-          </div>
+            <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold opacity-70 group-hover:opacity-100">
+              Open order <ArrowRight size={12} />
+            </span>
+          </Link>
         ))}
       </div>
     </div>
