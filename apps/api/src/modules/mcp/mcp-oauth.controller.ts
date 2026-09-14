@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Header, Logger, Post, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
-import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthService } from "../auth/auth.service";
 
@@ -26,8 +25,7 @@ export class McpOAuthController {
 
   constructor(
     private readonly auth: AuthService,
-    private readonly prisma: PrismaService,
-    private readonly jwt: JwtService
+    private readonly prisma: PrismaService
   ) {}
 
   @Get(".well-known/oauth-protected-resource")
@@ -37,8 +35,8 @@ export class McpOAuthController {
       resource: `${baseUrl}/api/mcp`,
       authorization_servers: [baseUrl],
       bearer_methods_supported: ["header"],
-      scopes_supported: ["mcp"],
-      resource_documentation: `${baseUrl}/api/mcp`
+      resource_documentation: `${baseUrl}/api/mcp`,
+      scopes_supported: ["mcp"]
     };
   }
 
@@ -100,6 +98,7 @@ export class McpOAuthController {
     @Res() response: Response
   ) {
     await this.assertRegisteredRedirectUri(clientId, redirectUri);
+    this.assertMcpResource(resource, this.baseUrlFromRequest(response.req));
     response.send(this.renderSignInForm({ clientId, redirectUri, state, codeChallenge, codeChallengeMethod, resource }));
   }
 
@@ -123,11 +122,7 @@ export class McpOAuthController {
     const redirectUri = body.redirect_uri ?? "";
     await this.assertRegisteredRedirectUri(clientId, redirectUri);
 
-    const expectedResource = `${this.baseUrl(request)}/api/mcp`;
-    const resource = body.resource || expectedResource;
-    if (!this.isAllowedResource(resource, expectedResource)) {
-      throw new UnauthorizedException("Invalid OAuth resource");
-    }
+    const resource = this.assertMcpResource(body.resource, this.baseUrl(request));
 
     if (body.code_challenge && body.code_challenge_method !== "S256") {
       throw new UnauthorizedException("OAuth PKCE S256 is required");
@@ -204,10 +199,7 @@ export class McpOAuthController {
       throw new UnauthorizedException("Unsupported OAuth grant");
     }
 
-    const expectedResource = `${this.baseUrl(request)}/api/mcp`;
-    if (!body.resource || !this.isAllowedResource(body.resource, expectedResource)) {
-      throw new UnauthorizedException("Invalid OAuth resource");
-    }
+    const resource = this.assertMcpResource(body.resource, this.baseUrl(request));
 
     const entry = await this.prisma.mcpOAuthAuthorizationCode.findUnique({
       where: { code: body.code }
@@ -237,15 +229,12 @@ export class McpOAuthController {
         throw new UnauthorizedException("Invalid OAuth access token");
       }
 
-      accessToken = await this.jwt.signAsync(
-        {
-          sub: payload.sub,
-          email: payload.email,
-          role: payload.role,
-          aud: body.resource
-        },
-        { expiresIn: process.env.JWT_EXPIRES_IN ?? "1d" }
-      );
+      accessToken = await this.jwt.signAsync({
+        sub: payload.sub,
+        email: payload.email,
+        role: payload.role,
+        aud: resource
+      });
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
       this.logger.error(`MCP access token creation failed: ${this.errorMessage(error)}`);
@@ -305,16 +294,24 @@ export class McpOAuthController {
     }
   }
 
-  private isAllowedResource(value: string, expectedResource: string) {
-    try {
-      const requested = new URL(value);
-      const expected = new URL(expectedResource);
-      requested.hash = "";
-      expected.hash = "";
-      return requested.toString().replace(/\/$/, "") === expected.toString().replace(/\/$/, "");
-    } catch {
-      return false;
+  private assertMcpResource(resource: string | undefined, baseUrl: string) {
+    const expected = `${baseUrl}/api/mcp`;
+    if (!resource) {
+      throw new UnauthorizedException("OAuth resource is required");
     }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(resource);
+    } catch {
+      throw new UnauthorizedException("OAuth resource is invalid");
+    }
+
+    if (parsed.toString() !== expected) {
+      throw new UnauthorizedException("OAuth resource does not match the MCP endpoint");
+    }
+
+    return parsed.toString();
   }
 
   private verifyPkce(entry: AuthorizationCode, codeVerifier?: string) {
@@ -349,6 +346,10 @@ export class McpOAuthController {
     return `${proto}://${host}`;
   }
 
+  private baseUrlFromRequest(request: Request) {
+    return this.baseUrl(request);
+  }
+
   private errorMessage(error: unknown) {
     return error instanceof Error ? error.message : String(error);
   }
@@ -359,7 +360,7 @@ export class McpOAuthController {
     state?: string;
     codeChallenge?: string;
     codeChallengeMethod?: string;
-    resource?: string;
+    resource: string;
     error?: string;
   }) {
     return `<!doctype html>
@@ -390,7 +391,7 @@ export class McpOAuthController {
       <input type="hidden" name="state" value="${this.escapeHtml(input.state ?? "")}" />
       <input type="hidden" name="code_challenge" value="${this.escapeHtml(input.codeChallenge ?? "")}" />
       <input type="hidden" name="code_challenge_method" value="${this.escapeHtml(input.codeChallengeMethod ?? "")}" />
-      <input type="hidden" name="resource" value="${this.escapeHtml(input.resource ?? "")}" />
+      <input type="hidden" name="resource" value="${this.escapeHtml(input.resource)}" />
       <label for="email">Email</label>
       <input id="email" name="email" type="email" autocomplete="username" required />
       <label for="password">Password</label>
