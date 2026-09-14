@@ -1,4 +1,4 @@
-import { ValidationPipe } from "@nestjs/common";
+import { RequestMethod, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { ApiExceptionFilter } from "./common/api-exception.filter";
@@ -16,7 +16,16 @@ async function bootstrap() {
     }
   });
 
-  app.setGlobalPrefix("api");
+  app.setGlobalPrefix("api", {
+    exclude: [
+      { path: ".well-known/oauth-protected-resource", method: RequestMethod.GET },
+      { path: ".well-known/oauth-authorization-server", method: RequestMethod.GET },
+      { path: "oauth/register", method: RequestMethod.POST },
+      { path: "oauth/authorize", method: RequestMethod.GET },
+      { path: "oauth/authorize", method: RequestMethod.POST },
+      { path: "oauth/token", method: RequestMethod.POST }
+    ]
+  });
   app.getHttpAdapter().getInstance().use(require("express").json({ limit: "15mb" }));
   app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalPipes(
