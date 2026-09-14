@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
+import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 
@@ -9,7 +10,11 @@ export const dynamic = "force-dynamic";
 
 export default async function OrdersPage() {
   const today = new Date().toISOString().slice(0, 10);
-  const orders = await apiFetch<any[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []);
+  const [orders, fraudLogs] = await Promise.all([
+    apiFetch<any[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
+    apiFetch<any[]>("/fraud/logs?limit=200").catch(() => [])
+  ]);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -25,6 +30,7 @@ export default async function OrdersPage() {
         </Link>
       </div>
       <ManualOrderForm />
+      <FraudOrderAlerts orders={orders} logs={fraudLogs} />
       <OrdersView orders={orders} />
     </div>
   );
