@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function OrderFraudTagDialog({ order, onClose, onSuccess }: { order: any; onClose: () => void; onSuccess: () => void }) {
+export function OrderFraudTagDialog({ order, onClose, onSuccess }: { order: any; onClose: () => void; onSuccess?: () => void }) {
   const [severity, setSeverity] = useState<"medium" | "high" | "critical">("high");
   const [reason, setReason] = useState("Suspected fraudulent customer based on order history.");
   const [notes, setNotes] = useState("");
@@ -31,7 +31,7 @@ export function OrderFraudTagDialog({ order, onClose, onSuccess }: { order: any;
           notes: notes.trim() || undefined
         })
       });
-      onSuccess();
+      (onSuccess ?? onClose)();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to tag customer as fraud.");
     } finally {
