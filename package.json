@@ -10,13 +10,15 @@
     "concurrently": "^9.1.2"
   },
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace @empanada-hauz/api\" \"npm run dev --workspace @empanada-hauz/web\"",
+    "dev": "node tools/eh-dev/src/cli.mjs dev",
     "dev:api": "npm run dev --workspace @empanada-hauz/api",
     "dev:web": "npm run dev --workspace @empanada-hauz/web",
     "dev:rider": "npm run start --workspace @empanada-hauz/rider",
     "android:rider": "npm run android --workspace @empanada-hauz/rider",
     "ios:rider": "npm run ios --workspace @empanada-hauz/rider",
-    "build": "npm run build --workspace @empanada-hauz/shared && npm run build --workspace @empanada-hauz/api && npm run build --workspace @empanada-hauz/web",
+    "build": "node tools/eh-dev/src/cli.mjs build",
+    "build:clean": "node tools/eh-dev/src/cli.mjs build --clean",
+    "eh:stats": "node tools/eh-dev/src/cli.mjs stats",
     "lint": "npm run lint --workspace @empanada-hauz/api && npm run lint --workspace @empanada-hauz/web && npm run lint --workspace @empanada-hauz/rider",
     "db:generate": "npm run prisma:generate --workspace @empanada-hauz/api",
     "db:push": "npm run prisma:push --workspace @empanada-hauz/api"
