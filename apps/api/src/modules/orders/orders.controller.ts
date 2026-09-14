@@ -144,51 +144,49 @@ export class OrdersController {
       const customer = order?.customer;
       if (!customer) return order;
 
-      const matches = cases.map((fraudCase: any) => {
-        const matchedOn: string[] = [];
-        if (fraudCase.subjectId && customer.id && fraudCase.subjectId === customer.id) matchedOn.push("customerId");
-        if (this.samePhone(fraudCase.phoneNumber, customer.phoneNumber)) matchedOn.push("phone");
-        if (this.sameText(fraudCase.name, customer.name)) matchedOn.push("name");
-        if (this.sameText(fraudCase.messengerPsid, customer.messengerPsid)) matchedOn.push("messenger");
-        const orderAddress = order.address || order.location || customer.defaultAddress;
-        if (this.sameAddress(fraudCase.address, orderAddress)) matchedOn.push("address");
-        if (matchedOn.length === 0) return null;
+      return this.attachCustomerFraudFlag(order, customer, cases);
+    });
+  }
 
-        const score = matchedOn.some((field) => ["customerId", "phone", "messenger"].includes(field))
-          ? 100
-          : matchedOn.includes("name") && matchedOn.includes("address")
-          ? 90
-          : matchedOn.includes("name")
-          ? 70
-          : matchedOn.includes("address")
-          ? 60
-          : 50;
+  private attachCustomerFraudFlag(order: any, customer: any, cases: any[]) {
+    const matches = cases.map((fraudCase: any) => {
+      const phoneMatches = this.samePhone(fraudCase.phoneNumber, customer.phoneNumber);
+      if (!phoneMatches) return null;
 
-        return {
-          caseId: fraudCase.id,
-          severity: fraudCase.severity,
-          score,
-          matchedOn,
-          reason: fraudCase.reason
-        };
-      }).filter(Boolean) as Array<{ caseId: string; severity: string; score: number; matchedOn: string[]; reason: string }>;
+      const matchedOn: string[] = ["phone"];
+      if (fraudCase.subjectId && customer.id && fraudCase.subjectId === customer.id) matchedOn.push("customerId");
+      if (this.sameText(fraudCase.name, customer.name)) matchedOn.push("name");
+      if (this.sameText(fraudCase.messengerPsid, customer.messengerPsid)) matchedOn.push("messenger");
+      const orderAddress = order.address || order.location || customer.defaultAddress;
+      if (this.sameAddress(fraudCase.address, orderAddress)) matchedOn.push("address");
 
-      if (matches.length === 0) return order;
-
-      const highest = matches.reduce((current, match) =>
-        (FRAUD_SEVERITY_RANK[match.severity] ?? 0) > (FRAUD_SEVERITY_RANK[current] ?? 0) ? match.severity : current,
-        matches[0].severity
-      );
+      // Phone is the strong anchor. Require one additional corroborating match.
+      if (matchedOn.length < 2) return null;
 
       return {
-        ...order,
-        fraud: {
-          matched: true,
-          severity: highest,
-          matches
-        }
+        caseId: fraudCase.id,
+        severity: fraudCase.severity,
+        score: 100,
+        matchedOn,
+        reason: fraudCase.reason
       };
-    });
+    }).filter(Boolean) as Array<{ caseId: string; severity: string; score: number; matchedOn: string[]; reason: string }>;
+
+    if (matches.length === 0) return order;
+
+    const highest = matches.reduce((current, match) =>
+      (FRAUD_SEVERITY_RANK[match.severity] ?? 0) > (FRAUD_SEVERITY_RANK[current] ?? 0) ? match.severity : current,
+      matches[0].severity
+    );
+
+    return {
+      ...order,
+      fraud: {
+        matched: true,
+        severity: highest,
+        matches
+      }
+    };
   }
 
   private samePhone(a?: string | null, b?: string | null) {
