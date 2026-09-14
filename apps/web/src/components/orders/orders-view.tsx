@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, List, Pencil, Search, X } from "lucide-react";
+import { LayoutGrid, List, Pencil, Search, ShieldAlert, X } from "lucide-react";
 import { OrdersBoard } from "@/components/orders/orders-board";
+import { OrderFraudTagDialog } from "@/components/orders/order-fraud-tag-dialog";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 const statusOptions = [
@@ -74,6 +76,14 @@ const deliveryLabels: Record<string, string> = {
 export function OrdersView({ orders }: { orders: Array<any> }) {
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [editingOrder, setEditingOrder] = useState<any | null>(null);
+  const [fraudOrder, setFraudOrder] = useState<any | null>(null);
+  const [role, setRole] = useState<UserRole | null>(null);
+
+  useEffect(() => {
+    setRole(decodeRole(window.localStorage.getItem("empanada-token")));
+  }, []);
+
+  const canTagFraud = hasPermission(role, "fraud.manage");
 
   return (
     <div className="space-y-4">
@@ -94,13 +104,14 @@ export function OrdersView({ orders }: { orders: Array<any> }) {
         </div>
       </div>
 
-      {view === "kanban" ? <OrdersBoard orders={orders} /> : <OrdersList orders={orders} onEdit={setEditingOrder} />}
+      {view === "kanban" ? <OrdersBoard orders={orders} /> : <OrdersList orders={orders} onEdit={setEditingOrder} canTagFraud={canTagFraud} onFraud={setFraudOrder} />}
       {editingOrder ? <OrderEditModal order={editingOrder} onClose={() => setEditingOrder(null)} /> : null}
+      {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={() => { setFraudOrder(null); window.location.reload(); }} /> : null}
     </div>
   );
 }
 
-function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (order: any) => void }) {
+function OrdersList({ orders, onEdit, canTagFraud, onFraud }: { orders: Array<any>; onEdit: (order: any) => void; canTagFraud: boolean; onFraud: (order: any) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
 
@@ -126,7 +137,7 @@ function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (order: an
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-line/80 bg-panel/70">
-        <table className="w-full min-w-[920px] text-left text-sm">
+        <table className="w-full min-w-[1060px] text-left text-sm">
           <thead className="border-b border-line/80 bg-black/[0.08] text-[10px] uppercase tracking-[0.16em] text-foreground/40">
             <tr>
               <th className="px-4 py-3">Order</th>
@@ -147,7 +158,12 @@ function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (order: an
                 <td className="px-4 py-4 text-foreground/65">{deliveryLabels[order.deliveryMethod] ?? order.deliveryMethod ?? "—"}</td>
                 <td className="whitespace-nowrap px-4 py-4 font-semibold">Php {String(order.totalAmount ?? 0)}</td>
                 <td className="whitespace-nowrap px-4 py-4"><div className="flex items-center gap-2"><span className={cn("h-2 w-2 shrink-0 rounded-full", statusDot[order.status] ?? "bg-foreground/30")} /><span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", statusTone[order.status] ?? "bg-white/[0.08] text-foreground/70")}>{statusLabels[order.status] ?? order.status ?? "Unknown"}</span></div></td>
-                <td className="whitespace-nowrap px-4 py-4 text-right"><Button type="button" variant="secondary" className="h-9 gap-2 px-3" onClick={() => onEdit(order)}><Pencil size={14} />Edit</Button></td>
+                <td className="whitespace-nowrap px-4 py-4 text-right">
+                  <div className="flex justify-end gap-2">
+                    {canTagFraud ? <Button type="button" variant="secondary" className="h-9 gap-2 px-3 text-red-500 hover:bg-red-500/10" onClick={() => onFraud(order)}><ShieldAlert size={14} />Fraud</Button> : null}
+                    <Button type="button" variant="secondary" className="h-9 gap-2 px-3" onClick={() => onEdit(order)}><Pencil size={14} />Edit</Button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
