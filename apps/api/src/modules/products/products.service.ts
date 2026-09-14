@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { PrismaService } from "../../database/prisma.service";
@@ -29,16 +29,21 @@ const DEFAULT_PRODUCTS: Array<Omit<ProductRecord, "_id" | "createdAt" | "updated
 
 @Injectable()
 export class ProductsService implements OnModuleInit {
+  private readonly logger = new Logger(ProductsService.name);
   private readonly collection = "products";
   private cache: { expiresAt: number; available: ProductRecord[] } | null = null;
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    const result = (await this.prisma.$runCommandRaw({ find: this.collection, limit: 1 })) as unknown as MongoFindResult<ProductRecord>;
-    if ((result.cursor?.firstBatch ?? []).length === 0) {
-      const now = new Date();
-      await this.prisma.$runCommandRaw({ insert: this.collection, documents: DEFAULT_PRODUCTS.map((item) => ({ _id: randomUUID(), ...item, createdAt: now, updatedAt: now })) });
-    } else await this.backfillMetadataDefaults();
+    try {
+      const result = (await this.prisma.$runCommandRaw({ find: this.collection, limit: 1 })) as unknown as MongoFindResult<ProductRecord>;
+      if ((result.cursor?.firstBatch ?? []).length === 0) {
+        const now = new Date();
+        await this.prisma.$runCommandRaw({ insert: this.collection, documents: DEFAULT_PRODUCTS.map((item) => ({ _id: randomUUID(), ...item, createdAt: now, updatedAt: now })) });
+      } else await this.backfillMetadataDefaults();
+    } catch (error) {
+      this.logger.warn(`Product catalog startup sync skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async list(options: { availableOnly?: boolean } = {}) {

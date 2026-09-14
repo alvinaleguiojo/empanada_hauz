@@ -1,17 +1,23 @@
-import { Injectable, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { BatchName, CreateBatchDto } from "./dto";
 
 @Injectable()
 export class BatchesService implements OnModuleInit {
+  private readonly logger = new Logger(BatchesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway
   ) {}
 
   async onModuleInit() {
-    await this.ensureDefaultBatches();
+    try {
+      await this.ensureDefaultBatches();
+    } catch (error) {
+      this.logger.warn(`Default batch setup skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   list() {

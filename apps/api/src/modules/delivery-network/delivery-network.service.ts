@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import * as bcrypt from "bcryptjs";
 import { RealtimeGateway } from "../../common/realtime.gateway";
 import { PrismaService } from "../../database/prisma.service";
@@ -37,14 +37,23 @@ const DELIVERY_TIME_ZONE = "Asia/Manila";
 
 @Injectable()
 export class DeliveryNetworkService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(DeliveryNetworkService.name);
   private presenceTimer?: NodeJS.Timeout;
   private pricingCache: { expiresAt: number; value: { baseFare: number; perKmRate: number } } | null = null;
 
   constructor(private readonly prisma: PrismaService, private readonly realtime: RealtimeGateway, private readonly maps: MapsService) {}
 
   async onModuleInit() {
-    await this.getDeliveryPricing();
-    this.presenceTimer = setInterval(() => void this.expireStaleRiderPresence(), RIDER_PRESENCE_CHECK_MS);
+    try {
+      await this.getDeliveryPricing();
+    } catch (error) {
+      this.logger.warn(`Delivery pricing startup sync skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.presenceTimer = setInterval(() => {
+      void this.expireStaleRiderPresence().catch((error) => {
+        this.logger.warn(`Stale rider presence cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, RIDER_PRESENCE_CHECK_MS);
   }
 
   onModuleDestroy() {

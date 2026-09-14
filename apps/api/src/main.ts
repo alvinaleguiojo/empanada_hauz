@@ -1,6 +1,7 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { ApiExceptionFilter } from "./common/api-exception.filter";
 import { resolveCorsOrigin } from "./common/cors";
 
 async function bootstrap() {
@@ -14,6 +15,7 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api");
   app.getHttpAdapter().getInstance().use(require("express").json({ limit: "15mb" }));
+  app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -25,4 +27,8 @@ async function bootstrap() {
   await app.listen(Number(process.env.APP_PORT ?? 4000));
 }
 
-void bootstrap();
+bootstrap().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[Bootstrap] API failed to start: ${message}`);
+  process.exit(1);
+});

@@ -1,11 +1,26 @@
-import { INestApplication, Injectable, OnModuleInit } from "@nestjs/common";
+import { INestApplication, Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
-  async onModuleInit() {
-    await this.$connect();
+  private readonly logger = new Logger(PrismaService.name);
 
+  async onModuleInit() {
+    try {
+      await this.$connect();
+    } catch (error) {
+      this.logger.error("Database connection failed. API will keep running and return graceful errors for database-backed requests.", error instanceof Error ? error.stack : String(error));
+      return;
+    }
+
+    try {
+      await this.repairReferralStatuses();
+    } catch (error) {
+      this.logger.warn(`Referral status repair skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async repairReferralStatuses() {
     // Repair any referral records that became stale before referral/order
     // synchronization was added. This is idempotent and safe to run on every
     // API startup.
