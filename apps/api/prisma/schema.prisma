@@ -540,6 +540,7 @@ model McpOAuthAuthorizationCode {
   accessToken         String
   expiresAt            DateTime
   consumedAt          DateTime?
+  issuedAccessToken   String?
   createdAt            DateTime @default(now())
 
   @@index([clientId, expiresAt])

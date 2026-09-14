@@ -249,42 +249,12 @@ export class McpOAuthController {
       throw new UnauthorizedException("OAuth PKCE verification failed");
     }
 
-    // Atomically claim the code BEFORE doing any token work, so two concurrent/retried
-    // exchanges for the same code can't both mint a token. If we lose the race, check
-    // whether this looks like the client retrying its own just-succeeded exchange
-    // (same client/redirect, within a short grace window) and reissue a fresh token
-    // for it instead of hard-failing — MCP clients routinely retry a token exchange
-    // that appeared to time out even when the server actually completed it.
-    const consumedAt = new Date();
-    const consumed = await this.prisma.mcpOAuthAuthorizationCode.updateMany({
-      where: {
-        code: body.code,
-        consumedAt: null,
-        expiresAt: { gt: consumedAt }
-      },
-      data: { consumedAt }
-    });
-
-    if (consumed.count !== 1) {
-      // Re-read current state rather than trusting the pre-race `entry`: if this request
-      // lost a genuinely concurrent race (not a later sequential retry), `entry` was
-      // fetched before either side consumed it and would still show consumedAt=null.
-      const current = await this.prisma.mcpOAuthAuthorizationCode.findUnique({ where: { code: body.code } });
-      const retryWindowMs = 30_000;
-      const isLikelyRetryOfSameExchange =
-        current?.consumedAt != null &&
-        Date.now() - current.consumedAt.getTime() <= retryWindowMs &&
-        current.clientId === body.client_id &&
-        current.redirectUri === body.redirect_uri;
-
-      if (!isLikelyRetryOfSameExchange) {
-        this.logger.warn(`OAuth token rejected: authorization code was already consumed for clientId=${body.client_id ?? "missing"}`);
-        throw new UnauthorizedException("Authorization code is invalid or already used");
-      }
-
-      this.logger.warn(`OAuth token: reissuing for a retried exchange of an already-consumed code (clientId=${body.client_id ?? "missing"})`);
-    }
-
+    // Mint the token BEFORE touching consumption state — minting is pure/in-process and
+    // doesn't depend on winning the claim below. What matters is that the WINNING token
+    // gets persisted atomically in the same write that claims the code, so a losing
+    // concurrent/retried request can hand back the exact token the winner got instead of
+    // guessing from timing (clock skew and ordering gaps across serverless instances made
+    // an earlier timing-window approach unreliable).
     let accessToken: string;
     let tokenPayload: { sub?: string; email?: string; role?: string };
     try {
@@ -315,14 +285,42 @@ export class McpOAuthController {
       `OAuth token created: tokenType=Bearer tokenLength=${accessToken.length} sub=${decoded?.sub ? "present" : "missing"} aud=${Array.isArray(decoded?.aud) ? decoded.aud.join(",") : decoded?.aud ?? "missing"} iat=${decoded?.iat ?? "missing"} exp=${decoded?.exp ?? "missing"} expiresIn=${this.jwtExpiresInSeconds()} resource=${resource}`
     );
 
-    this.logger.log(`OAuth token response: status=success tokenType=Bearer scope=mcp expiresIn=${this.jwtExpiresInSeconds()}`);
+    const claimedAt = new Date();
+    const claim = await this.prisma.mcpOAuthAuthorizationCode.updateMany({
+      where: {
+        code: body.code,
+        consumedAt: null,
+        expiresAt: { gt: claimedAt }
+      },
+      data: { consumedAt: claimedAt, issuedAccessToken: accessToken }
+    });
 
-    return {
-      access_token: accessToken,
-      token_type: "Bearer",
-      expires_in: this.jwtExpiresInSeconds(),
-      scope: "mcp"
-    };
+    if (claim.count === 1) {
+      this.logger.log(`OAuth token response: status=success tokenType=Bearer scope=mcp expiresIn=${this.jwtExpiresInSeconds()}`);
+      return {
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: this.jwtExpiresInSeconds(),
+        scope: "mcp"
+      };
+    }
+
+    // Lost the claim — someone else (a concurrent request or an earlier retry of this
+    // same exchange) already consumed this code. If it was this same client/redirect,
+    // hand back whatever token they got instead of failing a legitimate retry.
+    const current = await this.prisma.mcpOAuthAuthorizationCode.findUnique({ where: { code: body.code } });
+    if (current?.issuedAccessToken && current.clientId === body.client_id && current.redirectUri === body.redirect_uri) {
+      this.logger.warn(`OAuth token: reusing previously issued token for a retried exchange (clientId=${body.client_id ?? "missing"})`);
+      return {
+        access_token: current.issuedAccessToken,
+        token_type: "Bearer",
+        expires_in: this.jwtExpiresInSeconds(),
+        scope: "mcp"
+      };
+    }
+
+    this.logger.warn(`OAuth token rejected: authorization code was already consumed for clientId=${body.client_id ?? "missing"}`);
+    throw new UnauthorizedException("Authorization code is invalid or already used");
   }
 
   private async assertRegisteredRedirectUri(clientId: string, redirectUri: string) {
