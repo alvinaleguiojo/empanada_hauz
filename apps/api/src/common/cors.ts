@@ -1,6 +1,5 @@
 const defaultAllowedOrigins = [
   "http://localhost:3000",
-  "https://web-beta-peach-12.vercel.app",
   "https://empanadahauz.com",
   "https://www.empanadahauz.com"
 ];
