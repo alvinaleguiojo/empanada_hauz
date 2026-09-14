@@ -12,10 +12,31 @@ function severityTone(severity: string) {
 }
 
 function fraudBadgeTone(severity: string) {
-  if (severity === "critical") return "border-red-400/50 bg-red-500/20 text-red-100";
-  if (severity === "high") return "border-orange-400/50 bg-orange-500/20 text-orange-100";
-  if (severity === "medium") return "border-amber-400/50 bg-amber-500/20 text-amber-100";
-  return "border-yellow-400/50 bg-yellow-500/20 text-yellow-100";
+  if (severity === "critical") return "border-red-400/60 bg-red-500/25 text-red-100";
+  if (severity === "high") return "border-orange-400/60 bg-orange-500/25 text-orange-100";
+  if (severity === "medium") return "border-amber-400/60 bg-amber-500/25 text-amber-100";
+  return "border-yellow-400/60 bg-yellow-500/25 text-yellow-100";
+}
+
+function getMatchedFields(order: any) {
+  const matches = Array.isArray(order?.fraud?.matches) ? order.fraud.matches : [];
+  const matched = new Set<string>();
+  matches.forEach((match: any) => {
+    if (Array.isArray(match?.matchedOn)) {
+      match.matchedOn.forEach((field: unknown) => {
+        if (field) matched.add(String(field));
+      });
+    }
+  });
+  return [...matched];
+}
+
+function formatMatchedFields(order: any) {
+  const fields = getMatchedFields(order);
+  if (fields.length === 0) return "Open fraud case matched";
+  return fields
+    .map((field) => field.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " "))
+    .join(" + ");
 }
 
 export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: Array<any> }) {
@@ -53,15 +74,24 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
     const syncInlineBadges = () => {
       const activeOrderNumbers = new Set(flaggedOrders.map((order) => String(order.orderNumber)));
 
-      document.querySelectorAll<HTMLElement>('[data-fraud-order-badge]').forEach((badge) => {
+      document.querySelectorAll<HTMLElement>("[data-fraud-order-badge]").forEach((badge) => {
         if (!activeOrderNumbers.has(badge.dataset.orderNumber ?? "")) badge.remove();
       });
 
       flaggedOrders.forEach((order) => {
         const orderNumber = String(order.orderNumber);
         const severity = String(order.fraud?.severity ?? "medium");
-        const existing = document.querySelector<HTMLElement>(`[data-fraud-order-badge][data-order-number="${CSS.escape(orderNumber)}"]`);
-        if (existing) return;
+        const matchedFields = formatMatchedFields(order);
+        const existing = document.querySelector<HTMLElement>(
+          `[data-fraud-order-badge][data-order-number="${CSS.escape(orderNumber)}"]`
+        );
+
+        if (existing) {
+          existing.textContent = `🚨 FRAUD · ${severity.toUpperCase()} · ${matchedFields}`;
+          existing.title = `Fraud match: ${matchedFields}`;
+          existing.className = `mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${fraudBadgeTone(severity)}`;
+          return;
+        }
 
         const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
         const orderCard = buttons.find((button) => button.textContent?.includes(orderNumber));
@@ -70,8 +100,11 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
         const badge = document.createElement("span");
         badge.dataset.fraudOrderBadge = "true";
         badge.dataset.orderNumber = orderNumber;
-        badge.className = `mb-2 inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${fraudBadgeTone(severity)}`;
-        badge.innerHTML = `<span aria-hidden="true">⚠</span> FRAUD · ${severity}`;
+        badge.className = `mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${fraudBadgeTone(severity)}`;
+        badge.textContent = `🚨 FRAUD · ${severity.toUpperCase()} · ${matchedFields}`;
+        badge.title = `Fraud match: ${matchedFields}`;
+        badge.setAttribute("role", "status");
+        badge.setAttribute("aria-label", `Fraud order. ${severity} severity. Matched on ${matchedFields}.`);
         orderCard.prepend(badge);
       });
     };
@@ -84,7 +117,7 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
     return () => {
       observer.disconnect();
       window.clearInterval(interval);
-      document.querySelectorAll('[data-fraud-order-badge]').forEach((badge) => badge.remove());
+      document.querySelectorAll("[data-fraud-order-badge]").forEach((badge) => badge.remove());
     };
   }, [flaggedOrders]);
 
@@ -99,7 +132,7 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
           </div>
           <div>
             <p className="text-sm font-semibold text-red-100">Fraud alerts on today&apos;s orders</p>
-            <p className="mt-0.5 text-xs text-foreground/50">These orders matched an open customer fraud case.</p>
+            <p className="mt-0.5 text-xs text-foreground/50">These orders matched an open customer fraud case using the phone plus another identifying detail.</p>
           </div>
         </div>
         <Link href="/fraud" className="shrink-0 text-xs font-semibold text-accent hover:underline">Open Fraud Center</Link>
@@ -114,7 +147,7 @@ export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: A
             </div>
             <p className="mt-1 text-sm font-semibold">{alert.order?.customer?.name ?? "Unknown customer"}</p>
             <p className="text-xs opacity-70">{alert.order?.orderNumber ?? alert.orderId}</p>
-            <p className="mt-1 text-[11px] opacity-65">Matched: {Array.isArray(alert.matchedOn) ? alert.matchedOn.join(", ") : "customer"}</p>
+            <p className="mt-1 text-[11px] opacity-65">Matched: {Array.isArray(alert.matchedOn) ? alert.matchedOn.join(", ") : "phone + identifying detail"}</p>
           </div>
         ))}
       </div>
