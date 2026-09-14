@@ -124,6 +124,35 @@ export class FraudService {
     return { deleted: true, id };
   }
 
+  async checkPublicCustomer(input: {
+    name?: string | null;
+    phoneNumber?: string | null;
+    address?: string | null;
+    location?: string | null;
+  }) {
+    const cases = await this.prisma.fraudCase.findMany({
+      where: { entityType: "customer", status: "open" },
+      take: 500
+    });
+    const customer = {
+      name: input.name ?? null,
+      phoneNumber: input.phoneNumber ?? null,
+      defaultAddress: input.address ?? null,
+      messengerPsid: null,
+      id: null
+    };
+    const matches = cases.map((fraudCase) => this.matchCustomerCase(fraudCase, customer, {
+      address: input.address,
+      location: input.location
+    })).filter(Boolean) as Match[];
+    return {
+      matched: matches.length > 0,
+      blocked: matches.some((match) => match.severity === "high" || match.severity === "critical"),
+      highestSeverity: this.highestSeverity(matches.map((match) => match.severity)),
+      matches
+    };
+  }
+
   async detectCustomerOrder(order: {
     id: string;
     customer?: {
