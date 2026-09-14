@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 
@@ -9,13 +9,6 @@ function severityTone(severity: string) {
   if (severity === "high") return "border-orange-500/40 bg-orange-500/10 text-orange-200";
   if (severity === "medium") return "border-amber-500/40 bg-amber-500/10 text-amber-200";
   return "border-yellow-500/30 bg-yellow-500/10 text-yellow-200";
-}
-
-function fraudBadgeTone(severity: string) {
-  if (severity === "critical") return "border-red-400/60 bg-red-500/25 text-red-100";
-  if (severity === "high") return "border-orange-400/60 bg-orange-500/25 text-orange-100";
-  if (severity === "medium") return "border-amber-400/60 bg-amber-500/25 text-amber-100";
-  return "border-yellow-400/60 bg-yellow-500/25 text-yellow-100";
 }
 
 function getMatchedFields(order: any) {
@@ -31,7 +24,7 @@ function getMatchedFields(order: any) {
   return [...matched];
 }
 
-function formatMatchedFields(order: any) {
+export function formatMatchedFields(order: any) {
   const fields = getMatchedFields(order);
   if (fields.length === 0) return "Open fraud case matched";
   return fields
@@ -40,86 +33,36 @@ function formatMatchedFields(order: any) {
 }
 
 export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: Array<any> }) {
-  const liveOrders = orders;
-  const ordersById = useMemo(() => new Map(liveOrders.map((order) => [order.id, order])), [liveOrders]);
+  const ordersById = useMemo(() => new Map(orders.map((order) => [order.id, order])), [orders]);
   const flaggedOrders = useMemo(
-    () => liveOrders.filter((order) => order?.fraud?.matched && order?.orderNumber),
-    [liveOrders]
+    () => orders.filter((order) => order?.fraud?.matched && order?.orderNumber),
+    [orders]
   );
 
-  const alerts = [
-    ...logs
-      .filter((log) => log.entityType === "customer" && log.orderId && ordersById.has(log.orderId))
-      .map((log) => ({ ...log, order: ordersById.get(log.orderId) })),
-    ...flaggedOrders.flatMap((order) =>
-      (Array.isArray(order.fraud?.matches) ? order.fraud.matches : []).map((match: any) => ({
-        orderId: order.id,
-        order,
-        score: match.score,
-        matchedOn: match.matchedOn,
-        severity: match.severity ?? order.fraud.severity
-      }))
-    )
-  ];
+  const uniqueAlerts = useMemo(() => {
+    const alerts = [
+      ...logs
+        .filter((log) => log.entityType === "customer" && log.orderId && ordersById.has(log.orderId))
+        .map((log) => ({ ...log, order: ordersById.get(log.orderId) })),
+      ...flaggedOrders.flatMap((order) =>
+        (Array.isArray(order.fraud?.matches) ? order.fraud.matches : []).map((match: any) => ({
+          orderId: order.id,
+          order,
+          score: match.score,
+          matchedOn: match.matchedOn,
+          severity: match.severity ?? order.fraud.severity
+        }))
+      )
+    ];
 
-  const uniqueAlerts = Array.from(
-    new Map(
-      alerts
-        .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))
-        .map((alert) => [alert.orderId, alert])
-    ).values()
-  );
-
-  useEffect(() => {
-    const syncInlineBadges = () => {
-      const activeOrderNumbers = new Set(flaggedOrders.map((order) => String(order.orderNumber)));
-
-      document.querySelectorAll<HTMLElement>("[data-fraud-order-badge]").forEach((badge) => {
-        if (!activeOrderNumbers.has(badge.dataset.orderNumber ?? "")) badge.remove();
-      });
-
-      flaggedOrders.forEach((order) => {
-        const orderNumber = String(order.orderNumber);
-        const severity = String(order.fraud?.severity ?? "medium");
-        const matchedFields = formatMatchedFields(order);
-        const existing = document.querySelector<HTMLElement>(
-          `[data-fraud-order-badge][data-order-number="${CSS.escape(orderNumber)}"]`
-        );
-
-        if (existing) {
-          existing.textContent = `🚨 FRAUD · ${severity.toUpperCase()} · ${matchedFields}`;
-          existing.title = `Fraud match: ${matchedFields}`;
-          existing.className = `mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${fraudBadgeTone(severity)}`;
-          return;
-        }
-
-        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
-        const orderCard = buttons.find((button) => button.textContent?.includes(orderNumber));
-        if (!orderCard) return;
-
-        const badge = document.createElement("span");
-        badge.dataset.fraudOrderBadge = "true";
-        badge.dataset.orderNumber = orderNumber;
-        badge.className = `mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${fraudBadgeTone(severity)}`;
-        badge.textContent = `🚨 FRAUD · ${severity.toUpperCase()} · ${matchedFields}`;
-        badge.title = `Fraud match: ${matchedFields}`;
-        badge.setAttribute("role", "status");
-        badge.setAttribute("aria-label", `Fraud order. ${severity} severity. Matched on ${matchedFields}.`);
-        orderCard.prepend(badge);
-      });
-    };
-
-    syncInlineBadges();
-    const observer = new MutationObserver(syncInlineBadges);
-    observer.observe(document.body, { childList: true, subtree: true });
-    const interval = window.setInterval(syncInlineBadges, 1000);
-
-    return () => {
-      observer.disconnect();
-      window.clearInterval(interval);
-      document.querySelectorAll("[data-fraud-order-badge]").forEach((badge) => badge.remove());
-    };
-  }, [flaggedOrders]);
+    return Array.from(
+      new Map(
+        alerts
+          .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))
+          .map((alert) => [alert.orderId, alert])
+      ).values()
+    );
+  }, [flaggedOrders, logs, ordersById]);
 
   if (uniqueAlerts.length === 0) return null;
 
