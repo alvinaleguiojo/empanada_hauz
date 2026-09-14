@@ -2,6 +2,7 @@ node_modules
 .next
 dist
 .turbo
+.eh-dev
 .env
 .env.local
 .env*
