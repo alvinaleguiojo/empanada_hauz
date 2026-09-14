@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, ShieldAlert } from "lucide-react";
+import { CalendarDays, Plus, ShieldAlert } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
@@ -60,6 +60,12 @@ export default function OrdersPage() {
     setFraudOrder(null);
   }
 
+  function openManualOrder() {
+    const trigger = document.querySelector<HTMLButtonElement>('[aria-label="New Order"]');
+    trigger?.click();
+    document.querySelector('[aria-label="New Order"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -67,99 +73,40 @@ export default function OrdersPage() {
           <p className="text-sm text-foreground/45">Manual order entry, workflow tracking, and dispatch readiness.</p>
           <h1 className="text-2xl font-semibold sm:text-3xl">Orders</h1>
         </div>
-        <a href="/calendar">
-          <Button type="button" variant="secondary" className="gap-2">
-            <CalendarDays size={16} />
-            Calendar
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="secondary" className="h-9 gap-2 px-3 text-sm" onClick={openManualOrder}>
+            <Plus size={15} />
+            New Order
           </Button>
-        </a>
+          <a href="/calendar">
+            <Button type="button" variant="secondary" className="h-9 gap-2 px-3 text-sm">
+              <CalendarDays size={16} />
+              Calendar
+            </Button>
+          </a>
+        </div>
       </div>
 
       <ManualOrderForm />
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
 
-      <div className="relative" onClickCapture={handleKanbanClick}>
-        <OrdersView orders={orders} />
-        {canTagFraud && selectedOrder ? (
-          <KanbanFraudDrawerAction order={selectedOrder} onTag={() => setFraudOrder(selectedOrder)} />
-        ) : null}
+      <div onClick={handleKanbanClick}>
+        <OrdersView orders={orders} onFraudOrder={canTagFraud ? setFraudOrder : undefined} />
       </div>
 
-      {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} /> : null}
+      {typeof document !== "undefined" && selectedOrder
+        ? createPortal(
+            <OrderFraudTagDialog order={selectedOrder} onClose={() => setSelectedOrder(null)} />,
+            document.body
+          )
+        : null}
+
+      {typeof document !== "undefined" && fraudOrder
+        ? createPortal(
+            <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} />,
+            document.body
+          )
+        : null}
     </div>
-  );
-}
-
-function KanbanFraudDrawerAction({ order, onTag }: { order: any; onTag: () => void }) {
-  const [target, setTarget] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    let frame = 0;
-    let attempts = 0;
-
-    const findTarget = () => {
-      if (!active) return;
-      const orderNumber = String(order?.orderNumber ?? "").trim();
-      if (!orderNumber) {
-        setTarget(null);
-        return;
-      }
-
-      const orderNode = Array.from(document.querySelectorAll("p")).find(
-        (element) => element.textContent?.trim() === orderNumber
-      );
-
-      if (orderNode) {
-        let current: HTMLElement | null = orderNode instanceof HTMLElement ? orderNode : null;
-        let actionRow: HTMLElement | null = null;
-        while (current) {
-          const detailsLabel = Array.from(current.querySelectorAll("p")).find(
-            (element) => element.textContent?.trim() === "Order details"
-          );
-          if (detailsLabel?.parentElement) {
-            const candidate = detailsLabel.parentElement.children.item(1);
-            if (candidate instanceof HTMLElement) {
-              actionRow = candidate;
-              break;
-            }
-          }
-          current = current.parentElement;
-        }
-
-        if (actionRow) {
-          setTarget(actionRow);
-          return;
-        }
-      }
-
-      attempts += 1;
-      if (attempts < 20) {
-        frame = window.requestAnimationFrame(findTarget);
-      }
-    };
-
-    frame = window.requestAnimationFrame(findTarget);
-
-    return () => {
-      active = false;
-      window.cancelAnimationFrame(frame);
-    };
-  }, [order?.id, order?.orderNumber]);
-
-  if (!target) return null;
-
-  return createPortal(
-    <Button
-      type="button"
-      variant="ghost"
-      className="gap-1.5 px-3 text-red-500 hover:text-red-500"
-      onClick={onTag}
-      title={`Tag ${order?.customer?.name || "customer"} as fraud`}
-    >
-      <ShieldAlert size={14} />
-      Tag as Fraud
-    </Button>,
-    target
   );
 }
