@@ -9,6 +9,12 @@ type McpUser = {
   role: string;
 };
 
+type McpAccessTokenPayload = {
+  sub?: string;
+  aud?: string | string[];
+  scope?: string;
+};
+
 @Injectable()
 export class McpAuthService {
   private readonly logger = new Logger(McpAuthService.name);
@@ -25,12 +31,23 @@ export class McpAuthService {
       throw new UnauthorizedException("MCP authentication is required");
     }
 
-    let payload: { sub?: string };
+    let payload: McpAccessTokenPayload;
     try {
-      payload = await this.jwt.verifyAsync(token);
+      payload = await this.jwt.verifyAsync<McpAccessTokenPayload>(token);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.warn(`MCP auth rejected: JWT verification failed (${reason})`);
+      throw new UnauthorizedException("Invalid MCP access token");
+    }
+
+    const expectedAudience = this.mcpResource();
+    if (!this.hasAudience(payload.aud, expectedAudience)) {
+      this.logger.warn("MCP auth rejected: JWT audience does not match the MCP resource");
+      throw new UnauthorizedException("Invalid MCP access token");
+    }
+
+    if (!payload.scope?.split(/\s+/).includes("mcp")) {
+      this.logger.warn("MCP auth rejected: JWT is missing the mcp scope");
       throw new UnauthorizedException("Invalid MCP access token");
     }
 
@@ -56,5 +73,19 @@ export class McpAuthService {
   private extractBearerToken(authorization?: string) {
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
     return match?.[1]?.trim();
+  }
+
+  private hasAudience(audience: string | string[] | undefined, expected: string) {
+    return Array.isArray(audience) ? audience.includes(expected) : audience === expected;
+  }
+
+  private mcpResource() {
+    const baseUrl = process.env.PUBLIC_API_URL?.replace(/\/$/, "");
+    if (baseUrl) return `${baseUrl}/api/mcp`;
+
+    const publicUrl = process.env.API_PUBLIC_URL?.replace(/\/$/, "");
+    if (publicUrl) return `${publicUrl}/api/mcp`;
+
+    throw new UnauthorizedException("MCP public resource is not configured");
   }
 }
