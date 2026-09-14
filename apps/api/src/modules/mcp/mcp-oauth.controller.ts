@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Header, Logger, Post, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
+import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthService } from "../auth/auth.service";
 
@@ -25,7 +26,8 @@ export class McpOAuthController {
 
   constructor(
     private readonly auth: AuthService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService
   ) {}
 
   @Get(".well-known/oauth-protected-resource")
@@ -35,6 +37,7 @@ export class McpOAuthController {
       resource: `${baseUrl}/api/mcp`,
       authorization_servers: [baseUrl],
       bearer_methods_supported: ["header"],
+      scopes_supported: ["mcp"],
       resource_documentation: `${baseUrl}/api/mcp`
     };
   }
@@ -93,10 +96,11 @@ export class McpOAuthController {
     @Query("state") state: string | undefined,
     @Query("code_challenge") codeChallenge: string | undefined,
     @Query("code_challenge_method") codeChallengeMethod: string | undefined,
+    @Query("resource") resource: string | undefined,
     @Res() response: Response
   ) {
     await this.assertRegisteredRedirectUri(clientId, redirectUri);
-    response.send(this.renderSignInForm({ clientId, redirectUri, state, codeChallenge, codeChallengeMethod }));
+    response.send(this.renderSignInForm({ clientId, redirectUri, state, codeChallenge, codeChallengeMethod, resource }));
   }
 
   @Post("oauth/authorize")
@@ -108,14 +112,22 @@ export class McpOAuthController {
       state?: string;
       code_challenge?: string;
       code_challenge_method?: string;
+      resource?: string;
       email?: string;
       password?: string;
     },
+    @Req() request: Request,
     @Res() response: Response
   ) {
     const clientId = body.client_id ?? "";
     const redirectUri = body.redirect_uri ?? "";
     await this.assertRegisteredRedirectUri(clientId, redirectUri);
+
+    const expectedResource = `${this.baseUrl(request)}/api/mcp`;
+    const resource = body.resource || expectedResource;
+    if (!this.isAllowedResource(resource, expectedResource)) {
+      throw new UnauthorizedException("Invalid OAuth resource");
+    }
 
     if (body.code_challenge && body.code_challenge_method !== "S256") {
       throw new UnauthorizedException("OAuth PKCE S256 is required");
@@ -133,6 +145,7 @@ export class McpOAuthController {
             state: body.state,
             codeChallenge: body.code_challenge,
             codeChallengeMethod: body.code_challenge_method,
+            resource,
             error: "Invalid Empanada Hauz email or password."
           })
         );
@@ -183,10 +196,17 @@ export class McpOAuthController {
       redirect_uri?: string;
       client_id?: string;
       code_verifier?: string;
-    }
+      resource?: string;
+    },
+    @Req() request: Request
   ) {
     if (body.grant_type !== "authorization_code" || !body.code) {
       throw new UnauthorizedException("Unsupported OAuth grant");
+    }
+
+    const expectedResource = `${this.baseUrl(request)}/api/mcp`;
+    if (!body.resource || !this.isAllowedResource(body.resource, expectedResource)) {
+      throw new UnauthorizedException("Invalid OAuth resource");
     }
 
     const entry = await this.prisma.mcpOAuthAuthorizationCode.findUnique({
@@ -203,6 +223,33 @@ export class McpOAuthController {
 
     if (!this.verifyPkce(entry, body.code_verifier)) {
       throw new UnauthorizedException("OAuth PKCE verification failed");
+    }
+
+    let accessToken: string;
+    try {
+      const payload = await this.jwt.verifyAsync<{
+        sub?: string;
+        email?: string;
+        role?: string;
+      }>(entry.accessToken);
+
+      if (!payload.sub) {
+        throw new UnauthorizedException("Invalid OAuth access token");
+      }
+
+      accessToken = await this.jwt.signAsync(
+        {
+          sub: payload.sub,
+          email: payload.email,
+          role: payload.role,
+          aud: body.resource
+        },
+        { expiresIn: process.env.JWT_EXPIRES_IN ?? "1d" }
+      );
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      this.logger.error(`MCP access token creation failed: ${this.errorMessage(error)}`);
+      throw new UnauthorizedException("Invalid OAuth access token");
     }
 
     const consumedAt = new Date();
@@ -222,7 +269,7 @@ export class McpOAuthController {
     await this.prisma.mcpOAuthAuthorizationCode.delete({ where: { code: body.code } });
 
     return {
-      access_token: entry.accessToken,
+      access_token: accessToken,
       token_type: "Bearer",
       expires_in: this.jwtExpiresInSeconds(),
       scope: "mcp"
@@ -253,6 +300,18 @@ export class McpOAuthController {
       if (url.protocol === "https:") return true;
       if (url.protocol !== "http:") return false;
       return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+    } catch {
+      return false;
+    }
+  }
+
+  private isAllowedResource(value: string, expectedResource: string) {
+    try {
+      const requested = new URL(value);
+      const expected = new URL(expectedResource);
+      requested.hash = "";
+      expected.hash = "";
+      return requested.toString().replace(/\/$/, "") === expected.toString().replace(/\/$/, "");
     } catch {
       return false;
     }
@@ -300,6 +359,7 @@ export class McpOAuthController {
     state?: string;
     codeChallenge?: string;
     codeChallengeMethod?: string;
+    resource?: string;
     error?: string;
   }) {
     return `<!doctype html>
@@ -330,6 +390,7 @@ export class McpOAuthController {
       <input type="hidden" name="state" value="${this.escapeHtml(input.state ?? "")}" />
       <input type="hidden" name="code_challenge" value="${this.escapeHtml(input.codeChallenge ?? "")}" />
       <input type="hidden" name="code_challenge_method" value="${this.escapeHtml(input.codeChallengeMethod ?? "")}" />
+      <input type="hidden" name="resource" value="${this.escapeHtml(input.resource ?? "")}" />
       <label for="email">Email</label>
       <input id="email" name="email" type="email" autocomplete="username" required />
       <label for="password">Password</label>
