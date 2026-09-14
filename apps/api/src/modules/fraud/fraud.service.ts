@@ -10,29 +10,12 @@ export type FraudCaseStatus = (typeof FRAUD_CASE_STATUSES)[number];
 export type FraudSeverity = (typeof FRAUD_SEVERITIES)[number];
 
 type FraudCaseRecord = {
-  id: string;
-  entityType: string;
-  status: string;
-  severity: string;
-  name: string | null;
-  phoneNumber: string | null;
-  email: string | null;
-  plateNumber: string | null;
-  messengerPsid: string | null;
-  address: string | null;
-  subjectId: string | null;
-  reason: string;
+  id: string; entityType: string; status: string; severity: string; name: string | null; phoneNumber: string | null;
+  email: string | null; plateNumber: string | null; messengerPsid: string | null; address: string | null;
+  subjectId: string | null; reason: string;
 };
 
-type Match = {
-  caseId: string;
-  severity: FraudSeverity;
-  score: number;
-  matchedOn: string[];
-  reason: string;
-  name?: string | null;
-};
-
+type Match = { caseId: string; severity: FraudSeverity; score: number; matchedOn: string[]; reason: string; name?: string | null };
 const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
 
 @Injectable()
@@ -40,7 +23,10 @@ export class FraudService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listCases(filters: { entityType?: FraudEntityType; status?: FraudCaseStatus } = {}) {
-    const cases = await this.prisma.fraudCase.findMany({ where: { ...(filters.entityType ? { entityType: filters.entityType } : {}), ...(filters.status ? { status: filters.status } : {}) }, orderBy: { updatedAt: "desc" }, take: 500 });
+    const cases = await this.prisma.fraudCase.findMany({
+      where: { ...(filters.entityType ? { entityType: filters.entityType } : {}), ...(filters.status ? { status: filters.status } : {}) },
+      orderBy: { updatedAt: "desc" }, take: 500
+    });
     return cases.map((fraudCase) => ({ ...fraudCase, _id: fraudCase.id }));
   }
 
@@ -61,14 +47,26 @@ export class FraudService {
 
   async createCase(input: { entityType: FraudEntityType; severity: FraudSeverity; name?: string; phoneNumber?: string; email?: string; plateNumber?: string; messengerPsid?: string; address?: string; subjectId?: string; reason: string; notes?: string; userId?: string }) {
     const normalized = await this.resolveCaseIdentity(input);
-    return this.prisma.fraudCase.create({ data: { entityType: input.entityType, severity: input.severity, name: normalized.name, phoneNumber: normalized.phoneNumber, email: normalized.email, plateNumber: normalized.plateNumber, messengerPsid: normalized.messengerPsid, address: normalized.address, subjectId: normalized.subjectId, reason: input.reason.trim(), notes: input.notes?.trim() || null, createdById: input.userId || null, updatedById: input.userId || null } });
+    return this.prisma.fraudCase.create({
+      data: { entityType: input.entityType, severity: input.severity, name: normalized.name, phoneNumber: normalized.phoneNumber,
+        email: normalized.email, plateNumber: normalized.plateNumber, messengerPsid: normalized.messengerPsid, address: normalized.address,
+        subjectId: normalized.subjectId, reason: input.reason.trim(), notes: input.notes?.trim() || null,
+        createdById: input.userId || null, updatedById: input.userId || null }
+    });
   }
 
   async updateCase(id: string, input: { status?: FraudCaseStatus; severity?: FraudSeverity; reason?: string; notes?: string; userId?: string }) {
     this.assertObjectId(id);
     const existing = await this.prisma.fraudCase.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Fraud case not found");
-    return this.prisma.fraudCase.update({ where: { id }, data: { ...(input.status ? { status: input.status, resolvedAt: input.status === "open" ? null : new Date() } : {}), ...(input.severity ? { severity: input.severity } : {}), ...(input.reason != null ? { reason: input.reason.trim() } : {}), ...(input.notes != null ? { notes: input.notes.trim() || null } : {}), ...(input.userId ? { updatedById: input.userId } : {}) } });
+    return this.prisma.fraudCase.update({
+      where: { id },
+      data: {
+        ...(input.status ? { status: input.status, resolvedAt: input.status === "open" ? null : new Date() } : {}),
+        ...(input.severity ? { severity: input.severity } : {}), ...(input.reason != null ? { reason: input.reason.trim() } : {}),
+        ...(input.notes != null ? { notes: input.notes.trim() || null } : {}), ...(input.userId ? { updatedById: input.userId } : {})
+      }
+    });
   }
 
   async deleteCase(id: string) {
@@ -162,46 +160,13 @@ export class FraudService {
     return 50;
   }
 
-  private highestSeverity(values: FraudSeverity[]) {
-    return values.sort((a, b) => this.severityRank(b) - this.severityRank(a))[0] ?? null;
-  }
-
-  private severityRank(value: FraudSeverity) {
-    return { low: 1, medium: 2, high: 3, critical: 4 }[value];
-  }
-
-  private samePhone(a?: string | null, b?: string | null) {
-    const normalize = (value?: string | null) => {
-      const digits = (value ?? "").replace(/\D/g, "");
-      if (digits.startsWith("63") && digits.length === 12) return `0${digits.slice(2)}`;
-      return digits;
-    };
-    const left = normalize(a);
-    const right = normalize(b);
-    return left.length >= 7 && left === right;
-  }
-
-  private sameEmail(a?: string | null, b?: string | null) {
-    return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
-  }
-
-  private sameText(a?: string | null, b?: string | null) {
-    return Boolean(a && b && this.normalizeText(a) === this.normalizeText(b));
-  }
-
-  private sameAddress(a?: string | null, b?: string | null) {
-    return Boolean(a && b && this.normalizeText(a).replace(/[^a-z0-9]/g, "") === this.normalizeText(b).replace(/[^a-z0-9]/g, ""));
-  }
-
-  private normalizeText(value: string) {
-    return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
-  }
-
-  private assertObjectId(value: string) {
-    if (!value || !OBJECT_ID_PATTERN.test(value)) throw new BadRequestException("Invalid fraud case ID");
-  }
-
-  private async writeLog(input: { entityType: FraudEntityType; caseId: string; orderId?: string; deliveryJobId?: string; riderId?: string; matchedOn: string[]; score: number; severity: FraudSeverity }) {
-    await this.prisma.fraudDetectionLog.create({ data: { entityType: input.entityType, caseId: input.caseId, orderId: input.orderId ?? null, deliveryJobId: input.deliveryJobId ?? null, riderId: input.riderId ?? null, matchedOn: input.matchedOn, score: input.score, severity: input.severity } });
-  }
+  private highestSeverity(values: FraudSeverity[]) { return values.sort((a, b) => this.severityRank(b) - this.severityRank(a))[0] ?? null; }
+  private severityRank(value: FraudSeverity) { return { low: 1, medium: 2, high: 3, critical: 4 }[value]; }
+  private samePhone(a?: string | null, b?: string | null) { const normalize = (value?: string | null) => { const digits = (value ?? "").replace(/\D/g, ""); if (digits.startsWith("63") && digits.length === 12) return `0${digits.slice(2)}`; return digits; }; const left = normalize(a); const right = normalize(b); return left.length >= 7 && left === right; }
+  private sameEmail(a?: string | null, b?: string | null) { return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase()); }
+  private sameText(a?: string | null, b?: string | null) { return Boolean(a && b && this.normalizeText(a) === this.normalizeText(b)); }
+  private sameAddress(a?: string | null, b?: string | null) { return Boolean(a && b && this.normalizeText(a).replace(/[^a-z0-9]/g, "") === this.normalizeText(b).replace(/[^a-z0-9]/g, "")); }
+  private normalizeText(value: string) { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " "); }
+  private assertObjectId(value: string) { if (!value || !OBJECT_ID_PATTERN.test(value)) throw new BadRequestException("Invalid fraud case ID"); }
+  private async writeLog(input: { entityType: FraudEntityType; caseId: string; orderId?: string; deliveryJobId?: string; riderId?: string; matchedOn: string[]; score: number; severity: FraudSeverity }) { await this.prisma.fraudDetectionLog.create({ data: { entityType: input.entityType, caseId: input.caseId, orderId: input.orderId ?? null, deliveryJobId: input.deliveryJobId ?? null, riderId: input.riderId ?? null, matchedOn: input.matchedOn, score: input.score, severity: input.severity } }); }
 }
