@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Header, Logger, Post, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import type { Request, Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
@@ -25,7 +26,8 @@ export class McpOAuthController {
 
   constructor(
     private readonly auth: AuthService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService
   ) {}
 
   @Get(".well-known/oauth-protected-resource")
@@ -57,7 +59,7 @@ export class McpOAuthController {
   }
 
   @Post("oauth/register")
-  async registerClient(@Body() body: { redirect_uris?: string[]; client_name?: string }) {
+  async registerClient(@Body() body: ClientRegistration) {
     const redirectUris = Array.isArray(body.redirect_uris)
       ? body.redirect_uris.filter((value) => typeof value === "string" && this.isAllowedRedirectUri(value))
       : [];
@@ -98,8 +100,17 @@ export class McpOAuthController {
     @Res() response: Response
   ) {
     await this.assertRegisteredRedirectUri(clientId, redirectUri);
-    this.assertMcpResource(resource, this.baseUrlFromRequest(response.req));
-    response.send(this.renderSignInForm({ clientId, redirectUri, state, codeChallenge, codeChallengeMethod, resource }));
+    const validatedResource = this.assertMcpResource(resource, this.baseUrlFromRequest(response.req));
+    response.send(
+      this.renderSignInForm({
+        clientId,
+        redirectUri,
+        state,
+        codeChallenge,
+        codeChallengeMethod,
+        resource: validatedResource
+      })
+    );
   }
 
   @Post("oauth/authorize")
