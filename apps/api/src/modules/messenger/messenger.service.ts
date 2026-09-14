@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../database/prisma.service";
 import { CustomersService } from "../customers/customers.service";
@@ -94,7 +94,7 @@ export class MessengerService {
     const requestUrl = new URL(url); requestUrl.searchParams.set("access_token", token);
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal });
+      const response = await this.metaFetch(requestUrl, { headers: { accept: "application/json" }, signal: controller.signal });
       const body = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API failed: ${response.status} ${body}`);
       return JSON.parse(body) as T;
@@ -107,7 +107,7 @@ export class MessengerService {
     const endpoint = `https://graph.facebook.com/${this.graphVersion()}${path}`;
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+      const response = await this.metaFetch(`${endpoint}?access_token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body), signal: controller.signal });
       const responseBody = await response.text();
       if (!response.ok) throw new Error(`Meta Graph API POST failed: ${response.status} ${responseBody}`);
       return JSON.parse(responseBody) as T;
@@ -201,7 +201,7 @@ export class MessengerService {
     if (!pageToken) return { skipped: true, payload };
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
+      const response = await this.metaFetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
       if (!response.ok) throw new Error(`Meta send failed: ${response.status}: ${await response.text()}`);
       const metaResult = await response.json() as { message_id?: string };
       const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
@@ -239,4 +239,12 @@ export class MessengerService {
   }
 
   getConversationMessages(conversationId: string) { return this.prisma.message.findMany({ where: { conversationId }, orderBy: { createdAt: "asc" } }); }
+
+  private async metaFetch(url: string | URL, options: RequestInit) {
+    try {
+      return await fetch(url, options);
+    } catch {
+      throw new ServiceUnavailableException("Meta Graph API is unavailable. Check the internet connection and try again.");
+    }
+  }
 }

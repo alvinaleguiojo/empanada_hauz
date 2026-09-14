@@ -1,9 +1,10 @@
-import { All, Controller, ForbiddenException, Req, Res, UseInterceptors } from "@nestjs/common";
+import { All, Controller, Req, Res, UnauthorizedException, UseInterceptors } from "@nestjs/common";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Request, Response } from "express";
 import { z } from "zod";
 import { MessengerService } from "../messenger/messenger.service";
+import { McpAuthService } from "./mcp-auth.service";
 import { NoCacheInterceptor } from "./no-cache.interceptor";
 
 type ToolResult = {
@@ -30,11 +31,14 @@ type ToolRegistrar = (
 @UseInterceptors(NoCacheInterceptor)
 @Controller("mcp/messenger")
 export class MessengerMcpController {
-  constructor(private readonly messenger: MessengerService) {}
+  constructor(
+    private readonly messenger: MessengerService,
+    private readonly mcpAuth: McpAuthService
+  ) {}
 
   @All()
   async handle(@Req() req: Request, @Res() res: Response) {
-    this.assertAuthorized(req);
+    await this.assertAuthorized(req, res);
     res.setHeader("Cache-Control", "no-store");
 
     const server = this.createServer();
@@ -206,17 +210,20 @@ export class MessengerMcpController {
     return server;
   }
 
-  private assertAuthorized(req: Request) {
-    const token = process.env.MCP_BEARER_TOKEN;
-    if (!token && process.env.NODE_ENV === "production") {
-      throw new ForbiddenException("MCP bearer token is required in production");
+  private async assertAuthorized(req: Request, res: Response) {
+    try {
+      await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"));
+    } catch {
+      const baseUrl = this.baseUrl(req);
+      res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
+      throw new UnauthorizedException("Sign in with Empanada Hauz to use MCP");
     }
-    if (!token) return;
+  }
 
-    const authorization = req.header("authorization");
-    if (authorization !== `Bearer ${token}`) {
-      throw new ForbiddenException("Invalid MCP bearer token");
-    }
+  private baseUrl(req: Request) {
+    const proto = req.header("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
+    const host = req.header("x-forwarded-host")?.split(",")[0]?.trim() || req.get("host");
+    return `${proto}://${host}`;
   }
 
   private toRequiredString(value: unknown) {

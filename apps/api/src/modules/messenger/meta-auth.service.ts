@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, OnModuleInit, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, OnModuleInit, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../database/prisma.service";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "crypto";
@@ -37,7 +37,7 @@ export class MetaAuthService implements OnModuleInit {
   private async graphGet<T>(path: string, token?: string) {
     const url = new URL(`https://graph.facebook.com/${this.graphVersion()}${path}`);
     if (token) url.searchParams.set("access_token", token);
-    const response = await fetch(url, { headers: { accept: "application/json" } }); const body = await response.text();
+    const response = await this.graphFetch(url, { headers: { accept: "application/json" } }); const body = await response.text();
     if (!response.ok) throw new BadRequestException(`Meta Graph API failed: ${response.status} ${body}`);
     return JSON.parse(body) as T;
   }
@@ -45,7 +45,7 @@ export class MetaAuthService implements OnModuleInit {
     const url = new URL(`https://graph.facebook.com/${this.graphVersion()}${path}`);
     url.searchParams.set("access_token", token);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-    const response = await fetch(url, { method: "POST", headers: { accept: "application/json" } });
+    const response = await this.graphFetch(url, { method: "POST", headers: { accept: "application/json" } });
     const body = await response.text();
     if (!response.ok) throw new BadRequestException(`Meta Graph API POST failed: ${response.status} ${body}`);
     return JSON.parse(body) as T;
@@ -54,9 +54,17 @@ export class MetaAuthService implements OnModuleInit {
     if (!this.appId() || !this.appSecret()) throw new Error("META_APP_ID and META_APP_SECRET are required");
     const url = new URL(`https://graph.facebook.com/${this.graphVersion()}/oauth/access_token`);
     url.searchParams.set("client_id", this.appId()); url.searchParams.set("client_secret", this.appSecret()); url.searchParams.set("redirect_uri", this.redirectUri()); url.searchParams.set("code", code);
-    const response = await fetch(url, { headers: { accept: "application/json" } }); const body = await response.text();
+    const response = await this.graphFetch(url, { headers: { accept: "application/json" } }); const body = await response.text();
     if (!response.ok) throw new BadRequestException(`Meta OAuth code exchange failed: ${response.status} ${body}`);
     return JSON.parse(body) as { access_token: string };
+  }
+
+  private async graphFetch(url: URL, options: RequestInit) {
+    try {
+      return await fetch(url, options);
+    } catch {
+      throw new ServiceUnavailableException("Meta Graph API is unavailable. Check the internet connection and try again.");
+    }
   }
 
   async onModuleInit() {

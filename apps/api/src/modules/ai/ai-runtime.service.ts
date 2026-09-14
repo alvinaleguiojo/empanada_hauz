@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiConversationStateService, AiOrderDraft } from "./ai-conversation-state.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
@@ -165,7 +165,7 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new Error(`Ollama did not respond within ${Math.round(this.timeoutMs / 1000)} seconds.`);
       }
-      throw error;
+      throw new ServiceUnavailableException("AI runtime is unavailable. Check the local model service or internet connection and try again.");
     } finally {
       clearTimeout(timeout);
     }

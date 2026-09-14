@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
@@ -183,6 +183,8 @@ export class AiPublicAgentService {
       const content = payload.message?.content?.trim();
       if (!content) throw new Error("Ollama returned an empty response.");
       return content;
+    } catch {
+      throw new ServiceUnavailableException("AI assistant is unavailable. Check the local model service or internet connection and try again.");
     } finally {
       clearTimeout(timeout);
     }

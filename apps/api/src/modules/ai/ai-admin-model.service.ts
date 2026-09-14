@@ -1,4 +1,4 @@
-import { GatewayTimeoutException, Injectable } from "@nestjs/common";
+import { GatewayTimeoutException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AiControlService } from "./ai-control.service";
 
@@ -40,7 +40,7 @@ export class AiAdminModelService {
     const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs);
     try {
       const requestBody = { ...body, think: false, options: { temperature: 0, num_ctx: 4096 } };
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(requestBody) });
+      const response = await this.modelFetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(requestBody) }, "Ollama");
       const text = await response.text();
       if (!response.ok) throw new Error(`Ollama admin agent request failed: ${response.status} ${text}`);
       const parsed = JSON.parse(text) as { choices?: Array<{ message?: unknown }> };
@@ -56,7 +56,7 @@ export class AiAdminModelService {
   private async chatProvider(body: Record<string, unknown>, url: string, keyName: "GEMINI_API_KEY" | "GROQ_API_KEY" | "OPENAI_API_KEY", provider: string) {
     const key = this.config.get<string>(keyName)?.trim();
     if (!key) throw new Error(`${provider} API key is not configured on the server.`);
-    const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify(body) });
+    const response = await this.modelFetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify(body) }, provider);
     const text = await response.text();
     if (!response.ok) throw new Error(`${provider} admin agent request failed: ${response.status} ${text}`);
     const parsed = JSON.parse(text) as { choices?: Array<{ message?: unknown }> };
@@ -75,10 +75,21 @@ export class AiAdminModelService {
     const title = this.config.get<string>("OPENROUTER_APP_NAME")?.trim();
     if (referer) headers["HTTP-Referer"] = referer;
     if (title) headers["X-Title"] = title;
-    const response = await fetch(this.openRouterBaseUrl, { method: "POST", headers, body: JSON.stringify(body) });
+    const response = await this.modelFetch(this.openRouterBaseUrl, { method: "POST", headers, body: JSON.stringify(body) }, "OpenRouter");
     const text = await response.text();
     if (!response.ok) throw new Error(`OpenRouter admin agent request failed: ${response.status} ${text}`);
     const parsed = JSON.parse(text) as { choices?: Array<{ message?: unknown }> };
     return parsed.choices?.[0]?.message ?? { content: "" };
+  }
+
+  private async modelFetch(url: string, options: RequestInit, provider: string) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error;
+      }
+      throw new ServiceUnavailableException(`${provider} is unavailable. Check the server internet connection and try again.`);
+    }
   }
 }

@@ -42,20 +42,25 @@ export class RiderService {
       throw new ServiceUnavailableException("Google Maps API key is not configured");
     }
 
-    const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline"
-      },
-      body: JSON.stringify({
-        origin: { location: { latLng: { latitude: dto.originLat, longitude: dto.originLng } } },
-        destination: { location: { latLng: { latitude: dto.destLat, longitude: dto.destLng } } },
-        travelMode: process.env.GOOGLE_MAPS_TRAVEL_MODE ?? "TWO_WHEELER",
-        routingPreference: "TRAFFIC_AWARE"
-      })
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline"
+        },
+        body: JSON.stringify({
+          origin: { location: { latLng: { latitude: dto.originLat, longitude: dto.originLng } } },
+          destination: { location: { latLng: { latitude: dto.destLat, longitude: dto.destLng } } },
+          travelMode: process.env.GOOGLE_MAPS_TRAVEL_MODE ?? "TWO_WHEELER",
+          routingPreference: "TRAFFIC_AWARE"
+        })
+      });
+    } catch {
+      throw new ServiceUnavailableException("Google Maps is unavailable. Check the internet connection and try again.");
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

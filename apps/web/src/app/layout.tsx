@@ -1,6 +1,7 @@
 import "./globals.css";
 import { ThemeScript } from "@/components/layout/theme-script";
 import CustomerGooglePlacesAutocomplete from "@/components/CustomerGooglePlacesAutocomplete";
+import { NetworkStatusToast } from "@/components/network-status-toast";
 import { ProductCatalogProvider } from "@/components/products/product-catalog-provider";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -9,6 +10,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeScript />
         <CustomerGooglePlacesAutocomplete />
+        <NetworkStatusToast />
         <ProductCatalogProvider>{children}</ProductCatalogProvider>
       </body>
     </html>
