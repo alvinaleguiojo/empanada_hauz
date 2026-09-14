@@ -16,6 +16,7 @@ export default function OrdersPage() {
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
   useEffect(() => {
     setRole(decodeRole(window.localStorage.getItem("empanada-token")));
@@ -55,12 +56,6 @@ export default function OrdersPage() {
     if (match) setSelectedOrder(match);
   }
 
-  function openManualOrder() {
-    const trigger = document.querySelector<HTMLButtonElement>('[aria-label="New Order"]');
-    trigger?.click();
-    document.querySelector('[aria-label="New Order"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -69,7 +64,7 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-semibold sm:text-3xl">Orders</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="secondary" className="h-9 gap-2 px-3 text-sm" onClick={openManualOrder}>
+          <Button type="button" variant="secondary" className="h-9 gap-2 px-3 text-sm" onClick={() => setManualOrderOpen(true)}>
             <Plus size={15} />
             New Order
           </Button>
@@ -82,7 +77,7 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      <ManualOrderForm />
+      <ManualOrderForm open={manualOrderOpen} onOpenChange={setManualOrderOpen} />
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
 
       <div onClick={handleKanbanClick}>
