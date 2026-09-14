@@ -45,6 +45,7 @@ export class McpOAuthController {
   @Get(".well-known/oauth-authorization-server")
   authorizationServer(@Req() request: Request) {
     const baseUrl = this.baseUrl(request);
+    this.logger.log(`OAuth metadata requested: issuer=${baseUrl} resource=${baseUrl}/api/mcp`);
     return {
       issuer: baseUrl,
       authorization_endpoint: `${baseUrl}/oauth/authorize`,
@@ -78,6 +79,8 @@ export class McpOAuthController {
       }
     });
 
+    this.logger.log(`OAuth client registered: clientId=${clientId} redirectCount=${redirectUris.length}`);
+
     return {
       client_id: clientId,
       client_id_issued_at: Math.floor(Date.now() / 1000),
@@ -102,6 +105,9 @@ export class McpOAuthController {
   ) {
     await this.assertRegisteredRedirectUri(clientId, redirectUri);
     const validatedResource = this.assertMcpResource(resource, this.baseUrlFromRequest(response.req));
+    this.logger.log(
+      `OAuth authorize form: clientId=${clientId} redirectUri=${this.safeUrl(redirectUri)} resource=${validatedResource} state=${state ? "present" : "missing"} pkce=${codeChallengeMethod ?? "none"}`
+    );
     response.send(
       this.renderSignInForm({
         clientId,
@@ -135,6 +141,9 @@ export class McpOAuthController {
     await this.assertRegisteredRedirectUri(clientId, redirectUri);
 
     const resource = this.assertMcpResource(body.resource, this.baseUrl(request));
+    this.logger.log(
+      `OAuth authorize submit: clientId=${clientId} redirectUri=${this.safeUrl(redirectUri)} resource=${resource} state=${body.state ? "present" : "missing"} pkce=${body.code_challenge_method ?? "none"}`
+    );
 
     if (body.code_challenge && body.code_challenge_method !== "S256") {
       throw new UnauthorizedException("OAuth PKCE S256 is required");
@@ -186,6 +195,9 @@ export class McpOAuthController {
       }
       redirect.searchParams.set("iss", this.baseUrl(request));
 
+      this.logger.log(
+        `OAuth authorization succeeded: clientId=${clientId} redirectUri=${this.safeUrl(redirectUri)} issuer=${this.baseUrl(request)} code=present`
+      );
       response.redirect(redirect.toString());
     } catch (error) {
       this.logger.error(`OAuth authorization code creation failed: ${this.errorMessage(error)}`);
@@ -208,6 +220,10 @@ export class McpOAuthController {
     },
     @Req() request: Request
   ) {
+    this.logger.log(
+      `OAuth token request: grantType=${body.grant_type ?? "missing"} clientId=${body.client_id ?? "missing"} redirectUri=${body.redirect_uri ? this.safeUrl(body.redirect_uri) : "missing"} resource=${body.resource ?? "missing"} code=${body.code ? "present" : "missing"} verifier=${body.code_verifier ? "present" : "missing"}`
+    );
+
     if (body.grant_type !== "authorization_code" || !body.code) {
       throw new UnauthorizedException("Unsupported OAuth grant");
     }
@@ -219,33 +235,37 @@ export class McpOAuthController {
     });
 
     if (!entry || entry.expiresAt.getTime() < Date.now()) {
+      this.logger.warn(`OAuth token rejected: code ${entry ? "expired" : "not found"}`);
       throw new UnauthorizedException("Authorization code is invalid or expired");
     }
 
     if (entry.clientId !== body.client_id || entry.redirectUri !== body.redirect_uri) {
+      this.logger.warn(`OAuth token rejected: client or redirect URI mismatch for clientId=${body.client_id ?? "missing"}`);
       throw new UnauthorizedException("OAuth client mismatch");
     }
 
     if (!this.verifyPkce(entry, body.code_verifier)) {
+      this.logger.warn(`OAuth token rejected: PKCE verification failed for clientId=${body.client_id ?? "missing"}`);
       throw new UnauthorizedException("OAuth PKCE verification failed");
     }
 
     let accessToken: string;
+    let tokenPayload: { sub?: string; email?: string; role?: string };
     try {
-      const payload = await this.jwt.verifyAsync<{
+      tokenPayload = await this.jwt.verifyAsync<{
         sub?: string;
         email?: string;
         role?: string;
       }>(entry.accessToken);
 
-      if (!payload.sub) {
+      if (!tokenPayload.sub) {
         throw new UnauthorizedException("Invalid OAuth access token");
       }
 
       accessToken = await this.jwt.signAsync({
-        sub: payload.sub,
-        email: payload.email,
-        role: payload.role,
+        sub: tokenPayload.sub,
+        email: tokenPayload.email,
+        role: tokenPayload.role,
         aud: resource
       });
     } catch (error) {
@@ -253,6 +273,11 @@ export class McpOAuthController {
       this.logger.error(`MCP access token creation failed: ${this.errorMessage(error)}`);
       throw new UnauthorizedException("Invalid OAuth access token");
     }
+
+    const decoded = this.jwt.decode(accessToken) as { sub?: string; aud?: string | string[]; iat?: number; exp?: number } | null;
+    this.logger.log(
+      `OAuth token created: tokenType=Bearer tokenLength=${accessToken.length} sub=${decoded?.sub ? "present" : "missing"} aud=${Array.isArray(decoded?.aud) ? decoded.aud.join(",") : decoded?.aud ?? "missing"} iat=${decoded?.iat ?? "missing"} exp=${decoded?.exp ?? "missing"} expiresIn=${this.jwtExpiresInSeconds()} resource=${resource}`
+    );
 
     const consumedAt = new Date();
     const consumed = await this.prisma.mcpOAuthAuthorizationCode.updateMany({
@@ -265,10 +290,13 @@ export class McpOAuthController {
     });
 
     if (consumed.count !== 1) {
+      this.logger.warn(`OAuth token rejected after creation: authorization code was already consumed for clientId=${body.client_id ?? "missing"}`);
       throw new UnauthorizedException("Authorization code is invalid or already used");
     }
 
     await this.prisma.mcpOAuthAuthorizationCode.delete({ where: { code: body.code } });
+
+    this.logger.log(`OAuth token response: status=success tokenType=Bearer scope=mcp expiresIn=${this.jwtExpiresInSeconds()}`);
 
     return {
       access_token: accessToken,
@@ -361,6 +389,15 @@ export class McpOAuthController {
 
   private baseUrlFromRequest(request: Request) {
     return this.baseUrl(request);
+  }
+
+  private safeUrl(value: string) {
+    try {
+      const url = new URL(value);
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return "invalid-url";
+    }
   }
 
   private errorMessage(error: unknown) {
