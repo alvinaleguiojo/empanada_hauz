@@ -12,6 +12,12 @@ const FILE_CACHE = join(CACHE_DIR, 'file-hashes.json');
 const PACKAGE_CACHE = join(CACHE_DIR, 'package-fingerprints.json');
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const spawnOptions = {
+  cwd: ROOT,
+  stdio: 'inherit',
+  shell: process.platform === 'win32',
+  env: process.env,
+};
 
 const workspaces = {
   shared: {
@@ -119,9 +125,7 @@ function outputExists(key) {
 function execute(command, args, extraEnv = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
-      cwd: ROOT,
-      stdio: 'inherit',
-      shell: false,
+      ...spawnOptions,
       env: { ...process.env, ...extraEnv },
     });
 
@@ -182,12 +186,7 @@ async function build(options = {}) {
 }
 
 function startProcess(label, args) {
-  const child = spawn(npmCommand, args, {
-    cwd: ROOT,
-    stdio: 'inherit',
-    shell: false,
-    env: process.env,
-  });
+  const child = spawn(npmCommand, args, spawnOptions);
 
   child.on('error', (error) => {
     console.error(`[eh-dev] ${label} failed: ${error.message}`);
