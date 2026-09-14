@@ -134,7 +134,7 @@ model ReferralPartner {
   id             String    @id @default(auto()) @map("_id") @db.ObjectId
   email          String    @unique
   passwordHash   String
-  name            String
+  name           String
   phoneNumber    String?
   referralCode   String    @unique
   approvalStatus String    @default("pending")
@@ -240,7 +240,7 @@ model MetaConnection {
   expiresAt            DateTime?
   dataAccessExpiresAt  DateTime?
   connectedAt          DateTime?
-  oauthState            String?
+  oauthState           String?
   oauthStateExpiresAt  DateTime?
   updatedAt            DateTime  @updatedAt
 }
@@ -517,4 +517,31 @@ model OperatorChatMessage {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+model McpOAuthClient {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  clientId    String   @unique
+  clientName  String?
+  redirectUris Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model McpOAuthAuthorizationCode {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  code                String   @unique
+  clientId            String
+  redirectUri         String
+  codeChallenge       String?
+  codeChallengeMethod String?
+  accessToken         String
+  expiresAt            DateTime
+  consumedAt          DateTime?
+  createdAt            DateTime @default(now())
+
+  @@index([clientId, expiresAt])
+  @@index([expiresAt])
 }
