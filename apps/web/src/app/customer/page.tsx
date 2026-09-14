@@ -19,6 +19,8 @@ function CustomerKioskGuard() {
     let hintElement: HTMLElement | null = null;
     let toastElement: HTMLElement | null = null;
     let toastTimer: number | null = null;
+    let checkoutNavigation: HTMLElement | null = null;
+    let navigationTimer: number | null = null;
 
     const readBagQuantity = (button: HTMLButtonElement) => {
       const match = button.textContent?.match(/(\d+)\s+pcs/i);
@@ -117,6 +119,69 @@ function CustomerKioskGuard() {
       }
     };
 
+    const syncCheckoutNavigation = () => {
+      const stepButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('nav[aria-label="Order steps"] button'));
+      const bagButton = document.querySelector<HTMLButtonElement>('button[aria-label^="Open bag with"]');
+      if (stepButtons.length === 0 || !bagButton) return;
+
+      const activeIndex = stepButtons.findIndex((button) => button.className.includes("border-[#E3A64B]/70"));
+      const step = activeIndex >= 0 ? activeIndex : 0;
+      const quantity = readBagQuantity(bagButton);
+      const policyCheckbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]');
+      const policyAgreed = policyCheckbox?.checked ?? false;
+      const isFirstStep = step === 0;
+      const canContinue = !isFirstStep || quantity >= 10;
+      const isFinalStep = step === stepButtons.length - 1;
+
+      if (!checkoutNavigation) {
+        checkoutNavigation = document.createElement("div");
+        checkoutNavigation.className = "fixed inset-x-0 bottom-0 z-40 border-t border-[#F2E8D5]/10 bg-[#17110b]/95 px-3 py-3 shadow-[0_-18px_50px_-28px_rgba(0,0,0,0.9)] backdrop-blur-xl sm:px-6 lg:px-8";
+        document.body.appendChild(checkoutNavigation);
+        document.body.style.paddingBottom = "88px";
+      }
+
+      const disabled = isFinalStep ? !policyAgreed : !canContinue;
+      const primaryLabel = isFinalStep ? "Place order" : "Continue";
+      const helperText = isFirstStep && quantity < 10
+        ? `Add ${10 - quantity} more piece${10 - quantity === 1 ? "" : "s"} to continue`
+        : isFinalStep && !policyAgreed
+          ? "Please agree to the Privacy Policy to place your order"
+          : "";
+
+      const signature = `${step}|${quantity}|${policyAgreed}|${disabled}|${primaryLabel}|${helperText}`;
+      if (checkoutNavigation.dataset.signature === signature) return;
+      checkoutNavigation.dataset.signature = signature;
+
+      checkoutNavigation.innerHTML = `
+        <div class="mx-auto flex max-w-7xl items-center gap-2.5">
+          <button type="button" data-kiosk-back class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#F2E8D5]/15 bg-[#241c13] text-[#F2E8D5] transition hover:border-[#E3A64B]/35 hover:bg-[#2b2117] ${step === 0 ? "cursor-not-allowed opacity-30" : ""}" ${step === 0 ? "disabled" : ""} aria-label="Go back">
+            <span aria-hidden="true">←</span>
+          </button>
+          <div class="min-w-0 flex-1 text-center">
+            ${helperText ? `<div class="mb-1 text-[11px] font-semibold text-[#C0472B]">${helperText}</div>` : ""}
+            <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#F2E8D5]/40">Step ${step + 1} of ${stepButtons.length}</div>
+          </div>
+          <button type="button" data-kiosk-primary class="flex h-12 min-w-0 flex-1 max-w-sm items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] ${disabled ? "cursor-not-allowed opacity-35" : ""}" ${disabled ? "disabled" : ""}>
+            ${primaryLabel} <span aria-hidden="true">${isFinalStep ? "✓" : "→"}</span>
+          </button>
+        </div>`;
+
+      checkoutNavigation.querySelector<HTMLButtonElement>("[data-kiosk-back]")?.addEventListener("click", () => {
+        if (step <= 0) return;
+        stepButtons[step - 1]?.click();
+      });
+
+      checkoutNavigation.querySelector<HTMLButtonElement>("[data-kiosk-primary]")?.addEventListener("click", () => {
+        if (disabled) return;
+        bagButton.click();
+        window.setTimeout(() => {
+          const drawerButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("aside button"));
+          const action = drawerButtons.find((button) => button.textContent?.replace(/\s+/g, " ").trim().startsWith(primaryLabel));
+          action?.click();
+        }, 50);
+      });
+    };
+
     const syncSoldOutButtons = () => {
       const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
       for (const button of buttons) {
@@ -197,12 +262,17 @@ function CustomerKioskGuard() {
     observer.observe(document.body, { subtree: true, childList: true });
     document.addEventListener("click", handleClick, true);
     syncSoldOutButtons();
+    syncCheckoutNavigation();
+    navigationTimer = window.setInterval(syncCheckoutNavigation, 250);
 
     return () => {
       observer.disconnect();
       document.removeEventListener("click", handleClick, true);
       hideToast();
       dismissBagHint(false);
+      if (navigationTimer != null) window.clearInterval(navigationTimer);
+      checkoutNavigation?.remove();
+      document.body.style.paddingBottom = "";
     };
   }, [enhancementsReady]);
 
