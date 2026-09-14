@@ -9,6 +9,7 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -28,6 +29,8 @@ services:
       - .env
     environment:
       DOCUMENTS_STORAGE_PATH: /data/documents
+      REDIS_URL: redis://redis:6379
+      CACHE_TTL_SECONDS: 30
     ports:
       - "4000:4000"
     volumes:
