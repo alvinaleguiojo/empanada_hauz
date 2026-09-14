@@ -13,8 +13,8 @@ type ClientRegistration = {
 type AuthorizationCode = {
   clientId: string;
   redirectUri: string;
-  codeChallenge?: string;
-  codeChallengeMethod?: string;
+  codeChallenge?: string | null;
+  codeChallengeMethod?: string | null;
   accessToken: string;
   expiresAt: Date;
 };
