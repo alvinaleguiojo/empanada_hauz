@@ -5,6 +5,9 @@ import { AppModule } from "./app.module";
 import { ApiExceptionFilter } from "./common/api-exception.filter";
 import { resolveCorsOrigin } from "./common/cors";
 import { assertSecureRuntimeConfig } from "./common/security-config";
+import { CacheService } from "./common/cache/cache.service";
+import { CacheInterceptor } from "./common/cache/cache.interceptor";
+import { CacheInvalidationInterceptor } from "./common/cache/cache-invalidation.interceptor";
 
 async function bootstrap() {
   assertSecureRuntimeConfig();
@@ -78,6 +81,12 @@ async function bootstrap() {
       error_description: "Authentication required"
     });
   });
+
+  const cache = app.get(CacheService);
+  app.useGlobalInterceptors(
+    new CacheInterceptor(cache),
+    new CacheInvalidationInterceptor(cache)
+  );
 
   app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalPipes(
