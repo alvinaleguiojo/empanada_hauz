@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, Plus } from "lucide-react";
+import { CalendarDays, Plus, X } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
@@ -64,9 +64,16 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-semibold sm:text-3xl">Orders</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="secondary" className="h-9 gap-2 px-3 text-sm" onClick={() => setManualOrderOpen(true)}>
-            <Plus size={15} />
-            New Order
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 gap-2 px-3 text-sm"
+            onClick={() => setManualOrderOpen((open) => !open)}
+            aria-expanded={manualOrderOpen}
+            aria-label={manualOrderOpen ? "Close Order" : "New Order"}
+          >
+            {manualOrderOpen ? <X size={15} /> : <Plus size={15} />}
+            {manualOrderOpen ? "Close" : "New Order"}
           </Button>
           <a href="/calendar">
             <Button type="button" variant="secondary" className="h-9 gap-2 px-3 text-sm">
