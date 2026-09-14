@@ -10,6 +10,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const CACHE_DIR = join(ROOT, '.eh-dev');
 const FILE_CACHE = join(CACHE_DIR, 'file-hashes.json');
 const PACKAGE_CACHE = join(CACHE_DIR, 'package-fingerprints.json');
+const PRISMA_CACHE = join(CACHE_DIR, 'prisma-fingerprint.json');
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const spawnOptions = {
@@ -19,25 +20,65 @@ const spawnOptions = {
   env: process.env,
 };
 
+const sharedDependencyPaths = [
+  'packages/shared/src',
+  'packages/shared/package.json',
+  'packages/shared/tsconfig.json',
+];
+
 const workspaces = {
   shared: {
     name: '@empanada-hauz/shared',
-    paths: ['packages/shared/src', 'packages/shared/package.json', 'packages/shared/tsconfig.json', 'tsconfig.base.json', 'package-lock.json'],
+    paths: [...sharedDependencyPaths, 'tsconfig.base.json', 'package-lock.json'],
     output: 'packages/shared/dist',
     command: ['run', 'build', '--workspace', '@empanada-hauz/shared'],
   },
   api: {
     name: '@empanada-hauz/api',
-    paths: ['apps/api/src', 'apps/api/prisma', 'apps/api/package.json', 'apps/api/tsconfig.json', 'apps/api/nest-cli.json', 'tsconfig.base.json', 'package-lock.json', 'apps/api/.env', 'apps/api/.env.local'],
+    paths: [
+      'apps/api/src',
+      'apps/api/prisma/schema.prisma',
+      'apps/api/package.json',
+      'apps/api/tsconfig.json',
+      'apps/api/nest-cli.json',
+      ...sharedDependencyPaths,
+      'tsconfig.base.json',
+      'package-lock.json',
+      'apps/api/.env',
+      'apps/api/.env.local',
+    ],
     output: 'apps/api/dist/main.js',
-    command: ['run', 'build', '--workspace', '@empanada-hauz/api'],
+    command: ['run', 'build:compile', '--workspace', '@empanada-hauz/api'],
   },
   web: {
     name: '@empanada-hauz/web',
-    paths: ['apps/web/src', 'apps/web/public', 'apps/web/package.json', 'apps/web/tsconfig.json', 'apps/web/next.config.ts', 'apps/web/postcss.config.mjs', 'apps/web/tailwind.config.ts', 'tsconfig.base.json', 'package-lock.json', 'apps/web/.env', 'apps/web/.env.local'],
+    paths: [
+      'apps/web/src',
+      'apps/web/public',
+      'apps/web/package.json',
+      'apps/web/tsconfig.json',
+      'apps/web/next.config.ts',
+      'apps/web/postcss.config.mjs',
+      'apps/web/tailwind.config.ts',
+      ...sharedDependencyPaths,
+      'tsconfig.base.json',
+      'package-lock.json',
+      'apps/web/.env',
+      'apps/web/.env.local',
+    ],
     output: 'apps/web/.next/BUILD_ID',
     command: ['run', 'build', '--workspace', '@empanada-hauz/web'],
   },
+};
+
+const prismaSpec = {
+  paths: [
+    'apps/api/prisma/schema.prisma',
+    'apps/api/package.json',
+    'package-lock.json',
+  ],
+  output: 'node_modules/.prisma/client',
+  command: ['run', 'prisma:generate', '--workspace', '@empanada-hauz/api'],
 };
 
 function ensureCacheDir() {
@@ -108,18 +149,29 @@ function hashFiles(files, fileHashes) {
   return { fingerprint: sha256(parts.join('\n')), changedCount };
 }
 
-function packageFingerprint(key) {
+function fingerprintForSpec(spec) {
   ensureCacheDir();
   const fileHashes = loadJson(FILE_CACHE, {});
-  const spec = workspaces[key];
   const files = spec.paths.flatMap(resolveInputFiles);
   const result = hashFiles(files, fileHashes);
   saveJson(FILE_CACHE, fileHashes);
   return result;
 }
 
+function packageFingerprint(key) {
+  return fingerprintForSpec(workspaces[key]);
+}
+
+function prismaFingerprint() {
+  return fingerprintForSpec(prismaSpec);
+}
+
 function outputExists(key) {
   return existsSync(join(ROOT, workspaces[key].output));
+}
+
+function prismaOutputExists() {
+  return existsSync(join(ROOT, prismaSpec.output));
 }
 
 function execute(command, args, extraEnv = {}) {
@@ -138,6 +190,30 @@ function execute(command, args, extraEnv = {}) {
   });
 }
 
+async function ensurePrismaGenerated(options = {}) {
+  const { fingerprint, changedCount } = prismaFingerprint();
+  const cached = loadJson(PRISMA_CACHE, {});
+  const hit = !options.clean && cached?.fingerprint === fingerprint && prismaOutputExists();
+
+  if (hit) {
+    console.log(`[eh-dev] prisma: CACHE HIT (${changedCount} filesystem changes since last scan)`);
+    return { cached: true };
+  }
+
+  console.log(`[eh-dev] prisma: generating${cached ? ' (cache miss)' : '...'}`);
+  const started = Date.now();
+  await execute(npmCommand, prismaSpec.command);
+  const durationMs = Date.now() - started;
+
+  saveJson(PRISMA_CACHE, {
+    fingerprint,
+    generatedAt: new Date().toISOString(),
+    durationMs,
+  });
+  console.log(`[eh-dev] prisma: generated in ${(durationMs / 1000).toFixed(2)}s`);
+  return { cached: false, durationMs };
+}
+
 async function buildWorkspace(key, options = {}) {
   const spec = workspaces[key];
   const { fingerprint, changedCount } = packageFingerprint(key);
@@ -150,7 +226,7 @@ async function buildWorkspace(key, options = {}) {
     return { key, cached: true };
   }
 
-  console.log(`[eh-dev] ${key}: building${cached ? ' (cache miss)' : ''}...`);
+  console.log(`[eh-dev] ${key}: building${cached ? ' (cache miss)' : '...'}`);
   const started = Date.now();
   await execute(npmCommand, spec.command);
   const duration = Date.now() - started;
@@ -163,6 +239,35 @@ async function buildWorkspace(key, options = {}) {
   saveJson(PACKAGE_CACHE, packageCache);
   console.log(`[eh-dev] ${key}: built in ${(duration / 1000).toFixed(2)}s`);
   return { key, cached: false, durationMs: duration };
+}
+
+async function buildApi(options = {}) {
+  const { fingerprint, changedCount } = packageFingerprint('api');
+  const packageCache = loadJson(PACKAGE_CACHE, {});
+  const cached = packageCache.api;
+
+  await ensurePrismaGenerated(options);
+
+  const hit = !options.clean && cached?.fingerprint === fingerprint && outputExists('api');
+
+  if (hit) {
+    console.log(`[eh-dev] api: CACHE HIT (${changedCount} filesystem changes since last scan)`);
+    return { key: 'api', cached: true };
+  }
+
+  console.log(`[eh-dev] api: building${cached ? ' (cache miss)' : '...'}`);
+  const started = Date.now();
+  await execute(npmCommand, workspaces.api.command);
+  const duration = Date.now() - started;
+
+  packageCache.api = {
+    fingerprint,
+    builtAt: new Date().toISOString(),
+    durationMs: duration,
+  };
+  saveJson(PACKAGE_CACHE, packageCache);
+  console.log(`[eh-dev] api: built in ${(duration / 1000).toFixed(2)}s`);
+  return { key: 'api', cached: false, durationMs: duration };
 }
 
 async function build(options = {}) {
@@ -178,7 +283,7 @@ async function build(options = {}) {
 
   console.log('[eh-dev] phase 2: API + Web in parallel');
   await Promise.all([
-    buildWorkspace('api', options),
+    buildApi(options),
     buildWorkspace('web', options),
   ]);
 
@@ -211,11 +316,13 @@ function dev() {
 
 function stats() {
   const cache = loadJson(PACKAGE_CACHE, {});
+  const prisma = loadJson(PRISMA_CACHE, {});
   console.log('EH-DEV BUILD CACHE');
   for (const key of Object.keys(workspaces)) {
     const item = cache[key];
     console.log(`${key.padEnd(8)} ${item ? `${new Date(item.builtAt).toLocaleString()} ${item.durationMs}ms` : 'no cached build'}`);
   }
+  console.log(`prisma   ${prisma.generatedAt ? `${new Date(prisma.generatedAt).toLocaleString()} ${prisma.durationMs}ms` : 'no cached generate'}`);
 }
 
 function usage() {

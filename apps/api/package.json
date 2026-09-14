@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "prisma generate && nest build",
+    "build:compile": "nest build",
     "start": "node dist/main",
     "postinstall": "prisma generate",
     "lint": "tsc -p tsconfig.json --noEmit",
