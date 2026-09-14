@@ -40,11 +40,19 @@ export default function OrdersPage() {
     const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
     if (!text || /fraud|edit|save|delete|copy|track|hide details|calendar/i.test(text)) return;
 
-    const match = orders.find((order) => {
-      const orderNumber = String(order.orderNumber ?? "").trim();
-      const customerName = String(order.customer?.name ?? "").trim();
-      return (orderNumber && text.includes(orderNumber)) || (customerName && text.includes(customerName));
-    });
+    const orderedMatches = orders
+      .filter((order) => {
+        const orderNumber = String(order.orderNumber ?? "").trim();
+        return orderNumber && text.includes(orderNumber);
+      });
+
+    const match = orderedMatches[0] ?? (() => {
+      const namedMatches = orders.filter((order) => {
+        const customerName = String(order.customer?.name ?? "").trim();
+        return customerName && text.includes(customerName);
+      });
+      return namedMatches.length === 1 ? namedMatches[0] : null;
+    })();
 
     if (match) setSelectedOrder(match);
   }
@@ -88,11 +96,39 @@ function KanbanFraudDrawerAction({ order, onTag }: { order: any; onTag: () => vo
 
   useEffect(() => {
     let active = true;
+
     const findTarget = () => {
-      const labels = Array.from(document.querySelectorAll("p"));
-      const label = labels.find((element) => element.textContent?.trim() === "Order details");
-      const actionRow = label?.parentElement?.children.item(1);
-      if (active) setTarget(actionRow instanceof HTMLElement ? actionRow : null);
+      const orderNumber = String(order?.orderNumber ?? "").trim();
+      if (!orderNumber) {
+        if (active) setTarget(null);
+        return;
+      }
+
+      const orderNode = Array.from(document.querySelectorAll("p")).find(
+        (element) => element.textContent?.trim() === orderNumber
+      );
+      if (!orderNode) {
+        if (active) setTarget(null);
+        return;
+      }
+
+      let current: HTMLElement | null = orderNode instanceof HTMLElement ? orderNode : null;
+      let actionRow: HTMLElement | null = null;
+      while (current) {
+        const detailsLabel = Array.from(current.querySelectorAll("p")).find(
+          (element) => element.textContent?.trim() === "Order details"
+        );
+        if (detailsLabel?.parentElement) {
+          const candidate = detailsLabel.parentElement.children.item(1);
+          if (candidate instanceof HTMLElement) {
+            actionRow = candidate;
+            break;
+          }
+        }
+        current = current.parentElement;
+      }
+
+      if (active) setTarget(actionRow);
     };
 
     findTarget();
@@ -103,7 +139,7 @@ function KanbanFraudDrawerAction({ order, onTag }: { order: any; onTag: () => vo
       active = false;
       observer.disconnect();
     };
-  }, [order?.id]);
+  }, [order?.id, order?.orderNumber]);
 
   if (!target) return null;
 
