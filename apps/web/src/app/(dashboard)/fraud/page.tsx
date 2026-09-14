@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Plus, ShieldAlert, Trash2, UserRound, Bike } from "lucide-react";
+import { AlertTriangle, Bike, CheckCircle2, Plus, Search, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
 import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
@@ -50,6 +50,8 @@ const severityClasses: Record<Severity, string> = {
   critical: "bg-red-500/10 text-red-500"
 };
 
+const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
 export default function FraudPage() {
   const [role, setRole] = useState<UserRole | null>(null);
   const [tab, setTab] = useState<EntityType>("customer");
@@ -60,10 +62,20 @@ export default function FraudPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [form, setForm] = useState({ severity: "high" as Severity, name: "", phoneNumber: "", email: "", plateNumber: "", messengerPsid: "", address: "", subjectId: "", reason: "", notes: "" });
 
   const canManage = role ? hasPermission(role, "fraud.manage") : false;
-  const filteredCases = useMemo(() => cases.filter((item) => item.entityType === tab), [cases, tab]);
+  const filteredCases = useMemo(() => {
+    const query = normalizeSearch(search);
+    return cases.filter((item) => {
+      if (item.entityType !== tab) return false;
+      if (!query) return true;
+      return [item.name, item.phoneNumber, item.email, item.plateNumber, item.messengerPsid, item.address, item.subjectId, item.reason, item.notes]
+        .filter(Boolean)
+        .some((value) => normalizeSearch(String(value)).includes(query));
+    });
+  }, [cases, search, tab]);
 
   async function load() {
     setLoading(true);
@@ -73,9 +85,15 @@ export default function FraudPage() {
         apiFetch<FraudLog[]>("/fraud/logs?limit=100"),
         apiFetch<Stats>("/fraud/stats")
       ]);
-      setCases(nextCases); setLogs(nextLogs); setStats(nextStats); setError(null);
-    } catch (err) { setError(err instanceof Error ? err.message : "Unable to load fraud center."); }
-    finally { setLoading(false); }
+      setCases(nextCases);
+      setLogs(nextLogs);
+      setStats(nextStats);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load fraud center.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -85,26 +103,33 @@ export default function FraudPage() {
 
   async function createCase() {
     try {
-      await apiFetch("/fraud/cases", {
-        method: "POST",
-        body: JSON.stringify({ entityType: tab, ...form })
-      });
+      await apiFetch("/fraud/cases", { method: "POST", body: JSON.stringify({ entityType: tab, ...form }) });
       setShowForm(false);
       setNotice(`${tab === "customer" ? "Customer" : "Rider"} risk case logged.`);
       setForm({ severity: "high", name: "", phoneNumber: "", email: "", plateNumber: "", messengerPsid: "", address: "", subjectId: "", reason: "", notes: "" });
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : "Unable to create case."); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create case.");
+    }
   }
 
   async function updateCase(id: string, patch: Partial<Pick<FraudCase, "status" | "severity">>) {
-    try { await apiFetch(`/fraud/cases/${id}`, { method: "PATCH", body: JSON.stringify(patch) }); await load(); }
-    catch (err) { setError(err instanceof Error ? err.message : "Unable to update case."); }
+    try {
+      await apiFetch(`/fraud/cases/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update case.");
+    }
   }
 
   async function deleteCase(id: string) {
     if (!window.confirm("Delete this fraud case? Existing detection logs will remain.")) return;
-    try { await apiFetch(`/fraud/cases/${id}`, { method: "DELETE" }); await load(); }
-    catch (err) { setError(err instanceof Error ? err.message : "Unable to delete case."); }
+    try {
+      await apiFetch(`/fraud/cases/${id}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete case.");
+    }
   }
 
   if (role && !hasPermission(role, "fraud.view")) {
@@ -129,17 +154,27 @@ export default function FraudPage() {
       {error ? <div className="mt-5 flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-500"><AlertTriangle className="h-4 w-4" />{error}</div> : null}
 
       <div className="mt-6 flex gap-2 border-b border-white/[0.08]">
-        <button type="button" onClick={() => setTab("customer")} className={`border-b-2 px-4 py-3 text-sm font-semibold ${tab === "customer" ? "border-accent text-accent" : "border-transparent text-foreground/50"}`}><UserRound className="mr-2 inline h-4 w-4" />Customers</button>
-        <button type="button" onClick={() => setTab("rider")} className={`border-b-2 px-4 py-3 text-sm font-semibold ${tab === "rider" ? "border-accent text-accent" : "border-transparent text-foreground/50"}`}><Bike className="mr-2 inline h-4 w-4" />Riders</button>
+        <button type="button" onClick={() => { setTab("customer"); setSearch(""); }} className={`border-b-2 px-4 py-3 text-sm font-semibold ${tab === "customer" ? "border-accent text-accent" : "border-transparent text-foreground/50"}`}><UserRound className="mr-2 inline h-4 w-4" />Customers</button>
+        <button type="button" onClick={() => { setTab("rider"); setSearch(""); }} className={`border-b-2 px-4 py-3 text-sm font-semibold ${tab === "rider" ? "border-accent text-accent" : "border-transparent text-foreground/50"}`}><Bike className="mr-2 inline h-4 w-4" />Riders</button>
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.4fr_1fr]">
         <Card className="overflow-hidden">
-          <div className="border-b border-white/[0.08] px-5 py-4"><div className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-accent" /><h2 className="font-semibold">{tab === "customer" ? "Customer risk cases" : "Rider risk cases"}</h2></div></div>
+          <div className="border-b border-white/[0.08] px-5 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-accent" /><h2 className="font-semibold">{tab === "customer" ? "Customer risk cases" : "Rider risk cases"}</h2></div>
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/40" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "customer" ? "Search name, phone, address…" : "Search name, phone, plate…"} aria-label={`Search ${tab} fraud cases`} className="w-full rounded-xl border border-white/[0.1] bg-background py-2.5 pl-9 pr-8 text-sm outline-none placeholder:text-foreground/35 focus:border-accent" />
+                {search ? <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-1 text-xs text-foreground/45 hover:bg-white/[0.06] hover:text-foreground">×</button> : null}
+              </div>
+            </div>
+            {search ? <p className="mt-2 text-xs text-foreground/40">{filteredCases.length} matching {tab} case{filteredCases.length === 1 ? "" : "s"}</p> : null}
+          </div>
           <div className="divide-y divide-white/[0.06]">
-            {loading ? <div className="p-8 text-sm text-foreground/50">Loading…</div> : filteredCases.length === 0 ? <div className="p-8 text-sm text-foreground/50">No open or historical {tab} risk cases yet.</div> : filteredCases.map((item) => <div key={item._id} className="p-5">
+            {loading ? <div className="p-8 text-sm text-foreground/50">Loading…</div> : filteredCases.length === 0 ? <div className="p-8 text-sm text-foreground/50">{search ? `No ${tab} fraud cases match “${search}”.` : `No open or historical ${tab} risk cases yet.`}</div> : filteredCases.map((item) => <div key={item._id} className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{item.name || item.subjectId || "Unnamed"}</span><span className={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase ${severityClasses[item.severity]}`}>{item.severity}</span><span className="rounded-full bg-white/[0.05] px-2 py-1 text-[11px] uppercase text-foreground/55">{item.status}</span></div><p className="mt-2 text-sm text-foreground/60">{item.reason}</p></div>{canManage ? <button type="button" onClick={() => void deleteCase(item._id)} className="rounded-lg p-2 text-foreground/40 hover:bg-red-500/10 hover:text-red-500"><Trash2 className="h-4 w-4" /></button> : null}</div>
-              <div className="mt-3 grid gap-2 text-xs text-foreground/50 sm:grid-cols-2">{item.phoneNumber ? <span>Phone: {item.phoneNumber}</span> : null}{item.email ? <span>Email: {item.email}</span> : null}{item.plateNumber ? <span>Plate: {item.plateNumber}</span> : null}{item.address ? <span className="sm:col-span-2">Address: {item.address}</span> : null}</div>
+              <div className="mt-3 grid gap-2 text-xs text-foreground/50 sm:grid-cols-2">{item.phoneNumber ? <span>Phone: {item.phoneNumber}</span> : null}{item.email ? <span>Email: {item.email}</span> : null}{item.plateNumber ? <span>Plate: {item.plateNumber}</span> : null}{item.messengerPsid ? <span>Messenger: {item.messengerPsid}</span> : null}{item.subjectId ? <span>ID: {item.subjectId}</span> : null}{item.address ? <span className="sm:col-span-2">Address: {item.address}</span> : null}</div>
               {canManage ? <div className="mt-4 flex flex-wrap gap-2"><select value={item.severity} onChange={(event) => void updateCase(item._id, { severity: event.target.value as Severity })} className="rounded-lg border border-white/[0.1] bg-background px-2.5 py-2 text-xs"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select><select value={item.status} onChange={(event) => void updateCase(item._id, { status: event.target.value as Status })} className="rounded-lg border border-white/[0.1] bg-background px-2.5 py-2 text-xs"><option value="open">Open</option><option value="reviewed">Reviewed</option><option value="cleared">Cleared</option></select></div> : null}
             </div>)}
           </div>
@@ -154,10 +189,10 @@ export default function FraudPage() {
         <input placeholder="Phone" value={form.phoneNumber} onChange={(e) => setForm({ ...form, phoneNumber: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm" />
         {tab === "rider" ? <><input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm" /><input placeholder="Plate number" value={form.plateNumber} onChange={(e) => setForm({ ...form, plateNumber: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm" /></> : <input placeholder="Messenger PSID" value={form.messengerPsid} onChange={(e) => setForm({ ...form, messengerPsid: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm" />}
         <input placeholder={tab === "rider" ? "Rider user ID (optional)" : "Customer ID (optional)"} value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm" />
-        <input placeholder="Address (optional)" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm sm:col-span-2" />
-        <textarea placeholder="Why is this case being logged?" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="min-h-24 rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm sm:col-span-2" />
-        <textarea placeholder="Internal notes (optional)" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="min-h-20 rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm sm:col-span-2" />
-      </div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-white/[0.1] px-4 py-2.5 text-sm">Cancel</button><button type="button" disabled={!form.reason.trim()} onClick={() => void createCase()} className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground disabled:opacity-50">Save case</button></div></Card></div> : null}
+        <input placeholder="Address (optional)" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm" />
+        <input placeholder="Reason" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm sm:col-span-2" />
+        <textarea placeholder="Notes (optional)" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={4} className="rounded-xl border border-white/[0.1] bg-background px-3 py-2.5 text-sm sm:col-span-2" />
+      </div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-white/[0.1] px-4 py-2.5 text-sm">Cancel</button><button type="button" onClick={() => void createCase()} disabled={!form.reason.trim()} className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50">Save risk case</button></div></Card></div> : null}
     </main>
   );
 }
