@@ -49,7 +49,11 @@ export class CacheInterceptor implements NestInterceptor {
       "/health",
       "/api/health",
       "/api/docs",
-      "/socket.io/"
+      "/socket.io/",
+      "/track",
+      "/location",
+      "/live",
+      "/status"
     ];
 
     return !excluded.some((prefix) => path === prefix || path.startsWith(prefix));
