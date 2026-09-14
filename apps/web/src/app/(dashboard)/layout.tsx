@@ -1,15 +1,11 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { FloatingAiAgent } from "@/components/ai-admin/floating-ai-agent";
-import { FloatingMessenger } from "@/components/messenger/floating-messenger";
-import { FloatingOperatorChat } from "@/components/communication/floating-operator-chat";
+import { DashboardFloatingWidgets } from "@/components/layout/dashboard-floating-widgets";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <AppShell>
       {children}
-      <FloatingMessenger />
-      <FloatingAiAgent />
-      <FloatingOperatorChat />
+      <DashboardFloatingWidgets />
     </AppShell>
   );
 }

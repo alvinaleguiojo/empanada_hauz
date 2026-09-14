@@ -1,6 +1,5 @@
 import "./globals.css";
 import { ThemeScript } from "@/components/layout/theme-script";
-import SplashScreen from "@/components/SplashScreen";
 import CustomerGooglePlacesAutocomplete from "@/components/CustomerGooglePlacesAutocomplete";
 import { ProductCatalogProvider } from "@/components/products/product-catalog-provider";
 
@@ -8,11 +7,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body>
-        <SplashScreen>
-          <ThemeScript />
-          <CustomerGooglePlacesAutocomplete />
-          <ProductCatalogProvider>{children}</ProductCatalogProvider>
-        </SplashScreen>
+        <ThemeScript />
+        <CustomerGooglePlacesAutocomplete />
+        <ProductCatalogProvider>{children}</ProductCatalogProvider>
       </body>
     </html>
   );

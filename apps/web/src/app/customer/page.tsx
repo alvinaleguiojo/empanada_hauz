@@ -2,44 +2,18 @@
 
 import { useEffect, useState } from "react";
 import CustomerKioskPage from "./page-client";
-import { apiFetch } from "@/lib/api";
-import { replaceMenuItems } from "@/lib/menu";
-
-type PublicProduct = {
-  name: string;
-  price: number;
-  available: boolean;
-  tags?: string[];
-  isFeatured?: boolean;
-  isNew?: boolean;
-  sortOrder?: number;
-};
 
 const BAG_HINT_KEY = "empanada-bag-hint-dismissed";
 
 function CustomerKioskGuard() {
-  const [menuLoaded, setMenuLoaded] = useState(false);
+  const [enhancementsReady, setEnhancementsReady] = useState(false);
 
   useEffect(() => {
-    let active = true;
-
-    void apiFetch<PublicProduct[]>("/products")
-      .then((products) => {
-        if (!active) return;
-        replaceMenuItems(products);
-        setMenuLoaded(true);
-      })
-      .catch(() => {
-        if (active) setMenuLoaded(true);
-      });
-
-    return () => {
-      active = false;
-    };
+    setEnhancementsReady(true);
   }, []);
 
   useEffect(() => {
-    if (!menuLoaded) return;
+    if (!enhancementsReady) return;
 
     let lastBagQuantity: number | null = null;
     let hintElement: HTMLElement | null = null;
@@ -230,9 +204,9 @@ function CustomerKioskGuard() {
       hideToast();
       dismissBagHint(false);
     };
-  }, [menuLoaded]);
+  }, [enhancementsReady]);
 
-  return <CustomerKioskPage key={menuLoaded ? "live-menu" : "fallback-menu"} />;
+  return <CustomerKioskPage />;
 }
 
 export default CustomerKioskGuard;

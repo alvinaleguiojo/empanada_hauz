@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { LayoutGrid, List, Pencil, Search, X } from "lucide-react";
 import { OrdersBoard } from "@/components/orders/orders-board";
 import { apiFetch } from "@/lib/api";
@@ -158,6 +159,7 @@ function OrdersList({ orders, onEdit }: { orders: Array<any>; onEdit: (order: an
 }
 
 function OrderEditModal({ order, onClose }: { order: any; onClose: () => void }) {
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -203,7 +205,7 @@ function OrderEditModal({ order, onClose }: { order: any; onClose: () => void })
         await apiFetch<any>(`/orders/${order.id}/status`, { method: "PATCH", body: JSON.stringify({ status: form.status }) });
       }
       onClose();
-      window.location.reload();
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save order");
     } finally {

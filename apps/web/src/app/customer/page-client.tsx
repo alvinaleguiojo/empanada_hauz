@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Baloo_2, Caveat, IBM_Plex_Mono } from "next/font/google";
 import {
   ArrowLeft,
@@ -160,8 +160,7 @@ export default function CustomerKioskPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }, []);
 
-  useState(() => {
-    if (typeof window === "undefined") return;
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("ref")?.trim();
     if (code) {
@@ -170,7 +169,7 @@ export default function CustomerKioskPage() {
     } else {
       setReferralCode(window.localStorage.getItem("empanada-referral-code") ?? "");
     }
-  });
+  }, []);
 
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
