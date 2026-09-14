@@ -25,17 +25,6 @@ export class McpAuthService {
       throw new UnauthorizedException("MCP authentication is required");
     }
 
-    const legacyToken = process.env.MCP_BEARER_TOKEN?.trim();
-    if (legacyToken && token === legacyToken) {
-      this.logger.log("MCP auth accepted: legacy bearer token");
-      return {
-        id: "mcp-legacy-token",
-        email: "mcp@empanadahauz.local",
-        name: "MCP Legacy Token",
-        role: "admin"
-      };
-    }
-
     let payload: { sub?: string };
     try {
       payload = await this.jwt.verifyAsync(token);
