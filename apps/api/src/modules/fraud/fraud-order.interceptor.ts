@@ -45,7 +45,7 @@ export class FraudOrderInterceptor implements NestInterceptor {
     if (fraud?.blocked) {
       throw new BadRequestException({
         code: "ORDER_BLOCKED_FRAUD",
-        message: "We’re unable to accept this order. Please contact Empanada Hauz support.",
+        message: "We’re unable to accept your order because a previous order or transaction requires further review. Please contact Empanada Hauz support for assistance.",
         fraud: {
           severity: fraud.highestSeverity,
           matches: fraud.matches.map((match) => ({ score: match.score, matchedOn: match.matchedOn }))
