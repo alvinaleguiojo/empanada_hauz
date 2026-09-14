@@ -1,37 +1,68 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
+import { BadRequestException, CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
 import { Observable, from } from "rxjs";
-import { catchError, mergeMap } from "rxjs/operators";
+import { mergeMap } from "rxjs/operators";
+import { PrismaService } from "../../database/prisma.service";
 import { FraudService } from "./fraud.service";
+
+const FRAUD_SEVERITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
 
 @Injectable()
 export class FraudRiderInterceptor implements NestInterceptor {
-  constructor(private readonly fraudService: FraudService) {}
+  constructor(
+    private readonly fraudService: FraudService,
+    private readonly prisma: PrismaService
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const request = context.switchToHttp().getRequest<{ method?: string; originalUrl?: string }>();
+    const request = context.switchToHttp().getRequest<{ method?: string; originalUrl?: string; body?: any }>();
     if (request.method !== "PATCH") return next.handle();
 
     const path = (request.originalUrl ?? "").split("?")[0];
-    if (!/^\/api\/delivery-network\/jobs\/[^/]+\/assign$/.test(path)) return next.handle();
+    const match = path.match(/^\/api\/delivery-network\/jobs\/([^/]+)\/assign$/);
+    if (!match) return next.handle();
 
-    return next.handle().pipe(
-      mergeMap((result: any) => from(this.detect(result)).pipe(
-        mergeMap((fraud) => from(Promise.resolve({ ...result, fraud }))),
-        catchError(() => from(Promise.resolve(result)))
+    const deliveryJobId = match[1];
+    return from(this.precheck(deliveryJobId, request.body?.riderId)).pipe(
+      mergeMap((fraud) => from(next.handle()).pipe(
+        mergeMap((result: any) => {
+          if (!result || typeof result !== "object") return from(Promise.resolve(result));
+          return from(Promise.resolve({ ...result, fraud }));
+        })
       ))
     );
   }
 
-  private async detect(job: any) {
-    if (!job?.id || !job?.riderId) return { matched: false, matches: [] };
-    try {
-      return await this.fraudService.detectRiderAssignment({
-        deliveryJobId: job.id,
-        riderId: job.riderId,
-        rider: job.rider
+  private async precheck(deliveryJobId: string, riderId?: string) {
+    if (!riderId?.trim()) return { matched: false, matches: [] };
+
+    const rider = await this.prisma.rider.findUnique({
+      where: { id: riderId },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        vehicles: { where: { isActive: true } }
+      }
+    });
+
+    if (!rider) return { matched: false, matches: [] };
+
+    const fraud = await this.fraudService.detectRiderAssignment({
+      deliveryJobId,
+      riderId,
+      rider
+    });
+
+    const blocked = fraud.matches.some((match) => (FRAUD_SEVERITY_RANK[match.severity] ?? 0) >= FRAUD_SEVERITY_RANK.high);
+    if (blocked) {
+      throw new BadRequestException({
+        code: "RIDER_ASSIGNMENT_BLOCKED_FRAUD",
+        message: "This rider cannot be assigned because the rider is flagged for fraud review.",
+        fraud: {
+          severity: fraud.highestSeverity,
+          matches: fraud.matches.map((match) => ({ score: match.score, matchedOn: match.matchedOn }))
+        }
       });
-    } catch {
-      return { matched: false, matches: [], detectionError: true };
     }
+
+    return fraud;
   }
 }
