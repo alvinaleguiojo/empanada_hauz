@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, ShieldAlert, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -13,22 +13,17 @@ export function OrderFraudTagDialog({ order, onClose, onSuccess }: { order: any;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!saving) return;
-    const timeout = window.setTimeout(() => {
-      setSaving(false);
-      setError("The fraud case request is taking too long. Please try again.");
-    }, 15_000);
-    return () => window.clearTimeout(timeout);
-  }, [saving]);
-
   async function submit() {
     if (saving) return;
     setSaving(true);
     setError(null);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+
     try {
       await apiFetch("/fraud/cases", {
         method: "POST",
+        signal: controller.signal,
         body: JSON.stringify({
           entityType: "customer",
           severity,
@@ -43,8 +38,13 @@ export function OrderFraudTagDialog({ order, onClose, onSuccess }: { order: any;
       });
       (onSuccess ?? onClose)();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to tag customer as fraud.");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("The fraud case request timed out. Please try again.");
+      } else {
+        setError(err instanceof Error ? err.message : "Unable to tag customer as fraud.");
+      }
     } finally {
+      window.clearTimeout(timeout);
       setSaving(false);
     }
   }
