@@ -40,22 +40,12 @@ export class FraudService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listCases(filters: { entityType?: FraudEntityType; status?: FraudCaseStatus } = {}) {
-    const cases = await this.prisma.fraudCase.findMany({
-      where: {
-        ...(filters.entityType ? { entityType: filters.entityType } : {}),
-        ...(filters.status ? { status: filters.status } : {})
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 500
-    });
+    const cases = await this.prisma.fraudCase.findMany({ where: { ...(filters.entityType ? { entityType: filters.entityType } : {}), ...(filters.status ? { status: filters.status } : {}) }, orderBy: { updatedAt: "desc" }, take: 500 });
     return cases.map((fraudCase) => ({ ...fraudCase, _id: fraudCase.id }));
   }
 
   async listLogs(limit = 200) {
-    const logs = await this.prisma.fraudDetectionLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: Math.min(Math.max(limit, 1), 500)
-    });
+    const logs = await this.prisma.fraudDetectionLog.findMany({ orderBy: { createdAt: "desc" }, take: Math.min(Math.max(limit, 1), 500) });
     return logs.map((log) => ({ ...log, _id: log.id }));
   }
 
@@ -69,60 +59,16 @@ export class FraudService {
     return { openCustomers, openRiders, critical, recentMatches };
   }
 
-  async createCase(input: {
-    entityType: FraudEntityType;
-    severity: FraudSeverity;
-    name?: string;
-    phoneNumber?: string;
-    email?: string;
-    plateNumber?: string;
-    messengerPsid?: string;
-    address?: string;
-    subjectId?: string;
-    reason: string;
-    notes?: string;
-    userId?: string;
-  }) {
+  async createCase(input: { entityType: FraudEntityType; severity: FraudSeverity; name?: string; phoneNumber?: string; email?: string; plateNumber?: string; messengerPsid?: string; address?: string; subjectId?: string; reason: string; notes?: string; userId?: string }) {
     const normalized = await this.resolveCaseIdentity(input);
-    return this.prisma.fraudCase.create({
-      data: {
-        entityType: input.entityType,
-        severity: input.severity,
-        name: normalized.name,
-        phoneNumber: normalized.phoneNumber,
-        email: normalized.email,
-        plateNumber: normalized.plateNumber,
-        messengerPsid: normalized.messengerPsid,
-        address: normalized.address,
-        subjectId: normalized.subjectId,
-        reason: input.reason.trim(),
-        notes: input.notes?.trim() || null,
-        createdById: input.userId || null,
-        updatedById: input.userId || null
-      }
-    });
+    return this.prisma.fraudCase.create({ data: { entityType: input.entityType, severity: input.severity, name: normalized.name, phoneNumber: normalized.phoneNumber, email: normalized.email, plateNumber: normalized.plateNumber, messengerPsid: normalized.messengerPsid, address: normalized.address, subjectId: normalized.subjectId, reason: input.reason.trim(), notes: input.notes?.trim() || null, createdById: input.userId || null, updatedById: input.userId || null } });
   }
 
-  async updateCase(id: string, input: {
-    status?: FraudCaseStatus;
-    severity?: FraudSeverity;
-    reason?: string;
-    notes?: string;
-    userId?: string;
-  }) {
+  async updateCase(id: string, input: { status?: FraudCaseStatus; severity?: FraudSeverity; reason?: string; notes?: string; userId?: string }) {
     this.assertObjectId(id);
     const existing = await this.prisma.fraudCase.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Fraud case not found");
-    return this.prisma.fraudCase.update({
-      where: { id },
-      data: {
-        ...(input.status ? { status: input.status, resolvedAt: input.status === "open" ? null : new Date() } : {}),
-        ...(input.severity ? { severity: input.severity } : {}),
-        ...(input.reason != null ? { reason: input.reason.trim() } : {}),
-        ...(input.notes != null ? { notes: input.notes.trim() || null } : {}),
-        ...(input.userId ? { updatedById: input.userId } : {})
-      }
-    });
+    return this.prisma.fraudCase.update({ where: { id }, data: { ...(input.status ? { status: input.status, resolvedAt: input.status === "open" ? null : new Date() } : {}), ...(input.severity ? { severity: input.severity } : {}), ...(input.reason != null ? { reason: input.reason.trim() } : {}), ...(input.notes != null ? { notes: input.notes.trim() || null } : {}), ...(input.userId ? { updatedById: input.userId } : {}) } });
   }
 
   async deleteCase(id: string) {
@@ -133,75 +79,27 @@ export class FraudService {
     return { deleted: true, id };
   }
 
-  async checkPublicCustomer(input: {
-    name?: string | null;
-    phoneNumber?: string | null;
-    address?: string | null;
-    location?: string | null;
-  }) {
-    const cases = await this.prisma.fraudCase.findMany({
-      where: { entityType: "customer", status: "open" },
-      take: 500
-    });
-    const customer = {
-      name: input.name ?? null,
-      phoneNumber: input.phoneNumber ?? null,
-      defaultAddress: input.address ?? null,
-      messengerPsid: null,
-      id: null
-    };
-    const matches = cases.map((fraudCase) => this.matchCustomerCase(fraudCase, customer, {
-      address: input.address,
-      location: input.location
-    })).filter(Boolean) as Match[];
-    return {
-      matched: matches.length > 0,
-      blocked: matches.some((match) => match.severity === "high" || match.severity === "critical"),
-      highestSeverity: this.highestSeverity(matches.map((match) => match.severity)),
-      matches
-    };
+  async checkPublicCustomer(input: { name?: string | null; phoneNumber?: string | null; address?: string | null; location?: string | null }) {
+    const cases = await this.prisma.fraudCase.findMany({ where: { entityType: "customer", status: "open" }, take: 500 });
+    const customer = { name: input.name ?? null, phoneNumber: input.phoneNumber ?? null, defaultAddress: input.address ?? null, messengerPsid: null, id: null };
+    const matches = cases.map((fraudCase) => this.matchCustomerCase(fraudCase, customer, { address: input.address, location: input.location })).filter(Boolean) as Match[];
+    return { matched: matches.length > 0, blocked: matches.some((match) => match.severity === "high" || match.severity === "critical"), highestSeverity: this.highestSeverity(matches.map((match) => match.severity)), matches };
   }
 
-  async detectCustomerOrder(order: {
-    id: string;
-    customer?: {
-      id?: string | null;
-      name?: string | null;
-      phoneNumber?: string | null;
-      defaultAddress?: string | null;
-      messengerPsid?: string | null;
-    } | null;
-    address?: string | null;
-    location?: string | null;
-  }) {
+  async detectCustomerOrder(order: { id: string; customer?: { id?: string | null; name?: string | null; phoneNumber?: string | null; defaultAddress?: string | null; messengerPsid?: string | null } | null; address?: string | null; location?: string | null }) {
     const customer = order.customer;
     if (!customer) return { matched: false, matches: [] as Match[] };
-    const cases = await this.prisma.fraudCase.findMany({
-      where: { entityType: "customer", status: "open" },
-      take: 500
-    });
+    const cases = await this.prisma.fraudCase.findMany({ where: { entityType: "customer", status: "open" }, take: 500 });
     const matches = cases.map((fraudCase) => this.matchCustomerCase(fraudCase, customer, order)).filter(Boolean) as Match[];
     await Promise.all(matches.map((match) => this.writeLog({ entityType: "customer", caseId: match.caseId, orderId: order.id, matchedOn: match.matchedOn, score: match.score, severity: match.severity })));
     if (matches.length > 0) await this.tagOrderWithFraud(matches, order.id);
     return { matched: matches.length > 0, highestSeverity: this.highestSeverity(matches.map((match) => match.severity)), matches };
   }
 
-  async detectRiderAssignment(input: {
-    deliveryJobId: string;
-    riderId: string;
-    rider?: {
-      id?: string | null;
-      phoneNumber?: string | null;
-      user?: { id?: string | null; name?: string | null; email?: string | null } | null;
-      vehicles?: Array<{ plateNumber?: string | null }>;
-    } | null;
-  }) {
+  async detectRiderAssignment(input: { deliveryJobId: string; riderId: string; rider?: { id?: string | null; phoneNumber?: string | null; user?: { id?: string | null; name?: string | null; email?: string | null } | null; vehicles?: Array<{ plateNumber?: string | null }> } | null }) {
     const rider = input.rider;
     if (!rider) return { matched: false, matches: [] as Match[] };
-    const cases = await this.prisma.fraudCase.findMany({
-      where: { entityType: "rider", status: "open" },
-      take: 500
-    });
+    const cases = await this.prisma.fraudCase.findMany({ where: { entityType: "rider", status: "open" }, take: 500 });
     const plateNumber = rider.vehicles?.[0]?.plateNumber ?? null;
     const matches = cases.map((fraudCase) => this.matchRiderCase(fraudCase, rider, plateNumber, input.riderId)).filter(Boolean) as Match[];
     await Promise.all(matches.map((match) => this.writeLog({ entityType: "rider", caseId: match.caseId, riderId: input.riderId, deliveryJobId: input.deliveryJobId, matchedOn: match.matchedOn, score: match.score, severity: match.severity })));
@@ -216,78 +114,20 @@ export class FraudService {
     await this.prisma.orderNote.create({ data: { orderId, body: `${marker} 🚨 CUSTOMER FRAUD TAG · ${primary.severity.toUpperCase()} · Matched on: ${primary.matchedOn.join(", ")} · ${primary.reason}` } });
   }
 
-  private async resolveCaseIdentity(input: {
-    entityType: FraudEntityType;
-    name?: string;
-    phoneNumber?: string;
-    email?: string;
-    plateNumber?: string;
-    messengerPsid?: string;
-    address?: string;
-    subjectId?: string;
-  }) {
-    const fallback = {
-      name: input.name?.trim() || null,
-      phoneNumber: input.phoneNumber?.trim() || null,
-      email: input.email?.trim().toLowerCase() || null,
-      plateNumber: input.plateNumber?.trim() || null,
-      messengerPsid: input.messengerPsid?.trim() || null,
-      address: input.address?.trim() || null,
-      subjectId: input.subjectId?.trim() || null
-    };
+  private async resolveCaseIdentity(input: { entityType: FraudEntityType; name?: string; phoneNumber?: string; email?: string; plateNumber?: string; messengerPsid?: string; address?: string; subjectId?: string }) {
+    const fallback = { name: input.name?.trim() || null, phoneNumber: input.phoneNumber?.trim() || null, email: input.email?.trim().toLowerCase() || null, plateNumber: input.plateNumber?.trim() || null, messengerPsid: input.messengerPsid?.trim() || null, address: input.address?.trim() || null, subjectId: input.subjectId?.trim() || null };
     if (!input.subjectId?.trim()) return fallback;
     this.assertObjectId(input.subjectId.trim());
-
     if (input.entityType === "customer") {
       const customer = await this.prisma.customer.findUnique({ where: { id: input.subjectId.trim() } });
       if (!customer) throw new NotFoundException("Customer not found for fraud case");
-      return {
-        name: customer.name,
-        phoneNumber: customer.phoneNumber ?? fallback.phoneNumber,
-        email: fallback.email,
-        plateNumber: null,
-        messengerPsid: customer.messengerPsid ?? fallback.messengerPsid,
-        address: customer.defaultAddress ?? fallback.address,
-        subjectId: customer.id
-      };
+      return { name: customer.name, phoneNumber: customer.phoneNumber ?? fallback.phoneNumber, email: fallback.email, plateNumber: null, messengerPsid: customer.messengerPsid ?? fallback.messengerPsid, address: customer.defaultAddress ?? fallback.address, subjectId: customer.id };
     }
-
-    const rider = await this.prisma.rider.findUnique({
-      where: { id: input.subjectId.trim() },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        vehicles: { where: { isActive: true }, take: 1 }
-      }
-    });
-    if (rider) {
-      return {
-        name: rider.user.name,
-        phoneNumber: rider.phoneNumber ?? fallback.phoneNumber,
-        email: rider.user.email ?? fallback.email,
-        plateNumber: rider.vehicles[0]?.plateNumber ?? fallback.plateNumber,
-        messengerPsid: null,
-        address: fallback.address,
-        subjectId: rider.id
-      };
-    }
-
-    const legacyRider = await this.prisma.rider.findUnique({
-      where: { userId: input.subjectId.trim() },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        vehicles: { where: { isActive: true }, take: 1 }
-      }
-    });
+    const rider = await this.prisma.rider.findUnique({ where: { id: input.subjectId.trim() }, include: { user: { select: { id: true, name: true, email: true } }, vehicles: { where: { isActive: true }, take: 1 } } });
+    if (rider) return { name: rider.user.name, phoneNumber: rider.phoneNumber ?? fallback.phoneNumber, email: rider.user.email ?? fallback.email, plateNumber: rider.vehicles[0]?.plateNumber ?? fallback.plateNumber, messengerPsid: null, address: fallback.address, subjectId: rider.id };
+    const legacyRider = await this.prisma.rider.findUnique({ where: { userId: input.subjectId.trim() }, include: { user: { select: { id: true, name: true, email: true } }, vehicles: { where: { isActive: true }, take: 1 } } });
     if (!legacyRider) throw new NotFoundException("Rider not found for fraud case");
-    return {
-      name: legacyRider.user.name,
-      phoneNumber: legacyRider.phoneNumber ?? fallback.phoneNumber,
-      email: legacyRider.user.email ?? fallback.email,
-      plateNumber: legacyRider.vehicles[0]?.plateNumber ?? fallback.plateNumber,
-      messengerPsid: null,
-      address: fallback.address,
-      subjectId: legacyRider.id
-    };
+    return { name: legacyRider.user.name, phoneNumber: legacyRider.phoneNumber ?? fallback.phoneNumber, email: legacyRider.user.email ?? fallback.email, plateNumber: legacyRider.vehicles[0]?.plateNumber ?? fallback.plateNumber, messengerPsid: null, address: fallback.address, subjectId: legacyRider.id };
   }
 
   private matchCustomerCase(fraudCase: FraudCaseRecord, customer: { id?: string | null; name?: string | null; phoneNumber?: string | null; defaultAddress?: string | null; messengerPsid?: string | null }, order: { address?: string | null; location?: string | null }): Match | null {
@@ -344,12 +184,15 @@ export class FraudService {
   private sameEmail(a?: string | null, b?: string | null) {
     return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
   }
+
   private sameText(a?: string | null, b?: string | null) {
     return Boolean(a && b && this.normalizeText(a) === this.normalizeText(b));
   }
+
   private sameAddress(a?: string | null, b?: string | null) {
     return Boolean(a && b && this.normalizeText(a).replace(/[^a-z0-9]/g, "") === this.normalizeText(b).replace(/[^a-z0-9]/g, ""));
   }
+
   private normalizeText(value: string) {
     return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
   }
@@ -359,17 +202,6 @@ export class FraudService {
   }
 
   private async writeLog(input: { entityType: FraudEntityType; caseId: string; orderId?: string; deliveryJobId?: string; riderId?: string; matchedOn: string[]; score: number; severity: FraudSeverity }) {
-    await this.prisma.fraudDetectionLog.create({
-      data: {
-        entityType: input.entityType,
-        caseId: input.caseId,
-        orderId: input.orderId ?? null,
-        deliveryJobId: input.deliveryJobId ?? null,
-        riderId: input.riderId ?? null,
-        matchedOn: input.matchedOn,
-        score: input.score,
-        severity: input.severity
-      }
-    });
+    await this.prisma.fraudDetectionLog.create({ data: { entityType: input.entityType, caseId: input.caseId, orderId: input.orderId ?? null, deliveryJobId: input.deliveryJobId ?? null, riderId: input.riderId ?? null, matchedOn: input.matchedOn, score: input.score, severity: input.severity } });
   }
 }
