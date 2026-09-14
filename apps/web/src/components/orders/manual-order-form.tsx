@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
-import { ChevronDown, Minus, Plus } from "lucide-react";
+import { CalendarDays, ChevronDown, Minus, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -316,23 +316,19 @@ export function ManualOrderForm() {
 
   return (
     <Card className="border-line/80 bg-panel/80 p-0">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        suppressHydrationWarning
-        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-white/[0.04] sm:px-5"
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/12 text-accent">
-            <Plus size={16} />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold">New Order</h2>
-            <p className="truncate text-xs text-foreground/50">Create a manual order only when needed.</p>
-          </div>
-        </div>
-        <ChevronDown size={16} className={cn("shrink-0 text-foreground/45 transition", open && "rotate-180")} />
-      </button>
+      <div className="flex items-center justify-end px-4 py-3 sm:px-5">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          suppressHydrationWarning
+          aria-label="New Order"
+          aria-expanded={open}
+          title="New Order"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line/80 bg-panel text-accent transition hover:bg-white/[0.06]"
+        >
+          <CalendarDays size={17} />
+        </button>
+      </div>
 
       {open ? (
         <div className="border-t border-line/80 bg-black/[0.04] px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
