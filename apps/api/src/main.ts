@@ -28,8 +28,26 @@ async function bootstrap() {
   });
 
   const express = require("express");
-  app.getHttpAdapter().getInstance().use(express.urlencoded({ extended: false, limit: "100kb" }));
-  app.getHttpAdapter().getInstance().use(express.json({ limit: "15mb" }));
+  const httpServer = app.getHttpAdapter().getInstance();
+
+  // OAuth clients such as Claude send token and authorization form submissions
+  // as application/x-www-form-urlencoded. Keep this parser before Nest routes.
+  httpServer.use(express.urlencoded({ extended: false, limit: "100kb" }));
+  httpServer.use(express.json({ limit: "15mb" }));
+
+  // Safe diagnostics for remote MCP/OAuth connectivity. We intentionally log
+  // only the method/path/content type and body field names, never credentials,
+  // authorization codes, PKCE verifiers, or access tokens.
+  httpServer.use((req: any, _res: any, next: any) => {
+    const path = typeof req.path === "string" ? req.path : "";
+    if (path === "/api/mcp" || path.startsWith("/.well-known/") || path.startsWith("/oauth/")) {
+      const bodyKeys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
+      console.log(
+        `[Remote MCP] ${req.method} ${path} content-type=${req.headers["content-type"] ?? "none"} body-keys=${bodyKeys.join(",") || "none"}`
+      );
+    }
+    next();
+  });
 
   app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalPipes(
