@@ -12,7 +12,6 @@ type McpUser = {
 type McpAccessTokenPayload = {
   sub?: string;
   aud?: string | string[];
-  scope?: string;
 };
 
 @Injectable()
@@ -43,11 +42,6 @@ export class McpAuthService {
     const expectedAudience = this.mcpResource();
     if (!this.hasAudience(payload.aud, expectedAudience)) {
       this.logger.warn("MCP auth rejected: JWT audience does not match the MCP resource");
-      throw new UnauthorizedException("Invalid MCP access token");
-    }
-
-    if (!payload.scope?.split(/\s+/).includes("mcp")) {
-      this.logger.warn("MCP auth rejected: JWT is missing the mcp scope");
       throw new UnauthorizedException("Invalid MCP access token");
     }
 
