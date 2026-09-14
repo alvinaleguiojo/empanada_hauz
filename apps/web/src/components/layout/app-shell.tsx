@@ -123,7 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .catch(() => undefined);
 
     return () => {
-      cleanupVoiceCall();
+       endVoiceCall(false, "Call ended.");
     };
   }, []);
 
