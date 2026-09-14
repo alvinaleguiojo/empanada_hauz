@@ -1,5 +1,6 @@
 import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import type { Request } from "express";
 import { PrismaService } from "../../database/prisma.service";
 
 type McpUser = {
@@ -23,7 +24,7 @@ export class McpAuthService {
     private readonly prisma: PrismaService
   ) {}
 
-  async authenticateAuthorizationHeader(authorization?: string): Promise<McpUser> {
+  async authenticateAuthorizationHeader(authorization: string | undefined, request: Request): Promise<McpUser> {
     const token = this.extractBearerToken(authorization);
     if (!token) {
       this.logger.warn("MCP auth rejected: missing Bearer token");
@@ -39,7 +40,7 @@ export class McpAuthService {
       throw new UnauthorizedException("Invalid MCP access token");
     }
 
-    const expectedAudience = this.mcpResource();
+    const expectedAudience = this.mcpResource(request);
     if (!this.hasAudience(payload.aud, expectedAudience)) {
       this.logger.warn("MCP auth rejected: JWT audience does not match the MCP resource");
       throw new UnauthorizedException("Invalid MCP access token");
@@ -73,7 +74,15 @@ export class McpAuthService {
     return Array.isArray(audience) ? audience.includes(expected) : audience === expected;
   }
 
-  private mcpResource() {
+  private mcpResource(request: Request) {
+    // Derived the same way McpOAuthController computes the "resource" it puts in the
+    // token's `aud` claim at issuance time, so verification always matches issuance
+    // regardless of apex/www or proxy header differences. Falls back to the old
+    // env-var-based resource (if configured) for backward compatibility.
+    const proto = request.header("x-forwarded-proto")?.split(",")[0]?.trim() || request.protocol;
+    const host = request.header("x-forwarded-host")?.split(",")[0]?.trim() || request.get("host");
+    if (proto && host) return `${proto}://${host}/api/mcp`;
+
     const baseUrl = process.env.PUBLIC_API_URL?.replace(/\/$/, "");
     if (baseUrl) return `${baseUrl}/api/mcp`;
 

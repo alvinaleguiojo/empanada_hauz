@@ -549,7 +549,7 @@ export class McpController {
 
   private async assertAuthorized(req: Request, res: Response) {
     try {
-      await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"));
+      await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"), req);
       this.logger.log(`MCP auth accepted for ${req.method} ${req.path}`);
     } catch (error) {
       const reason = error instanceof UnauthorizedException ? error.message : this.errorMessage(error);

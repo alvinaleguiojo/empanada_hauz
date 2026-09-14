@@ -212,7 +212,7 @@ export class MessengerMcpController {
 
   private async assertAuthorized(req: Request, res: Response) {
     try {
-      await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"));
+      await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"), req);
     } catch {
       const baseUrl = this.baseUrl(req);
       res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
