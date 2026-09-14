@@ -546,3 +546,51 @@ model McpOAuthAuthorizationCode {
   @@index([clientId, expiresAt])
   @@index([expiresAt])
 }
+
+model FraudCase {
+  id            String           @id @default(auto()) @map("_id") @db.ObjectId
+  entityType    String
+  status        String           @default("open")
+  severity      String           @default("medium")
+  name          String?
+  phoneNumber   String?
+  email         String?
+  plateNumber   String?
+  messengerPsid String?
+  address       String?
+  subjectId     String?
+  reason        String
+  notes         String?
+  createdById   String?          @db.ObjectId
+  updatedById   String?          @db.ObjectId
+  resolvedAt    DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  detectionLogs FraudDetectionLog[]
+
+  @@index([entityType, status])
+  @@index([subjectId, status])
+  @@index([phoneNumber, status])
+  @@index([email, status])
+  @@index([plateNumber, status])
+}
+
+model FraudDetectionLog {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  entityType    String
+  caseId        String    @db.ObjectId
+  orderId       String?   @db.ObjectId
+  deliveryJobId String?   @db.ObjectId
+  riderId       String?   @db.ObjectId
+  matchedOn     Json
+  score         Int
+  severity      String
+  createdAt     DateTime  @default(now())
+  fraudCase    FraudCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([entityType, createdAt])
+  @@index([caseId, createdAt])
+  @@index([orderId])
+  @@index([deliveryJobId])
+}
