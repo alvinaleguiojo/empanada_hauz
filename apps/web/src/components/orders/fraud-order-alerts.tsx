@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 function severityTone(severity: string) {
   if (severity === "critical") return "border-red-500/40 bg-red-500/10 text-red-200";
@@ -40,11 +41,38 @@ function formatMatchedFields(order: any) {
 }
 
 export function FraudOrderAlerts({ orders, logs }: { orders: Array<any>; logs: Array<any> }) {
-  const ordersById = new Map(orders.map((order) => [order.id, order]));
+  const [liveOrders, setLiveOrders] = useState<Array<any>>(orders);
 
+  useEffect(() => {
+    let active = true;
+
+    const refreshFraudOrders = async () => {
+      try {
+        // OrdersBoard refreshes independently, so use the same live /orders
+        // response to keep fraud badges synchronized with the current cards.
+        const refreshed = await apiFetch<any[]>("/orders");
+        if (active && Array.isArray(refreshed)) setLiveOrders(refreshed);
+      } catch {
+        // Keep the last known fraud state if a refresh fails.
+      }
+    };
+
+    void refreshFraudOrders();
+    const interval = window.setInterval(refreshFraudOrders, 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    setLiveOrders((current) => current.length > 0 ? current : orders);
+  }, [orders]);
+
+  const ordersById = useMemo(() => new Map(liveOrders.map((order) => [order.id, order])), [liveOrders]);
   const flaggedOrders = useMemo(
-    () => orders.filter((order) => order?.fraud?.matched && order?.orderNumber),
-    [orders]
+    () => liveOrders.filter((order) => order?.fraud?.matched && order?.orderNumber),
+    [liveOrders]
   );
 
   const alerts = [
