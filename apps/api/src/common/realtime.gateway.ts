@@ -8,10 +8,14 @@ import {
   WebSocketServer
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
+import { resolveCorsOrigin } from "./cors";
 import { ChatService } from "../modules/chat/chat.service";
 
 @WebSocketGateway({
-  cors: { origin: "*" },
+  cors: {
+    origin: resolveCorsOrigin,
+    credentials: true
+  },
   namespace: "/ops"
 })
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {

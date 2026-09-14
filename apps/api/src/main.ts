@@ -3,8 +3,11 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { ApiExceptionFilter } from "./common/api-exception.filter";
 import { resolveCorsOrigin } from "./common/cors";
+import { assertSecureRuntimeConfig } from "./common/security-config";
 
 async function bootstrap() {
+  assertSecureRuntimeConfig();
+
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
     cors: {

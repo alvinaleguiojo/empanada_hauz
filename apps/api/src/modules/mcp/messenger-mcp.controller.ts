@@ -208,6 +208,9 @@ export class MessengerMcpController {
 
   private assertAuthorized(req: Request) {
     const token = process.env.MCP_BEARER_TOKEN;
+    if (!token && process.env.NODE_ENV === "production") {
+      throw new ForbiddenException("MCP bearer token is required in production");
+    }
     if (!token) return;
 
     const authorization = req.header("authorization");
