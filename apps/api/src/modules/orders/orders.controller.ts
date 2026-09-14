@@ -1,12 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { DeliveryNetworkService } from "../delivery-network/delivery-network.service";
 import { PrismaService } from "../../database/prisma.service";
+import { FraudOrderInterceptor } from "../fraud/fraud-order.interceptor";
 import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, PublicOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
 import { OrdersService } from "./orders.service";
 
 const DEFAULT_PICKUP_COORDINATES = { latitude: 10.2760457, longitude: 123.8466921 };
 
+@UseInterceptors(FraudOrderInterceptor)
 @Controller("orders")
 export class OrdersController {
   constructor(
@@ -49,8 +51,6 @@ export class OrdersController {
     return this.ordersService.track(id);
   }
 
-  // Public delivery-fee preview. The pickup point is always the Empanada Hauz
-  // store coordinates; the customer address/landmark determine the drop-off.
   @Get("delivery-quote")
   async deliveryQuote(
     @Query("address") address?: string,
@@ -67,11 +67,6 @@ export class OrdersController {
     const parsedLatitude = Number(latitude);
     const parsedLongitude = Number(longitude);
     const hasDropoffCoordinates = Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude);
-
-    // When a landmark was selected from Places, it is usually the most precise
-    // description of the delivery point (for example, "Gaisano Capital").
-    // Combine it with the customer's address so geocoding can resolve the
-    // actual place instead of routing to the center of a whole city.
     const dropoffAddress = [trimmedLandmark, trimmedAddress].filter(Boolean).join(", ");
 
     return this.deliveryNetworkService.quoteJob({
@@ -79,12 +74,7 @@ export class OrdersController {
       pickupLatitude: DEFAULT_PICKUP_COORDINATES.latitude,
       pickupLongitude: DEFAULT_PICKUP_COORDINATES.longitude,
       dropoffAddress,
-      ...(hasDropoffCoordinates
-        ? {
-            dropoffLatitude: parsedLatitude,
-            dropoffLongitude: parsedLongitude
-          }
-        : {})
+      ...(hasDropoffCoordinates ? { dropoffLatitude: parsedLatitude, dropoffLongitude: parsedLongitude } : {})
     });
   }
 
