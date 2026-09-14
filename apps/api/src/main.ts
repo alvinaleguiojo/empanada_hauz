@@ -36,14 +36,16 @@ async function bootstrap() {
   httpServer.use(express.json({ limit: "15mb" }));
 
   // Safe diagnostics for remote MCP/OAuth connectivity. We intentionally log
-  // only the method/path/content type and body field names, never credentials,
-  // authorization codes, PKCE verifiers, or access tokens.
+  // only the method/path/content type, body field names, and header names/presence,
+  // never credentials, authorization codes, PKCE verifiers, or access tokens.
   httpServer.use((req: any, _res: any, next: any) => {
     const path = typeof req.path === "string" ? req.path : "";
     if (path === "/api/mcp" || path.startsWith("/.well-known/") || path.startsWith("/oauth/")) {
       const bodyKeys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
+      const headerNames = Object.keys(req.headers).sort();
+      const hasAuthorization = typeof req.headers.authorization === "string";
       console.log(
-        `[Remote MCP] ${req.method} ${path} content-type=${req.headers["content-type"] ?? "none"} body-keys=${bodyKeys.join(",") || "none"}`
+        `[Remote MCP] ${req.method} ${path} content-type=${req.headers["content-type"] ?? "none"} body-keys=${bodyKeys.join(",") || "none"} authorization=${hasAuthorization ? "present" : "missing"} header-names=${headerNames.join(",") || "none"}`
       );
     }
     next();
