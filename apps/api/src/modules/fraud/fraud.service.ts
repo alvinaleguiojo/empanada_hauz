@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../database/prisma.service";
 
 export const FRAUD_ENTITY_TYPES = ["customer", "rider"] as const;
@@ -33,12 +33,14 @@ type Match = {
   name?: string | null;
 };
 
+const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
+
 @Injectable()
 export class FraudService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listCases(filters: { entityType?: FraudEntityType; status?: FraudCaseStatus } = {}) {
-    return this.prisma.fraudCase.findMany({
+    const cases = await this.prisma.fraudCase.findMany({
       where: {
         ...(filters.entityType ? { entityType: filters.entityType } : {}),
         ...(filters.status ? { status: filters.status } : {})
@@ -46,13 +48,18 @@ export class FraudService {
       orderBy: { updatedAt: "desc" },
       take: 500
     });
+
+    // The dashboard historically expects `_id`; Prisma exposes Mongo `_id` as `id`.
+    // Keep both fields during the API transition so deletes/keys cannot resolve to undefined.
+    return cases.map((fraudCase) => ({ ...fraudCase, _id: fraudCase.id }));
   }
 
   async listLogs(limit = 200) {
-    return this.prisma.fraudDetectionLog.findMany({
+    const logs = await this.prisma.fraudDetectionLog.findMany({
       orderBy: { createdAt: "desc" },
       take: Math.min(Math.max(limit, 1), 500)
     });
+    return logs.map((log) => ({ ...log, _id: log.id }));
   }
 
   async stats() {
@@ -79,17 +86,19 @@ export class FraudService {
     notes?: string;
     userId?: string;
   }) {
+    const normalized = await this.resolveCaseIdentity(input);
+
     return this.prisma.fraudCase.create({
       data: {
         entityType: input.entityType,
         severity: input.severity,
-        name: input.name?.trim() || null,
-        phoneNumber: input.phoneNumber?.trim() || null,
-        email: input.email?.trim().toLowerCase() || null,
-        plateNumber: input.plateNumber?.trim() || null,
-        messengerPsid: input.messengerPsid?.trim() || null,
-        address: input.address?.trim() || null,
-        subjectId: input.subjectId?.trim() || null,
+        name: normalized.name,
+        phoneNumber: normalized.phoneNumber,
+        email: normalized.email,
+        plateNumber: normalized.plateNumber,
+        messengerPsid: normalized.messengerPsid,
+        address: normalized.address,
+        subjectId: normalized.subjectId,
         reason: input.reason.trim(),
         notes: input.notes?.trim() || null,
         createdById: input.userId || null,
@@ -105,8 +114,9 @@ export class FraudService {
     notes?: string;
     userId?: string;
   }) {
+    this.assertObjectId(id);
     const existing = await this.prisma.fraudCase.findUnique({ where: { id } });
-    if (!existing) throw new Error("Fraud case not found");
+    if (!existing) throw new NotFoundException("Fraud case not found");
     return this.prisma.fraudCase.update({
       where: { id },
       data: {
@@ -120,6 +130,9 @@ export class FraudService {
   }
 
   async deleteCase(id: string) {
+    this.assertObjectId(id);
+    const existing = await this.prisma.fraudCase.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Fraud case not found");
     await this.prisma.fraudCase.delete({ where: { id } });
     return { deleted: true, id };
   }
@@ -177,6 +190,7 @@ export class FraudService {
     deliveryJobId: string;
     riderId: string;
     rider?: {
+      id?: string | null;
       phoneNumber?: string | null;
       user?: { id?: string | null; name?: string | null; email?: string | null } | null;
       vehicles?: Array<{ plateNumber?: string | null }>;
@@ -186,17 +200,92 @@ export class FraudService {
     if (!rider) return { matched: false, matches: [] as Match[] };
     const cases = await this.prisma.fraudCase.findMany({ where: { entityType: "rider", status: "open" }, take: 500 });
     const plateNumber = rider.vehicles?.[0]?.plateNumber ?? null;
-    const matches = cases.map((fraudCase) => this.matchRiderCase(fraudCase, rider, plateNumber)).filter(Boolean) as Match[];
+    const matches = cases.map((fraudCase) => this.matchRiderCase(fraudCase, rider, plateNumber, input.riderId)).filter(Boolean) as Match[];
     await Promise.all(matches.map((match) => this.writeLog({ entityType: "rider", caseId: match.caseId, riderId: input.riderId, deliveryJobId: input.deliveryJobId, matchedOn: match.matchedOn, score: match.score, severity: match.severity })));
     return { matched: matches.length > 0, highestSeverity: this.highestSeverity(matches.map((match) => match.severity)), matches };
+  }
+
+  private async resolveCaseIdentity(input: {
+    entityType: FraudEntityType;
+    name?: string;
+    phoneNumber?: string;
+    email?: string;
+    plateNumber?: string;
+    messengerPsid?: string;
+    address?: string;
+    subjectId?: string;
+  }) {
+    const fallback = {
+      name: input.name?.trim() || null,
+      phoneNumber: input.phoneNumber?.trim() || null,
+      email: input.email?.trim().toLowerCase() || null,
+      plateNumber: input.plateNumber?.trim() || null,
+      messengerPsid: input.messengerPsid?.trim() || null,
+      address: input.address?.trim() || null,
+      subjectId: input.subjectId?.trim() || null
+    };
+
+    if (!input.subjectId?.trim()) return fallback;
+    this.assertObjectId(input.subjectId.trim());
+
+    if (input.entityType === "customer") {
+      const customer = await this.prisma.customer.findUnique({ where: { id: input.subjectId.trim() } });
+      if (!customer) throw new NotFoundException("Customer not found for fraud case");
+      return {
+        name: customer.name,
+        phoneNumber: customer.phoneNumber ?? fallback.phoneNumber,
+        email: fallback.email,
+        plateNumber: null,
+        messengerPsid: customer.messengerPsid ?? fallback.messengerPsid,
+        address: customer.defaultAddress ?? fallback.address,
+        subjectId: customer.id
+      };
+    }
+
+    const rider = await this.prisma.rider.findUnique({
+      where: { id: input.subjectId.trim() },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        vehicles: { where: { isActive: true }, take: 1 }
+      }
+    });
+
+    if (rider) {
+      return {
+        name: rider.user.name,
+        phoneNumber: rider.phoneNumber ?? fallback.phoneNumber,
+        email: rider.user.email ?? fallback.email,
+        plateNumber: rider.vehicles[0]?.plateNumber ?? fallback.plateNumber,
+        messengerPsid: null,
+        address: fallback.address,
+        subjectId: rider.id
+      };
+    }
+
+    // Accept legacy Fraud Center entries that used User.id for a rider, but normalize them to Rider.id.
+    const legacyRider = await this.prisma.rider.findUnique({
+      where: { userId: input.subjectId.trim() },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        vehicles: { where: { isActive: true }, take: 1 }
+      }
+    });
+    if (!legacyRider) throw new NotFoundException("Rider not found for fraud case");
+    return {
+      name: legacyRider.user.name,
+      phoneNumber: legacyRider.phoneNumber ?? fallback.phoneNumber,
+      email: legacyRider.user.email ?? fallback.email,
+      plateNumber: legacyRider.vehicles[0]?.plateNumber ?? fallback.plateNumber,
+      messengerPsid: null,
+      address: fallback.address,
+      subjectId: legacyRider.id
+    };
   }
 
   private matchCustomerCase(fraudCase: FraudCaseRecord, customer: { id?: string | null; name?: string | null; phoneNumber?: string | null; defaultAddress?: string | null; messengerPsid?: string | null }, order: { address?: string | null; location?: string | null }): Match | null {
     const matchedOn: string[] = [];
     const phoneMatches = this.samePhone(fraudCase.phoneNumber, customer.phoneNumber);
 
-    // Customer fraud requires phone + at least one corroborating identifier.
-    // This avoids false positives from a phone-only, name-only, or address-only match.
     if (!phoneMatches) return null;
     matchedOn.push("phone");
 
@@ -210,9 +299,14 @@ export class FraudService {
     return { caseId: fraudCase.id, severity: fraudCase.severity as FraudSeverity, score: this.score(matchedOn), matchedOn, reason: fraudCase.reason, name: fraudCase.name };
   }
 
-  private matchRiderCase(fraudCase: FraudCaseRecord, rider: { phoneNumber?: string | null; user?: { id?: string | null; name?: string | null; email?: string | null } | null }, plateNumber: string | null): Match | null {
+  private matchRiderCase(
+    fraudCase: FraudCaseRecord,
+    rider: { id?: string | null; phoneNumber?: string | null; user?: { id?: string | null; name?: string | null; email?: string | null } | null },
+    plateNumber: string | null,
+    riderId: string
+  ): Match | null {
     const matchedOn: string[] = [];
-    if (fraudCase.subjectId && rider.user?.id && fraudCase.subjectId === rider.user.id) matchedOn.push("userId");
+    if (fraudCase.subjectId && ((rider.id && fraudCase.subjectId === rider.id) || fraudCase.subjectId === riderId)) matchedOn.push("riderId");
     if (this.samePhone(fraudCase.phoneNumber, rider.phoneNumber)) matchedOn.push("phone");
     if (this.sameText(fraudCase.name, rider.user?.name)) matchedOn.push("name");
     if (this.sameEmail(fraudCase.email, rider.user?.email)) matchedOn.push("email");
@@ -222,7 +316,7 @@ export class FraudService {
   }
 
   private score(fields: string[]) {
-    if (fields.some((field) => ["customerId", "userId", "phone", "email", "messenger", "plate"].includes(field))) return 100;
+    if (fields.some((field) => ["customerId", "riderId", "phone", "email", "messenger", "plate"].includes(field))) return 100;
     if (fields.includes("name") && fields.includes("address")) return 90;
     if (fields.includes("name")) return 70;
     if (fields.includes("address")) return 60;
@@ -252,6 +346,12 @@ export class FraudService {
   private sameText(a?: string | null, b?: string | null) { return Boolean(a && b && this.normalizeText(a) === this.normalizeText(b)); }
   private sameAddress(a?: string | null, b?: string | null) { return Boolean(a && b && this.normalizeText(a).replace(/[^a-z0-9]/g, "") === this.normalizeText(b).replace(/[^a-z0-9]/g, "")); }
   private normalizeText(value: string) { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " "); }
+
+  private assertObjectId(value: string) {
+    if (!value || !OBJECT_ID_PATTERN.test(value)) {
+      throw new BadRequestException("Invalid fraud case ID");
+    }
+  }
 
   private async writeLog(input: { entityType: FraudEntityType; caseId: string; orderId?: string; deliveryJobId?: string; riderId?: string; matchedOn: string[]; score: number; severity: FraudSeverity }) {
     await this.prisma.fraudDetectionLog.create({
