@@ -26,7 +26,11 @@ async function bootstrap() {
       { path: "oauth/token", method: RequestMethod.POST }
     ]
   });
-  app.getHttpAdapter().getInstance().use(require("express").json({ limit: "15mb" }));
+
+  const express = require("express");
+  app.getHttpAdapter().getInstance().use(express.urlencoded({ extended: false, limit: "100kb" }));
+  app.getHttpAdapter().getInstance().use(express.json({ limit: "15mb" }));
+
   app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
