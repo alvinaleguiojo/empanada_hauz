@@ -5,10 +5,8 @@ import { CalendarDays, Plus, Wifi, WifiOff } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
-import { OrderFraudTagDialog } from "@/components/orders/order-fraud-tag-dialog";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
-import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
 import { useOrdersRealtime, type OrderRealtimeEvent } from "@/hooks/use-orders-realtime";
 
 type Order = Record<string, any> & { id: string };
@@ -16,8 +14,6 @@ type Order = Record<string, any> & { id: string };
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
-  const [fraudOrder, setFraudOrder] = useState<Order | null>(null);
-  const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
   const handleOrderCreated = useCallback((order: OrderRealtimeEvent) => {
@@ -59,8 +55,6 @@ export default function OrdersPage() {
   });
 
   useEffect(() => {
-    setRole(decodeRole(window.localStorage.getItem("empanada-token")));
-
     const today = new Date().toISOString().slice(0, 10);
     void Promise.all([
       apiFetch<Order[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
@@ -70,16 +64,6 @@ export default function OrdersPage() {
       setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
     });
   }, []);
-
-  const canTagFraud = hasPermission(role, "fraud.manage");
-
-  function closeFraudDialog() {
-    setFraudOrder(null);
-  }
-
-  function handleFraudSuccess() {
-    setFraudOrder(null);
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -104,7 +88,6 @@ export default function OrdersPage() {
         <OrdersView orders={orders} />
       </div>
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
-      {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} /> : null}
       {manualOrderOpen && <ManualOrderForm open={manualOrderOpen} onOpenChange={setManualOrderOpen} />}
     </div>
   );
