@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, Plus, X } from "lucide-react";
+import { CalendarDays, Plus, ShieldAlert, X } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
@@ -15,6 +15,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [fraudOrder, setFraudOrder] = useState<any | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
@@ -56,6 +57,11 @@ export default function OrdersPage() {
     if (match) setSelectedOrder(match);
   }
 
+  function closeFraudDialog() {
+    setFraudOrder(null);
+    window.location.reload();
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -87,16 +93,53 @@ export default function OrdersPage() {
       <ManualOrderForm open={manualOrderOpen} onOpenChange={setManualOrderOpen} />
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
 
-      <div onClick={handleKanbanClick}>
+      <div className="relative" onClickCapture={handleKanbanClick}>
         <OrdersView orders={orders} />
+        {canTagFraud && selectedOrder ? (
+          <KanbanFraudDrawerAction order={selectedOrder} onTag={() => setFraudOrder(selectedOrder)} />
+        ) : null}
       </div>
 
-      {typeof document !== "undefined" && selectedOrder
-        ? createPortal(
-            <OrderFraudTagDialog order={selectedOrder} onClose={() => setSelectedOrder(null)} />,
-            document.body
-          )
-        : null}
+      {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} /> : null}
     </div>
+  );
+}
+
+function KanbanFraudDrawerAction({ order, onTag }: { order: any; onTag: () => void }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const findTarget = () => {
+      const labels = Array.from(document.querySelectorAll("p"));
+      const label = labels.find((element) => element.textContent?.trim() === "Order details");
+      const actionRow = label?.parentElement?.children.item(1);
+      if (active) setTarget(actionRow instanceof HTMLElement ? actionRow : null);
+    };
+
+    findTarget();
+    const observer = new MutationObserver(findTarget);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [order?.id]);
+
+  if (!target) return null;
+
+  return createPortal(
+    <Button
+      type="button"
+      variant="ghost"
+      className="gap-1.5 px-3 text-red-500 hover:text-red-500"
+      onClick={onTag}
+      title={`Tag ${order?.customer?.name || "customer"} as fraud`}
+    >
+      <ShieldAlert size={14} />
+      Tag as Fraud
+    </Button>,
+    target
   );
 }
