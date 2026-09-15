@@ -21,7 +21,8 @@ export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
-  const [fraudOrder, setFraudOrder] = useState<Order | null>(null);
+  const [selectedOrderForFraud, setSelectedOrderForFraud] = useState<Order | null>(null);
+  const [fraudDrawerOpen, setFraudDrawerOpen] = useState(false);
   const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -64,7 +65,8 @@ export default function OrdersPage() {
     if (!text) return;
 
     if (/hide details/i.test(text)) {
-      setFraudOrder(null);
+      setSelectedOrderForFraud(null);
+      setFraudDrawerOpen(false);
       return;
     }
 
@@ -83,15 +85,19 @@ export default function OrdersPage() {
       return namedMatches.length === 1 ? namedMatches[0] : null;
     })();
 
-    if (match) setFraudOrder(match);
+    if (match) {
+      setSelectedOrderForFraud(match);
+      setFraudDrawerOpen(false);
+    }
   }
 
   function closeFraudDialog() {
-    setFraudOrder(null);
+    setFraudDrawerOpen(false);
   }
 
   function handleFraudSuccess() {
-    setFraudOrder(null);
+    setFraudDrawerOpen(false);
+    setSelectedOrderForFraud(null);
     window.location.reload();
   }
 
@@ -118,10 +124,10 @@ export default function OrdersPage() {
         {initialLoading ? <OrdersLoadingSkeleton /> : <OrdersView orders={orders} />}
       </div>
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
-      {fraudOrder && canTagFraud ? <Button type="button" className="fixed right-7 top-[118px] z-[55] gap-2 bg-red-600 text-white shadow-lg hover:bg-red-700" onClick={() => setFraudOrder(fraudOrder)} aria-label="Open fraud drawer">
+      {selectedOrderForFraud && canTagFraud ? <Button type="button" className="fixed right-7 top-[118px] z-[55] gap-2 bg-red-600 text-white shadow-lg hover:bg-red-700" onClick={() => setFraudDrawerOpen(true)} aria-label="Open fraud drawer">
         <ShieldAlert className="h-4 w-4" /> Fraud
       </Button> : null}
-      {fraudOrder && canTagFraud ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} /> : null}
+      {fraudDrawerOpen && selectedOrderForFraud && canTagFraud ? <OrderFraudTagDialog order={selectedOrderForFraud} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} /> : null}
       {manualOrderOpen ? createPortal(
         <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-6 lg:p-8">
           <button type="button" aria-label="Close new order form" className="absolute inset-0 h-full w-full cursor-default" onClick={() => setManualOrderOpen(false)} />
