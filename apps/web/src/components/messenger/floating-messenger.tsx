@@ -64,26 +64,25 @@ export function FloatingMessenger() {
     );
   }, [conversations, search]);
 
+  // The floating inbox is dormant while closed. It performs one REST sync when
+  // opened, then relies on Socket.IO notifications for subsequent changes.
   useEffect(() => {
+    if (!open) return;
     void loadConversations();
-    const timer = window.setInterval(() => void loadConversations(true), 5000);
-    return () => window.clearInterval(timer);
-  }, []);
+  }, [open]);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!open || !selectedId) return;
     void loadMessages(selectedId);
-    const timer = window.setInterval(() => void loadMessages(selectedId, true), 3000);
-    return () => window.clearInterval(timer);
-  }, [selectedId]);
+  }, [open, selectedId]);
 
   useEffect(() => {
     const handleNotification = (eventPayload: unknown) => {
       const payload = getMessengerNotificationPayload(eventPayload);
       if (!payload) return;
       if (!open) setUnread((count) => count + 1);
-      void loadConversations(true);
-      if (payload.conversationId === selectedId) void loadMessages(selectedId, true);
+      if (open) void loadConversations(true);
+      if (open && payload.conversationId === selectedId) void loadMessages(selectedId, true);
     };
 
     socket.on("notifications.created", handleNotification);
