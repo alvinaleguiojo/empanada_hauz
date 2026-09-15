@@ -129,7 +129,44 @@ export default function OrdersPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Existing Orders page UI remains unchanged. */}
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold">Orders</h1>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            {connected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+            {connected ? "Live" : "Disconnected"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setManualOrderOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New Order
+          </Button>
+          <Button variant="outline" size="icon" aria-label="Calendar">
+            <CalendarDays className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1" onClick={handleKanbanClick}>
+        <OrdersView orders={orders} onOrderClick={setSelectedOrder} />
+      </div>
+      <FraudOrderAlerts logs={fraudLogs} />
+      {selectedOrder ? createPortal(
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setSelectedOrder(null)} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-background shadow-xl">
+            <div className="flex items-center justify-between border-b p-4">
+              <h2 className="font-semibold">Order Details</h2>
+              <Button variant="ghost" size="icon" onClick={() => setSelectedOrder(null)}><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="p-4">
+              <pre className="whitespace-pre-wrap text-sm">{JSON.stringify(selectedOrder, null, 2)}</pre>
+              {canTagFraud && <Button className="mt-4" variant="destructive" onClick={() => setFraudOrder(selectedOrder)}><ShieldAlert className="mr-2 h-4 w-4" /> Tag as Fraud</Button>}
+            </div>
+          </div>
+        </div>, document.body
+      ) : null}
+      <OrderFraudTagDialog order={fraudOrder} open={!!fraudOrder} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} />
+      {manualOrderOpen && <ManualOrderForm open={manualOrderOpen} onOpenChange={setManualOrderOpen} />}
     </div>
   );
 }
