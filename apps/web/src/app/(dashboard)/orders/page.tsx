@@ -22,23 +22,6 @@ export default function OrdersPage() {
   const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
-  const refreshOrderData = useCallback(async () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const [nextOrders, nextFraudLogs] = await Promise.all([
-      apiFetch<Order[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
-      apiFetch<any[]>("/fraud/logs?limit=200").catch(() => [])
-    ]);
-
-    const normalizedOrders: Order[] = Array.isArray(nextOrders) ? nextOrders : [];
-    setOrders(normalizedOrders);
-    setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
-
-    setSelectedOrder((current: Order | null) => {
-      if (!current) return current;
-      return normalizedOrders.find((order) => order.id === current.id) ?? current;
-    });
-  }, []);
-
   const handleOrderCreated = useCallback((order: OrderRealtimeEvent) => {
     const today = new Date().toISOString().slice(0, 10);
     const preferredSchedule = typeof order.preferredSchedule === "string" ? order.preferredSchedule.slice(0, 10) : null;
@@ -84,8 +67,16 @@ export default function OrdersPage() {
 
   useEffect(() => {
     setRole(decodeRole(window.localStorage.getItem("empanada-token")));
-    void refreshOrderData();
-  }, [refreshOrderData]);
+
+    const today = new Date().toISOString().slice(0, 10);
+    void Promise.all([
+      apiFetch<Order[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
+      apiFetch<any[]>("/fraud/logs?limit=200").catch(() => [])
+    ]).then(([nextOrders, nextFraudLogs]) => {
+      setOrders(Array.isArray(nextOrders) ? nextOrders : []);
+      setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
+    });
+  }, []);
 
   const canTagFraud = hasPermission(role, "fraud.manage");
 
@@ -119,7 +110,6 @@ export default function OrdersPage() {
 
   function handleFraudSuccess() {
     setFraudOrder(null);
-    void refreshOrderData();
   }
 
   return (
