@@ -19,16 +19,20 @@ export default function OrdersPage() {
   const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
-  useEffect(() => {
-    setRole(decodeRole(window.localStorage.getItem("empanada-token")));
+  async function refreshOrderData() {
     const today = new Date().toISOString().slice(0, 10);
-    void Promise.all([
+    const [nextOrders, nextFraudLogs] = await Promise.all([
       apiFetch<any[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
       apiFetch<any[]>("/fraud/logs?limit=200").catch(() => [])
-    ]).then(([nextOrders, nextFraudLogs]) => {
-      setOrders(Array.isArray(nextOrders) ? nextOrders : []);
-      setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
-    });
+    ]);
+
+    setOrders(Array.isArray(nextOrders) ? nextOrders : []);
+    setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
+  }
+
+  useEffect(() => {
+    setRole(decodeRole(window.localStorage.getItem("empanada-token")));
+    void refreshOrderData();
   }, []);
 
   const canTagFraud = hasPermission(role, "fraud.manage");
@@ -58,8 +62,13 @@ export default function OrdersPage() {
   }
 
   function closeFraudDialog() {
+    // Closing/cancelling the fraud drawer must not close the underlying order details drawer.
     setFraudOrder(null);
-    window.location.reload();
+  }
+
+  function handleFraudSuccess() {
+    setFraudOrder(null);
+    void refreshOrderData();
   }
 
   return (
@@ -100,7 +109,13 @@ export default function OrdersPage() {
         ) : null}
       </div>
 
-      {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} /> : null}
+      {fraudOrder ? (
+        <OrderFraudTagDialog
+          order={fraudOrder}
+          onClose={closeFraudDialog}
+          onSuccess={handleFraudSuccess}
+        />
+      ) : null}
     </div>
   );
 }
