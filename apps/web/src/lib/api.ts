@@ -1,6 +1,17 @@
 import { API_URL } from "./config";
 import { getSelectedDeliveryCoordinates } from "./delivery-place";
 
+const ORDERS_CACHE_TTL_MS = 5 * 60 * 1000;
+const ordersGetCache = new Map<string, { expiresAt: number; value: unknown }>();
+
+function isOrdersGet(path: string, method?: string) {
+  return (method ?? "GET").toUpperCase() === "GET" && (path === "/orders" || path.startsWith("/orders?"));
+}
+
+function clearOrdersGetCache() {
+  ordersGetCache.clear();
+}
+
 async function resolveApiRequest(path: string, options?: RequestInit, token?: string, tokenCookie?: string) {
   const cookieName = tokenCookie ?? (path.startsWith("/rider") ? "empanada-rider-token" : "empanada-token");
   let resolvedToken = token;
@@ -58,13 +69,30 @@ async function resolveApiRequest(path: string, options?: RequestInit, token?: st
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit, token?: string, tokenCookie?: string): Promise<T> {
+  const method = (options?.method ?? "GET").toUpperCase();
+  const cacheKey = `${tokenCookie ?? ""}:${token ?? ""}:${path}`;
+
+  if (isOrdersGet(path, method)) {
+    const cached = ordersGetCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value as T;
+    if (cached) ordersGetCache.delete(cacheKey);
+  } else if (method !== "GET") {
+    clearOrdersGetCache();
+  }
+
   const response = await resolveApiRequest(path, options, token, tokenCookie);
 
   if (!response.ok) {
     throw new Error(await response.text());
   }
 
-  return response.json() as Promise<T>;
+  const data = await response.json() as T;
+
+  if (isOrdersGet(path, method)) {
+    ordersGetCache.set(cacheKey, { expiresAt: Date.now() + ORDERS_CACHE_TTL_MS, value: data });
+  }
+
+  return data;
 }
 
 export async function apiFetchBlob(path: string, options?: RequestInit, token?: string, tokenCookie?: string): Promise<Blob> {
