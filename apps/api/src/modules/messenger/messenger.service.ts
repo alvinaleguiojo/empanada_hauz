@@ -182,6 +182,22 @@ export class MessengerService {
     return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
   }
 
+  private async emitRealtimeMessage(conversationId: string, messageId: string, type: "messenger.message_received" | "messenger.message_sent") {
+    const [conversation, messageRecord] = await Promise.all([
+      this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { customer: true } }),
+      this.prisma.message.findUnique({ where: { id: messageId } })
+    ]);
+    if (!conversation || !messageRecord) return;
+    this.notificationsService.notify(type, {
+      conversationId,
+      conversation,
+      messageRecord,
+      messageId: messageRecord.id,
+      message: messageRecord.content,
+      createdAt: messageRecord.createdAt.toISOString()
+    });
+  }
+
   async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown; type?: "text" | "attachment" }) {
     const profileName = await this.getMessengerProfileName(payload.senderId);
     const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
@@ -190,7 +206,7 @@ export class MessengerService {
       if (existing) return existing;
     }
     const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
-    this.notificationsService.notify("messenger.message_received", { conversationId: conversation.id, senderId: payload.senderId, messageId: payload.messageId, message: payload.text, createdAt: new Date().toISOString() });
+    await this.emitRealtimeMessage(conversation.id, message.id, "messenger.message_received");
     return message;
   }
 
@@ -204,9 +220,9 @@ export class MessengerService {
       const response = await this.metaFetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
       if (!response.ok) throw new Error(`Meta send failed: ${response.status}: ${await response.text()}`);
       const metaResult = await response.json() as { message_id?: string };
-      const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
+      const conversation = await this.getOrCreateConversationByPsid(recipientPsid, text);
       const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
-      this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
+      await this.emitRealtimeMessage(conversation.id, message.id, "messenger.message_sent");
       return metaResult;
     } finally { clearTimeout(timeout); }
   }
