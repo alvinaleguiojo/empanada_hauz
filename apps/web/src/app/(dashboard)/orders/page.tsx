@@ -77,14 +77,9 @@ export default function OrdersPage() {
     });
   }, []);
 
-  const handleRealtimeConnected = useCallback(async () => {
-    await refreshOrderData();
-  }, [refreshOrderData]);
-
   const { connected } = useOrdersRealtime({
     onOrderCreated: handleOrderCreated,
-    onOrderUpdated: handleOrderUpdated,
-    onConnected: handleRealtimeConnected
+    onOrderUpdated: handleOrderUpdated
   });
 
   useEffect(() => {
