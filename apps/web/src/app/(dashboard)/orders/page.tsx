@@ -147,7 +147,7 @@ export default function OrdersPage() {
         </div>
       </div>
       <div className="min-h-0 flex-1" onClick={handleKanbanClick}>
-        <OrdersView orders={orders} onOrderClick={setSelectedOrder} />
+        <OrdersView orders={orders} />
       </div>
       <FraudOrderAlerts logs={fraudLogs} />
       {selectedOrder ? createPortal(
