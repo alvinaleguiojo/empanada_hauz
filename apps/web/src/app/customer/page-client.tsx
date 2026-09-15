@@ -128,6 +128,7 @@ export default function CustomerKioskPage() {
   const [deliveryQuote, setDeliveryQuote] = useState<{ distanceKm: number | null; estimatedFare: number } | null>(null);
   const [quotingDelivery, setQuotingDelivery] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
+  const [summaryCopied, setSummaryCopied] = useState(false);
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -219,6 +220,38 @@ export default function CustomerKioskPage() {
       if (item.value !== value) return item;
       return { ...item, quantity: String(Math.max(1, Number(item.quantity || 0) + delta)) };
     }));
+  };
+
+  const copyOrderSummary = async () => {
+    const paymentLabel = paymentMethods.find((method) => method.value === form.paymentMethod)?.label ?? form.paymentMethod;
+    const deliveryLabel = deliveryMethods.find((method) => method.value === form.deliveryMethod)?.label ?? form.deliveryMethod;
+    const lines = [
+      "Empanada Hauz",
+      "",
+      ...summary.items.map((item) => `${item.name} x${item.quantity} — Php ${item.subtotal}`),
+      "",
+      `Total pieces: ${summary.totalQuantity}`,
+      `Subtotal: Php ${summary.subtotal}`,
+      ...(form.deliveryMethod === "maxim" ? [`Delivery: ${summary.deliveryFee ? `Php ${summary.deliveryFee}` : "Pending estimate"}`] : []),
+      `Total: Php ${summary.total}`,
+      "",
+      `Customer: ${form.customerName.trim() || "—"}`,
+      `Phone: ${form.phoneNumber.trim() || "—"}`,
+      `Delivery: ${deliveryLabel}`,
+      `Payment: ${paymentLabel}`,
+      `Preferred date: ${form.deliveryDate || "—"}`,
+      `Address: ${form.address.trim() || "—"}`,
+      `Landmark: ${form.landmark.trim() || "—"}`,
+      ...(form.notes.trim() ? [`Notes: ${form.notes.trim()}`] : [])
+    ];
+
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setSummaryCopied(true);
+      window.setTimeout(() => setSummaryCopied(false), 1800);
+    } catch {
+      setError("Unable to copy the order summary. Please try again.");
+    }
   };
 
   const isStepValid = step === 0 ? summary.items.length > 0 && summary.totalQuantity >= 10 : true;
@@ -469,7 +502,8 @@ export default function CustomerKioskPage() {
               {form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mb-3 flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-1.5 text-[#241c13]/55"><Truck size={14} /> {quotingDelivery ? "Estimating delivery…" : "Est. delivery"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km` : ""}</span><span className="font-[family-name:var(--font-mono)] font-bold">{quotingDelivery ? "…" : deliveryQuote ? `Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}
               <div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#241c13]/45">Total</div><div className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold">Php {summary.total}</div></div><div className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${summary.totalQuantity >= 10 ? "bg-[#7A9B4E]/15 text-[#4f6a34]" : "bg-[#C0472B]/10 text-[#a53b25]"}`}>{summary.totalQuantity >= 10 ? "Minimum reached" : `${remaining} pcs to go`}</div></div>
               {form.deliveryMethod === "maxim" ? <p className="mt-2 text-[10px] leading-4 text-[#241c13]/40">Delivery total uses an estimate until our team confirms the final fare.</p> : null}
-              <div className="mt-5 grid gap-2.5">
+              <div className="mt-4 grid gap-2">
+                <button type="button" onClick={() => void copyOrderSummary()} disabled={summary.items.length === 0} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#241c13]/12 bg-[#241c13]/4 px-4 text-sm font-bold text-[#241c13] transition hover:bg-[#241c13]/8 disabled:cursor-not-allowed disabled:opacity-35"><Copy size={16} /> {summaryCopied ? "Copied!" : "Copy summary"}</button>
                 <div className="flex gap-2.5">
                   <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#241c13]/12 bg-[#241c13]/4 text-[#241c13] disabled:cursor-not-allowed disabled:opacity-25"><ArrowLeft size={17} /></button>
                   {step < steps.length - 1 ? <button type="button" onClick={() => { setStep((current) => current + 1); setBagOpen(false); }} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">Continue <ArrowRight size={16} /></button> : <button type="submit" form="kiosk-order-form" disabled={submitting || !agreedToPolicy} onClick={() => setBagOpen(false)} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#C0472B] px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#d05336] disabled:cursor-not-allowed disabled:opacity-35">{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>}
