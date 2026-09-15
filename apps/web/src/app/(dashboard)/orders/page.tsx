@@ -165,7 +165,7 @@ export default function OrdersPage() {
           </div>
         </div>, document.body
       ) : null}
-      <OrderFraudTagDialog order={fraudOrder} open={!!fraudOrder} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} />
+      {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} /> : null}
       {manualOrderOpen && <ManualOrderForm open={manualOrderOpen} onOpenChange={setManualOrderOpen} />}
     </div>
   );
