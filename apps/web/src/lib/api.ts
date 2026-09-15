@@ -1,8 +1,11 @@
-import { API_URL } from "./config";
+import { io, type Socket } from "socket.io-client";
+import { API_URL, SOCKET_URL } from "./config";
 import { getSelectedDeliveryCoordinates } from "./delivery-place";
 
 const ORDERS_CACHE_TTL_MS = 5 * 60 * 1000;
 const ordersGetCache = new Map<string, { expiresAt: number; value: unknown }>();
+let ordersRealtimeSocket: Socket | null = null;
+let ordersRealtimeStarted = false;
 
 function isOrdersGet(path: string, method?: string) {
   return (method ?? "GET").toUpperCase() === "GET" && (path === "/orders" || path.startsWith("/orders?"));
@@ -10,6 +13,29 @@ function isOrdersGet(path: string, method?: string) {
 
 function clearOrdersGetCache() {
   ordersGetCache.clear();
+}
+
+function startOrdersRealtimeCacheSync() {
+  if (typeof window === "undefined" || ordersRealtimeStarted) return;
+  ordersRealtimeStarted = true;
+
+  ordersRealtimeSocket = io(SOCKET_URL, {
+    transports: ["websocket"],
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 10000
+  });
+
+  const invalidate = () => {
+    // WebSocket events are the source of truth for order mutations. Clear the
+    // REST cache immediately so the existing board refresh path never serves
+    // a stale five-minute snapshot after an MCP/API mutation.
+    clearOrdersGetCache();
+  };
+
+  ordersRealtimeSocket.on("orders.created", invalidate);
+  ordersRealtimeSocket.on("orders.updated", invalidate);
 }
 
 async function resolveApiRequest(path: string, options?: RequestInit, token?: string, tokenCookie?: string) {
@@ -73,6 +99,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit, token?: s
   const cacheKey = `${tokenCookie ?? ""}:${token ?? ""}:${path}`;
 
   if (isOrdersGet(path, method)) {
+    startOrdersRealtimeCacheSync();
     const cached = ordersGetCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.value as T;
     if (cached) ordersGetCache.delete(cacheKey);
