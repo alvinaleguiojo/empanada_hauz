@@ -12,19 +12,25 @@ export type OrderRealtimeEvent = {
 type UseOrdersRealtimeOptions = {
   onOrderCreated: (order: OrderRealtimeEvent) => void;
   onOrderUpdated: (order: OrderRealtimeEvent) => void;
+  onConnected?: () => void | Promise<void>;
   onFallbackPoll: () => void | Promise<void>;
 };
 
 const POLL_INTERVAL_MS = 15000;
 
-export function useOrdersRealtime({ onOrderCreated, onOrderUpdated, onFallbackPoll }: UseOrdersRealtimeOptions) {
+export function useOrdersRealtime({ onOrderCreated, onOrderUpdated, onConnected, onFallbackPoll }: UseOrdersRealtimeOptions) {
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const fallbackPollRef = useRef(onFallbackPoll);
+  const connectedCallbackRef = useRef(onConnected);
 
   useEffect(() => {
     fallbackPollRef.current = onFallbackPoll;
   }, [onFallbackPoll]);
+
+  useEffect(() => {
+    connectedCallbackRef.current = onConnected;
+  }, [onConnected]);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
@@ -39,6 +45,7 @@ export function useOrdersRealtime({ onOrderCreated, onOrderUpdated, onFallbackPo
 
     const handleConnect = () => {
       setConnected(true);
+      void connectedCallbackRef.current?.();
     };
 
     const handleDisconnect = () => {
