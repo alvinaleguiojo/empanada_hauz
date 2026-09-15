@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, Plus, ShieldAlert, X } from "lucide-react";
+import { CalendarDays, Plus, ShieldAlert, Wifi, WifiOff, X } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
@@ -10,6 +10,7 @@ import { OrderFraudTagDialog } from "@/components/orders/order-fraud-tag-dialog"
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
+import { useOrdersRealtime, type OrderRealtimeEvent } from "@/hooks/use-orders-realtime";
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -19,21 +20,79 @@ export default function OrdersPage() {
   const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
-  async function refreshOrderData() {
+  const refreshOrderData = useCallback(async () => {
     const today = new Date().toISOString().slice(0, 10);
     const [nextOrders, nextFraudLogs] = await Promise.all([
       apiFetch<any[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
       apiFetch<any[]>("/fraud/logs?limit=200").catch(() => [])
     ]);
 
-    setOrders(Array.isArray(nextOrders) ? nextOrders : []);
+    const normalizedOrders = Array.isArray(nextOrders) ? nextOrders : [];
+    setOrders(normalizedOrders);
     setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
-  }
+
+    setSelectedOrder((current) => {
+      if (!current) return current;
+      return normalizedOrders.find((order) => order.id === current.id) ?? current;
+    });
+  }, []);
+
+  const handleOrderCreated = useCallback((order: OrderRealtimeEvent) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const preferredSchedule = typeof order.preferredSchedule === "string" ? order.preferredSchedule.slice(0, 10) : null;
+    const createdAt = typeof order.createdAt === "string" ? order.createdAt.slice(0, 10) : null;
+
+    // The Orders page is scoped to today's orders. Do not inject future/old scheduled orders.
+    if (preferredSchedule !== today && (!preferredSchedule && createdAt !== today)) return;
+
+    setOrders((current) => {
+      const index = current.findIndex((item) => item.id === order.id);
+      if (index >= 0) {
+        const next = [...current];
+        next[index] = { ...next[index], ...order };
+        return next;
+      }
+      return [order, ...current];
+    });
+  }, []);
+
+  const handleOrderUpdated = useCallback((event: OrderRealtimeEvent) => {
+    if (!event.id) return;
+
+    setOrders((current) => {
+      if (event.deleted) return current.filter((item) => item.id !== event.id);
+
+      const index = current.findIndex((item) => item.id === event.id);
+      if (index < 0) return current;
+
+      const next = [...current];
+      // Preserve client-only fields such as fraud flags when the realtime payload is partial.
+      next[index] = { ...next[index], ...event };
+      return next;
+    });
+
+    setSelectedOrder((current) => {
+      if (!current || current.id !== event.id || event.deleted) return event.deleted ? null : current;
+      return { ...current, ...event };
+    });
+  }, []);
+
+  const handleRealtimeConnected = useCallback(async () => {
+    // Reconcile once after every reconnect so events missed while offline are recovered.
+    await refreshOrderData();
+  }, [refreshOrderData]);
+
+  const { connected } = useOrdersRealtime({
+    onOrderCreated: handleOrderCreated,
+    onOrderUpdated: handleOrderUpdated,
+    onConnected: handleRealtimeConnected,
+    onFallbackPoll: refreshOrderData
+  });
 
   useEffect(() => {
     setRole(decodeRole(window.localStorage.getItem("empanada-token")));
     void refreshOrderData();
-  }, []);
+  }, [refreshOrderData]);
 
   const canTagFraud = hasPermission(role, "fraud.manage");
 
@@ -76,7 +135,16 @@ export default function OrdersPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm text-foreground/45">Manual order entry, workflow tracking, and dispatch readiness.</p>
-          <h1 className="text-2xl font-semibold sm:text-3xl">Orders</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold sm:text-3xl">Orders</h1>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${connected ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`}
+              title={connected ? "Live order updates are connected" : "Live updates unavailable; checking every 15 seconds"}
+            >
+              {connected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              {connected ? "Live" : "Fallback"}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
