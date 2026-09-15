@@ -160,7 +160,7 @@ export default function OrdersPage() {
             </div>
             <div className="p-4">
               <pre className="whitespace-pre-wrap text-sm">{JSON.stringify(selectedOrder, null, 2)}</pre>
-              {canTagFraud && <Button className="mt-4" variant="destructive" onClick={() => setFraudOrder(selectedOrder)}><ShieldAlert className="mr-2 h-4 w-4" /> Tag as Fraud</Button>}
+              {canTagFraud && <Button className="mt-4" variant="danger" onClick={() => setFraudOrder(selectedOrder)}><ShieldAlert className="mr-2 h-4 w-4" /> Tag as Fraud</Button>}
             </div>
           </div>
         </div>, document.body
