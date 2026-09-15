@@ -1,13 +1,9 @@
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 import { SOCKET_URL } from "@/lib/config";
+import { normalizeOrderRealtimeEvent, type OrderRealtimeEvent } from "@/lib/order-realtime-adapter";
 
-export type OrderRealtimeEvent = {
-  id?: string;
-  deleted?: boolean;
-  note?: unknown;
-  [key: string]: unknown;
-};
+export type { OrderRealtimeEvent } from "@/lib/order-realtime-adapter";
 
 type UseOrdersRealtimeOptions = {
   onOrderCreated: (order: OrderRealtimeEvent) => void;
@@ -26,20 +22,15 @@ export function useOrdersRealtime({ onOrderCreated, onOrderUpdated }: UseOrdersR
       reconnectionDelayMax: 10000
     });
 
-    const handleConnect = () => {
-      setConnected(true);
+    const handleConnect = () => setConnected(true);
+    const handleDisconnect = () => setConnected(false);
+    const handleCreated = (payload: unknown) => {
+      const order = normalizeOrderRealtimeEvent(payload);
+      if (order) onOrderCreated(order);
     };
-
-    const handleDisconnect = () => {
-      setConnected(false);
-    };
-
-    const handleCreated = (order: OrderRealtimeEvent) => {
-      if (order?.id) onOrderCreated(order);
-    };
-
-    const handleUpdated = (order: OrderRealtimeEvent) => {
-      if (order?.id) onOrderUpdated(order);
+    const handleUpdated = (payload: unknown) => {
+      const order = normalizeOrderRealtimeEvent(payload);
+      if (order) onOrderUpdated(order);
     };
 
     socket.on("connect", handleConnect);
