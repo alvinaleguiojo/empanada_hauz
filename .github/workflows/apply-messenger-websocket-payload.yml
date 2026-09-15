@@ -1,0 +1,147 @@
+name: Apply Messenger WebSocket Payload Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-messenger-websocket-payload.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch Messenger realtime
+        shell: python
+        run: |
+          from pathlib import Path
+
+          service = Path('apps/api/src/modules/messenger/messenger.service.ts')
+          s = service.read_text()
+          old = '''    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
+    this.notificationsService.notify("messenger.message_received", { conversationId: conversation.id, senderId: payload.senderId, messageId: payload.messageId, message: payload.text, createdAt: new Date().toISOString() });
+    return message;'''
+          new = '''    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
+    const realtimeConversation = await this.prisma.conversation.findUnique({ where: { id: conversation.id }, include: { customer: true } });
+    this.notificationsService.notify("messenger.message_received", {
+      conversationId: conversation.id,
+      senderId: payload.senderId,
+      messageId: message.id,
+      message: message.content,
+      createdAt: message.createdAt.toISOString(),
+      conversation: realtimeConversation,
+      messageRecord: message,
+    });
+    return message;'''
+          if old not in s:
+              raise SystemExit('Inbound Messenger notification block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''      const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
+      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
+      this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
+      return metaResult;'''
+          new = '''      const conversation = await this.getOrCreateConversationByPsid(recipientPsid, text);
+      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
+      const realtimeConversation = await this.prisma.conversation.findUnique({ where: { id: conversation.id }, include: { customer: true } });
+      this.notificationsService.notify("messenger.message_sent", {
+        conversationId: conversation.id,
+        recipientPsid,
+        messageId: message.id,
+        metaMessageId: metaResult.message_id,
+        message: message.content,
+        createdAt: message.createdAt.toISOString(),
+        conversation: realtimeConversation,
+        messageRecord: message,
+      });
+      return metaResult;'''
+          if old not in s:
+              raise SystemExit('Outbound Messenger notification block not found')
+          s = s.replace(old, new, 1)
+          service.write_text(s)
+
+          for rel in [
+              'apps/web/src/components/messenger/inbox-list.tsx',
+              'apps/web/src/components/messenger/floating-messenger.tsx',
+          ]:
+              p = Path(rel)
+              s = p.read_text()
+              if 'type MessengerRealtimePayload' not in s:
+                  marker = 'type CustomerAiState = { globalEnabled: boolean; customerOverride: boolean | null; effectiveEnabled: boolean };' if rel.endswith('inbox-list.tsx') else 'type MessengerNotification = {'
+                  if rel.endswith('inbox-list.tsx'):
+                      insert = marker + '''\ntype MessengerRealtimePayload = {\n  conversationId?: string;\n  conversation?: Conversation;\n  messageRecord?: Message;\n};'''
+                      s = s.replace(marker, insert, 1)
+                  else:
+                      marker_end = '};\n\nexport function FloatingMessenger()'
+                      insert = '''};\n\ntype MessengerRealtimePayload = MessengerNotification & {\n  conversation?: Conversation;\n  messageRecord?: Message;\n};\n\nexport function FloatingMessenger()'''
+                      s = s.replace(marker_end, insert, 1)
+
+              old_effect = '''  useEffect(() => {
+    const handleNotification = (payload: unknown) => {
+      if (!isMessengerNotification(payload)) return;
+      void loadConversations(true);
+      const conversationId = payload.payload?.conversationId;
+      if (conversationId && conversationId === selectedIdRef.current) {
+        void loadMessages(conversationId, true);
+      }
+    };'''
+              new_effect = '''  useEffect(() => {
+    const handleNotification = (event: unknown) => {
+      if (!isMessengerNotification(event)) return;
+      const payload = event.payload as MessengerRealtimePayload;
+      const realtimeConversation = payload.conversation;
+      const realtimeMessage = payload.messageRecord;
+      if (realtimeConversation) {
+        setConversations((current) => [realtimeConversation, ...current.filter((item) => item.id !== realtimeConversation.id)].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+      }
+      if (realtimeMessage && payload.conversationId === selectedIdRef.current) {
+        setMessages((current) => current.some((item) => item.id === realtimeMessage.id) ? current : [...current, realtimeMessage]);
+      }
+    };'''
+              if rel.endswith('inbox-list.tsx'):
+                  if old_effect not in s:
+                      raise SystemExit('Inbox realtime handler not found')
+                  s = s.replace(old_effect, new_effect, 1)
+              else:
+                  old_effect = '''  useEffect(() => {
+    const handleNotification = (eventPayload: unknown) => {
+      const payload = getMessengerNotificationPayload(eventPayload);
+      if (!payload) return;
+      if (!open) setUnread((count) => count + 1);
+      void loadConversations(true);
+      if (payload.conversationId === selectedId) void loadMessages(selectedId, true);
+    };'''
+                  new_effect = '''  useEffect(() => {
+    const handleNotification = (eventPayload: unknown) => {
+      const payload = getMessengerNotificationPayload(eventPayload);
+      if (!payload) return;
+      if (!open) setUnread((count) => count + 1);
+      if (payload.conversation) {
+        setConversations((current) => [payload.conversation!, ...current.filter((item) => item.id !== payload.conversation!.id)].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+      }
+      if (payload.messageRecord && payload.conversationId === selectedId) {
+        setMessages((current) => current.some((item) => item.id === payload.messageRecord!.id) ? current : [...current, payload.messageRecord!]);
+      }
+    };'''
+                  if old_effect not in s:
+                      raise SystemExit('Floating realtime handler not found')
+                  s = s.replace(old_effect, new_effect, 1)
+              p.write_text(s)
+
+      - name: Commit source changes and remove patch workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src/modules/messenger/messenger.service.ts apps/web/src/components/messenger/inbox-list.tsx apps/web/src/components/messenger/floating-messenger.tsx
+          git commit -m "fix(messenger): push full records over websocket" || exit 0
+          git push origin HEAD:main
+          rm -f .github/workflows/apply-messenger-websocket-payload.yml
+          git add -u .github/workflows/apply-messenger-websocket-payload.yml
+          git commit -m "chore: remove messenger patch workflow" || true
+          git push origin HEAD:main || true
