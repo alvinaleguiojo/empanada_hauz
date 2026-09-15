@@ -7,16 +7,13 @@ import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
-import { decodeRole, type UserRole } from "@/lib/permissions";
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
-  const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
   useEffect(() => {
-    setRole(decodeRole(window.localStorage.getItem("empanada-token")));
     const today = new Date().toISOString().slice(0, 10);
     void Promise.all([
       apiFetch<any[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
