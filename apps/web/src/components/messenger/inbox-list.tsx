@@ -260,11 +260,6 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   }, [conversations, search]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => void loadConversations(true), 5000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     if (!selectedId) {
       setCustomerAiState(null);
       return;
@@ -275,14 +270,10 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   useEffect(() => {
     if (!selectedId) return;
     void loadMessages(selectedId);
-    const timer = window.setInterval(() => void loadMessages(selectedId, true), 3000);
-    return () => window.clearInterval(timer);
   }, [selectedId]);
 
-  // Polling above is a fallback; new Messenger messages already arrive over the shared
-  // socket (the webhook path calls NotificationsService.notify, which emits
-  // "notifications.created"), so react to that immediately instead of waiting for the
-  // next 3-5s poll tick.
+  // Messenger realtime is event-driven through the shared Socket.IO /ops channel.
+  // REST is used only for initial/history synchronization and after a realtime event.
   useEffect(() => {
     const handleNotification = (payload: unknown) => {
       if (!isMessengerNotification(payload)) return;
