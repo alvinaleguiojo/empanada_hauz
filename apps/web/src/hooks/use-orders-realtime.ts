@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { io, type Socket } from "socket.io-client";
+import { useEffect, useState } from "react";
+import { io } from "socket.io-client";
 import { SOCKET_URL } from "@/lib/config";
 
 export type OrderRealtimeEvent = {
@@ -12,17 +12,10 @@ export type OrderRealtimeEvent = {
 type UseOrdersRealtimeOptions = {
   onOrderCreated: (order: OrderRealtimeEvent) => void;
   onOrderUpdated: (order: OrderRealtimeEvent) => void;
-  onConnected?: () => void | Promise<void>;
 };
 
-export function useOrdersRealtime({ onOrderCreated, onOrderUpdated, onConnected }: UseOrdersRealtimeOptions) {
+export function useOrdersRealtime({ onOrderCreated, onOrderUpdated }: UseOrdersRealtimeOptions) {
   const [connected, setConnected] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
-  const connectedCallbackRef = useRef(onConnected);
-
-  useEffect(() => {
-    connectedCallbackRef.current = onConnected;
-  }, [onConnected]);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
@@ -33,11 +26,8 @@ export function useOrdersRealtime({ onOrderCreated, onOrderUpdated, onConnected 
       reconnectionDelayMax: 10000
     });
 
-    socketRef.current = socket;
-
     const handleConnect = () => {
       setConnected(true);
-      void connectedCallbackRef.current?.();
     };
 
     const handleDisconnect = () => {
@@ -63,7 +53,6 @@ export function useOrdersRealtime({ onOrderCreated, onOrderUpdated, onConnected 
       socket.off("orders.created", handleCreated);
       socket.off("orders.updated", handleUpdated);
       socket.disconnect();
-      socketRef.current = null;
     };
   }, [onOrderCreated, onOrderUpdated]);
 
