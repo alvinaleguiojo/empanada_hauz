@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Plus, ShieldAlert, Wifi, WifiOff, X } from "lucide-react";
+import { CalendarDays, Plus, Wifi, WifiOff, X } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { OrdersLoadingSkeleton } from "@/components/orders/orders-loading-skeleton";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
 import { OrderFraudTagDialog } from "@/components/orders/order-fraud-tag-dialog";
+import { OrderFraudTrigger } from "@/components/orders/order-fraud-trigger";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 import { applyOrderRealtimeEvent, type OrderRealtimeEvent } from "@/lib/order-realtime-adapter";
@@ -92,6 +93,10 @@ export default function OrdersPage() {
     }
   }
 
+  const openFraudDrawer = useCallback(() => {
+    if (canTagFraud && selectedOrderForFraud) setFraudDrawerOpen(true);
+  }, [canTagFraud, selectedOrderForFraud]);
+
   function closeFraudDialog() {
     setFraudDrawerOpen(false);
   }
@@ -125,9 +130,7 @@ export default function OrdersPage() {
         {initialLoading ? <OrdersLoadingSkeleton /> : <OrdersView orders={orders} />}
       </div>
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
-      {selectedOrderForFraud && canTagFraud ? <Button type="button" className="fixed right-7 top-[118px] z-[55] gap-2 bg-red-600 text-white shadow-lg hover:bg-red-700" onClick={() => setFraudDrawerOpen(true)} aria-label="Open fraud drawer">
-        <ShieldAlert className="h-4 w-4" /> Fraud
-      </Button> : null}
+      <OrderFraudTrigger visible={Boolean(selectedOrderForFraud && canTagFraud)} onClick={openFraudDrawer} />
       {fraudDrawerOpen && selectedOrderForFraud && canTagFraud ? <OrderFraudTagDialog order={selectedOrderForFraud} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} /> : null}
       {manualOrderOpen ? createPortal(
         <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-6 lg:p-8">
