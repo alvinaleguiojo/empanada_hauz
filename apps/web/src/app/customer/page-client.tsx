@@ -225,24 +225,35 @@ export default function CustomerKioskPage() {
   const copyOrderSummary = async () => {
     const paymentLabel = paymentMethods.find((method) => method.value === form.paymentMethod)?.label ?? form.paymentMethod;
     const deliveryLabel = deliveryMethods.find((method) => method.value === form.deliveryMethod)?.label ?? form.deliveryMethod;
+    const customerName = form.customerName.trim();
+    const phoneNumber = form.phoneNumber.trim();
+    const preferredDate = form.deliveryDate.trim();
+    const address = form.address.trim();
+    const landmark = form.landmark.trim();
+    const notes = form.notes.trim();
+
     const lines = [
-      "Empanada Hauz",
+      "🥟 EMPANADA HAUZ ORDER",
       "",
-      ...summary.items.map((item) => `${item.name} x${item.quantity} — Php ${item.subtotal}`),
+      "Order Items",
+      ...summary.items.map((item) => `• ${item.name} — ${item.quantity} pc${item.quantity === 1 ? "" : "s"} × ₱${item.price} = ₱${item.subtotal}`),
       "",
-      `Total pieces: ${summary.totalQuantity}`,
-      `Subtotal: Php ${summary.subtotal}`,
-      ...(form.deliveryMethod === "maxim" ? [`Delivery: ${summary.deliveryFee ? `Php ${summary.deliveryFee}` : "Pending estimate"}`] : []),
-      `Total: Php ${summary.total}`,
+      `📦 Total Pieces: ${summary.totalQuantity} pcs`,
+      `💰 Subtotal: ₱${summary.subtotal}`,
+      ...(form.deliveryMethod === "maxim" ? [`🚚 Delivery: ${summary.deliveryFee ? `₱${summary.deliveryFee}` : "Pending estimate"}`] : []),
+      `💵 TOTAL: ₱${summary.total}`,
       "",
-      `Customer: ${form.customerName.trim() || "—"}`,
-      `Phone: ${form.phoneNumber.trim() || "—"}`,
-      `Delivery: ${deliveryLabel}`,
-      `Payment: ${paymentLabel}`,
-      `Preferred date: ${form.deliveryDate || "—"}`,
-      `Address: ${form.address.trim() || "—"}`,
-      `Landmark: ${form.landmark.trim() || "—"}`,
-      ...(form.notes.trim() ? [`Notes: ${form.notes.trim()}`] : [])
+      "Customer Details",
+      ...(customerName ? [`👤 Name: ${customerName}`] : []),
+      ...(phoneNumber ? [`📱 Phone: ${phoneNumber}`] : []),
+      `🚚 Delivery: ${deliveryLabel}`,
+      `💳 Payment: ${paymentLabel}`,
+      ...(preferredDate ? [`📅 Preferred Date: ${preferredDate}`] : []),
+      ...(address ? [`📍 Address: ${address}`] : []),
+      ...(landmark ? [`🗺️ Landmark: ${landmark}`] : []),
+      ...(notes ? [`📝 Notes: ${notes}`] : []),
+      "",
+      "Please review the details above before placing the order. 😊"
     ];
 
     try {
