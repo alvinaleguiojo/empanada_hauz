@@ -141,7 +141,7 @@ export default function OrdersPage() {
           <Button variant="outline" size="sm" onClick={() => setManualOrderOpen(true)}>
             <Plus className="mr-1 h-4 w-4" /> New Order
           </Button>
-          <Button variant="outline" size="icon" aria-label="Calendar">
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0" aria-label="Calendar">
             <CalendarDays className="h-4 w-4" />
           </Button>
         </div>
