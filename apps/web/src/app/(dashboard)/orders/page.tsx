@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { CalendarDays, Plus, ShieldAlert, Wifi, WifiOff, X } from "lucide-react";
+import { CalendarDays, Plus, Wifi, WifiOff } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
@@ -17,7 +16,6 @@ type Order = Record<string, any> & { id: string };
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [fraudOrder, setFraudOrder] = useState<Order | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
@@ -53,11 +51,6 @@ export default function OrdersPage() {
       next[index] = { ...next[index], ...event };
       return next;
     });
-
-    setSelectedOrder((current: Order | null) => {
-      if (!current || current.id !== event.id || event.deleted) return event.deleted ? null : current;
-      return { ...current, ...event };
-    });
   }, []);
 
   const { connected } = useOrdersRealtime({
@@ -79,30 +72,6 @@ export default function OrdersPage() {
   }, []);
 
   const canTagFraud = hasPermission(role, "fraud.manage");
-
-  function handleKanbanClick(event: React.MouseEvent<HTMLDivElement>) {
-    if (!canTagFraud) return;
-    const button = (event.target as HTMLElement).closest("button");
-    if (!button) return;
-
-    const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
-    if (!text || /fraud|edit|save|delete|copy|track|hide details|calendar/i.test(text)) return;
-
-    const orderedMatches = orders.filter((order) => {
-      const orderNumber = String(order.orderNumber ?? "").trim();
-      return orderNumber && text.includes(orderNumber);
-    });
-
-    const match = orderedMatches[0] ?? (() => {
-      const namedMatches = orders.filter((order) => {
-        const customerName = String(order.customer?.name ?? "").trim();
-        return customerName && text.includes(customerName);
-      });
-      return namedMatches.length === 1 ? namedMatches[0] : null;
-    })();
-
-    if (match) setSelectedOrder(match);
-  }
 
   function closeFraudDialog() {
     setFraudOrder(null);
@@ -131,25 +100,10 @@ export default function OrdersPage() {
           </Button>
         </div>
       </div>
-      <div className="min-h-0 flex-1" onClick={handleKanbanClick}>
+      <div className="min-h-0 flex-1">
         <OrdersView orders={orders} />
       </div>
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
-      {selectedOrder ? createPortal(
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setSelectedOrder(null)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-background shadow-xl">
-            <div className="flex items-center justify-between border-b p-4">
-              <h2 className="font-semibold">Order Details</h2>
-              <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => setSelectedOrder(null)} aria-label="Close order details"><X className="h-4 w-4" /></Button>
-            </div>
-            <div className="p-4">
-              <pre className="whitespace-pre-wrap text-sm">{JSON.stringify(selectedOrder, null, 2)}</pre>
-              {canTagFraud && <Button className="mt-4" variant="danger" onClick={() => setFraudOrder(selectedOrder)}><ShieldAlert className="mr-2 h-4 w-4" /> Tag as Fraud</Button>}
-            </div>
-          </div>
-        </div>, document.body
-      ) : null}
       {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} /> : null}
       {manualOrderOpen && <ManualOrderForm open={manualOrderOpen} onOpenChange={setManualOrderOpen} />}
     </div>
