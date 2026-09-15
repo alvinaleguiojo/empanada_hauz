@@ -18,30 +18,140 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Remove OrdersBoard 3-second polling
+      - name: Apply Messenger payload changes
         shell: python
         run: |
           from pathlib import Path
 
-          path = Path('apps/web/src/components/orders/orders-board.tsx')
-          text = path.read_text()
-          block = '''  useEffect(() => {\n    const interval = window.setInterval(() => { if (!editMode) refreshOrders(selectedDateRef.current, searchRef.current).catch((err) => setError(err instanceof Error ? err.message : "Unable to refresh orders")); }, 3_000);\n    return () => window.clearInterval(interval);\n  }, [editMode, refreshOrders]);\n\n'''
-          if block not in text:
-              raise SystemExit('Expected OrdersBoard 3-second polling block was not found; refusing to modify the file.')
-          path.write_text(text.replace(block, '', 1))
+          # Backend: send the actual persisted conversation and message records.
+          p = Path('apps/api/src/modules/messenger/messenger.service.ts')
+          s = p.read_text()
+          old = '''    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
+    this.notificationsService.notify("messenger.message_received", { conversationId: conversation.id, senderId: payload.senderId, messageId: payload.messageId, message: payload.text, createdAt: new Date().toISOString() });
+    return message;'''
+          new = '''    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
+    const realtimeConversation = await this.prisma.conversation.findUnique({ where: { id: conversation.id }, include: { customer: true } });
+    this.notificationsService.notify("messenger.message_received", {
+      conversationId: conversation.id,
+      senderId: payload.senderId,
+      messageId: message.id,
+      message: message.content,
+      createdAt: message.createdAt.toISOString(),
+      conversation: realtimeConversation,
+      messageRecord: message,
+    });
+    return message;'''
+          if old not in s: raise SystemExit('inbound block not found')
+          s = s.replace(old, new, 1)
 
-      - name: Verify polling is gone
+          old = '''      const conversation = await this.getOrCreateConversationByPsid(recipientPsid);
+      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
+      this.notificationsService.notify("messenger.message_sent", { conversationId: conversation.id, recipientPsid, messageId: message.id, metaMessageId: metaResult.message_id, message: text, createdAt: message.createdAt.toISOString() });
+      return metaResult;'''
+          new = '''      const conversation = await this.getOrCreateConversationByPsid(recipientPsid, text);
+      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
+      const realtimeConversation = await this.prisma.conversation.findUnique({ where: { id: conversation.id }, include: { customer: true } });
+      this.notificationsService.notify("messenger.message_sent", {
+        conversationId: conversation.id,
+        recipientPsid,
+        messageId: message.id,
+        metaMessageId: metaResult.message_id,
+        message: message.content,
+        createdAt: message.createdAt.toISOString(),
+        conversation: realtimeConversation,
+        messageRecord: message,
+      });
+      return metaResult;'''
+          if old not in s: raise SystemExit('outbound block not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # Inbox: consume the payload directly; no REST request on socket events.
+          p = Path('apps/web/src/components/messenger/inbox-list.tsx')
+          s = p.read_text()
+          marker = 'type CustomerAiState = { globalEnabled: boolean; customerOverride: boolean | null; effectiveEnabled: boolean };'
+          if 'type MessengerRealtimePayload' not in s:
+              s = s.replace(marker, marker + '''
+type MessengerRealtimePayload = { conversationId?: string; conversation?: Conversation; messageRecord?: Message };''', 1)
+          old = '''  useEffect(() => {
+    const handleNotification = (payload: unknown) => {
+      if (!isMessengerNotification(payload)) return;
+      void loadConversations(true);
+      const conversationId = payload.payload?.conversationId;
+      if (conversationId && conversationId === selectedIdRef.current) {
+        void loadMessages(conversationId, true);
+      }
+    };'''
+          new = '''  useEffect(() => {
+    const handleNotification = (event: unknown) => {
+      if (!isMessengerNotification(event)) return;
+      const payload = event.payload as MessengerRealtimePayload;
+      const conversation = payload.conversation;
+      const message = payload.messageRecord;
+      if (conversation) {
+        setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+      }
+      if (message && payload.conversationId === selectedIdRef.current) {
+        setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
+      }
+    };'''
+          if old not in s: raise SystemExit('inbox handler not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # Floating inbox: same direct state update.
+          p = Path('apps/web/src/components/messenger/floating-messenger.tsx')
+          s = p.read_text()
+          marker = 'type MessengerNotification = {'
+          if 'type MessengerRealtimePayload' not in s:
+              insert_after = '''type MessengerNotification = {
+  conversationId?: string;
+  senderId?: string;
+  messageId?: string;
+  message?: string;
+  createdAt?: string;
+};'''
+              replacement = insert_after + '''
+type MessengerRealtimePayload = MessengerNotification & { conversation?: Conversation; messageRecord?: Message };'''
+              if insert_after not in s: raise SystemExit('floating type block not found')
+              s = s.replace(insert_after, replacement, 1)
+          old = '''  useEffect(() => {
+    const handleNotification = (eventPayload: unknown) => {
+      const payload = getMessengerNotificationPayload(eventPayload);
+      if (!payload) return;
+      if (!open) setUnread((count) => count + 1);
+      if (open) void loadConversations(true);
+      if (open && payload.conversationId === selectedId) void loadMessages(selectedId, true);
+    };'''
+          new = '''  useEffect(() => {
+    const handleNotification = (eventPayload: unknown) => {
+      const payload = getMessengerNotificationPayload(eventPayload) as MessengerRealtimePayload | null;
+      if (!payload) return;
+      if (!open) setUnread((count) => count + 1);
+      if (payload.conversation) {
+        setConversations((current) => [payload.conversation!, ...current.filter((item) => item.id !== payload.conversation!.id)]
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+      }
+      if (payload.messageRecord && payload.conversationId === selectedId) {
+        setMessages((current) => current.some((item) => item.id === payload.messageRecord!.id) ? current : [...current, payload.messageRecord!]);
+      }
+    };'''
+          if old not in s: raise SystemExit('floating handler not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+      - name: Verify no socket-triggered Messenger REST sync remains
         shell: bash
         run: |
-          ! grep -n 'setInterval' apps/web/src/components/orders/orders-board.tsx
-          git diff --check
+          ! grep -n -A12 'socket.on("notifications.created"' apps/web/src/components/messenger/inbox-list.tsx | grep -E 'loadConversations|loadMessages'
+          ! grep -n -A12 'socket.on("notifications.created"' apps/web/src/components/messenger/floating-messenger.tsx | grep -E 'loadConversations|loadMessages'
 
-      - name: Commit change and remove temporary trigger workflow
+      - name: Commit changes and remove one-time workflow
         shell: bash
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add apps/web/src/components/orders/orders-board.tsx
-          git rm -f .github/workflows/apply-messenger-payload-sync.yml .github/messenger-payload-sync.trigger || true
-          git commit -m 'chore: remove OrdersBoard 3-second polling'
-          git push origin main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src/modules/messenger/messenger.service.ts apps/web/src/components/messenger/inbox-list.tsx apps/web/src/components/messenger/floating-messenger.tsx
+          git commit -m "fix(messenger): push full records over websocket" || true
+          rm -f .github/workflows/apply-messenger-payload-sync.yml .github/messenger-payload-sync.trigger
