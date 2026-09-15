@@ -149,14 +149,14 @@ export default function OrdersPage() {
       <div className="min-h-0 flex-1" onClick={handleKanbanClick}>
         <OrdersView orders={orders} />
       </div>
-      <FraudOrderAlerts logs={fraudLogs} />
+      <FraudOrderAlerts orders={orders} logs={fraudLogs} />
       {selectedOrder ? createPortal(
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSelectedOrder(null)} />
           <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-background shadow-xl">
             <div className="flex items-center justify-between border-b p-4">
               <h2 className="font-semibold">Order Details</h2>
-              <Button variant="ghost" size="icon" onClick={() => setSelectedOrder(null)}><X className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => setSelectedOrder(null)} aria-label="Close order details"><X className="h-4 w-4" /></Button>
             </div>
             <div className="p-4">
               <pre className="whitespace-pre-wrap text-sm">{JSON.stringify(selectedOrder, null, 2)}</pre>
