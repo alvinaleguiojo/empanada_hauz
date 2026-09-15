@@ -62,14 +62,15 @@ export default function OrdersPage() {
     if (!button) return;
 
     const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
-    if (!text) return;
+    const ariaLabel = button.getAttribute("aria-label") ?? "";
 
-    if (/hide details/i.test(text)) {
+    if (/close order details/i.test(ariaLabel) || /hide details/i.test(text)) {
       setSelectedOrderForFraud(null);
       setFraudDrawerOpen(false);
       return;
     }
 
+    if (!text) return;
     if (/fraud|edit|save|delete|copy|track|calendar|new order|add note|create delivery job|assign|reassign/i.test(text)) return;
 
     const orderedMatches = orders.filter((order) => {
