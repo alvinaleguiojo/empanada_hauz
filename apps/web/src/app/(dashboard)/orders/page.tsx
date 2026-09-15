@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CalendarDays, Plus, Wifi, WifiOff, X } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
@@ -14,6 +14,7 @@ import { useOrdersRealtime, type OrderRealtimeEvent } from "@/hooks/use-orders-r
 type Order = Record<string, any> & { id: string };
 
 export default function OrdersPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
@@ -81,10 +82,14 @@ export default function OrdersPage() {
           <Button variant="outline" size="sm" onClick={() => setManualOrderOpen(true)}>
             <Plus className="mr-1 h-4 w-4" /> New Order
           </Button>
-          <Button asChild variant="outline" size="sm" className="h-8 w-8 p-0" aria-label="Calendar">
-            <Link href="/calendar">
-              <CalendarDays className="h-4 w-4" />
-            </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 w-8 p-0"
+            aria-label="Calendar"
+            onClick={() => router.push("/calendar")}
+          >
+            <CalendarDays className="h-4 w-4" />
           </Button>
         </div>
       </div>
