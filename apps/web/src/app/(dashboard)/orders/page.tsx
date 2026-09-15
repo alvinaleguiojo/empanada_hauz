@@ -12,26 +12,28 @@ import { apiFetch } from "@/lib/api";
 import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
 import { useOrdersRealtime, type OrderRealtimeEvent } from "@/hooks/use-orders-realtime";
 
+type Order = Record<string, any> & { id: string };
+
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
-  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
-  const [fraudOrder, setFraudOrder] = useState<any | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [fraudOrder, setFraudOrder] = useState<Order | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
 
   const refreshOrderData = useCallback(async () => {
     const today = new Date().toISOString().slice(0, 10);
     const [nextOrders, nextFraudLogs] = await Promise.all([
-      apiFetch<any[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
+      apiFetch<Order[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
       apiFetch<any[]>("/fraud/logs?limit=200").catch(() => [])
     ]);
 
-    const normalizedOrders = Array.isArray(nextOrders) ? nextOrders : [];
+    const normalizedOrders: Order[] = Array.isArray(nextOrders) ? nextOrders : [];
     setOrders(normalizedOrders);
     setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
 
-    setSelectedOrder((current) => {
+    setSelectedOrder((current: Order | null) => {
       if (!current) return current;
       return normalizedOrders.find((order) => order.id === current.id) ?? current;
     });
@@ -42,43 +44,40 @@ export default function OrdersPage() {
     const preferredSchedule = typeof order.preferredSchedule === "string" ? order.preferredSchedule.slice(0, 10) : null;
     const createdAt = typeof order.createdAt === "string" ? order.createdAt.slice(0, 10) : null;
 
-    // The Orders page is scoped to today's orders. Do not inject future/old scheduled orders.
     if (preferredSchedule !== today && (!preferredSchedule && createdAt !== today)) return;
 
-    setOrders((current) => {
+    setOrders((current: Order[]) => {
       const index = current.findIndex((item) => item.id === order.id);
       if (index >= 0) {
         const next = [...current];
         next[index] = { ...next[index], ...order };
         return next;
       }
-      return [order, ...current];
+      return [order as Order, ...current];
     });
   }, []);
 
   const handleOrderUpdated = useCallback((event: OrderRealtimeEvent) => {
     if (!event.id) return;
 
-    setOrders((current) => {
+    setOrders((current: Order[]) => {
       if (event.deleted) return current.filter((item) => item.id !== event.id);
 
       const index = current.findIndex((item) => item.id === event.id);
       if (index < 0) return current;
 
       const next = [...current];
-      // Preserve client-only fields such as fraud flags when the realtime payload is partial.
       next[index] = { ...next[index], ...event };
       return next;
     });
 
-    setSelectedOrder((current) => {
+    setSelectedOrder((current: Order | null) => {
       if (!current || current.id !== event.id || event.deleted) return event.deleted ? null : current;
       return { ...current, ...event };
     });
   }, []);
 
   const handleRealtimeConnected = useCallback(async () => {
-    // Reconcile once after every reconnect so events missed while offline are recovered.
     await refreshOrderData();
   }, [refreshOrderData]);
 
@@ -121,7 +120,6 @@ export default function OrdersPage() {
   }
 
   function closeFraudDialog() {
-    // Closing/cancelling the fraud drawer must not close the underlying order details drawer.
     setFraudOrder(null);
   }
 
@@ -188,7 +186,7 @@ export default function OrdersPage() {
   );
 }
 
-function KanbanFraudDrawerAction({ order, onTag }: { order: any; onTag: () => void }) {
+function KanbanFraudDrawerAction({ order, onTag }: { order: Order; onTag: () => void }) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
