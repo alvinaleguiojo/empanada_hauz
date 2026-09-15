@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CalendarDays, Plus, Wifi, WifiOff, X } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
+import { OrdersLoadingSkeleton } from "@/components/orders/orders-loading-skeleton";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
@@ -18,6 +19,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const handleOrderCreated = useCallback((order: OrderRealtimeEvent) => {
     const today = new Date().toISOString().slice(0, 10);
@@ -65,6 +67,8 @@ export default function OrdersPage() {
     ]).then(([nextOrders, nextFraudLogs]) => {
       setOrders(Array.isArray(nextOrders) ? nextOrders : []);
       setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
+    }).finally(() => {
+      setInitialLoading(false);
     });
   }, []);
 
@@ -79,7 +83,7 @@ export default function OrdersPage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setManualOrderOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => setManualOrderOpen(true)} disabled={initialLoading}>
             <Plus className="mr-1 h-4 w-4" /> New Order
           </Button>
           <Button
@@ -88,13 +92,14 @@ export default function OrdersPage() {
             className="h-8 w-8 p-0"
             aria-label="Calendar"
             onClick={() => router.push("/calendar")}
+            disabled={initialLoading}
           >
             <CalendarDays className="h-4 w-4" />
           </Button>
         </div>
       </div>
-      <div className="min-h-0 flex-1">
-        <OrdersView orders={orders} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {initialLoading ? <OrdersLoadingSkeleton /> : <OrdersView orders={orders} />}
       </div>
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
       {manualOrderOpen ? createPortal(
