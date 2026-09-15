@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Plus, Wifi, WifiOff, X } from "lucide-react";
+import { CalendarDays, Plus, ShieldAlert, Wifi, WifiOff, X } from "lucide-react";
 import { ManualOrderForm } from "@/components/orders/manual-order-form";
 import { OrdersView } from "@/components/orders/orders-view";
 import { OrdersLoadingSkeleton } from "@/components/orders/orders-loading-skeleton";
 import { FraudOrderAlerts } from "@/components/orders/fraud-order-alerts";
+import { OrderFraudTagDialog } from "@/components/orders/order-fraud-tag-dialog";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 import { applyOrderRealtimeEvent, type OrderRealtimeEvent } from "@/lib/order-realtime-adapter";
+import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
 import { useOrdersRealtime } from "@/hooks/use-orders-realtime";
 
 type Order = Record<string, any> & { id: string };
@@ -19,8 +21,12 @@ export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
+  const [fraudOrder, setFraudOrder] = useState<Order | null>(null);
+  const [role, setRole] = useState<UserRole | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+
+  const canTagFraud = hasPermission(role, "fraud.manage");
 
   const handleOrderCreated = useCallback((order: OrderRealtimeEvent) => {
     const today = new Date().toISOString().slice(0, 10);
@@ -38,6 +44,7 @@ export default function OrdersPage() {
   const { connected } = useOrdersRealtime({ onOrderCreated: handleOrderCreated, onOrderUpdated: handleOrderUpdated });
 
   useEffect(() => {
+    setRole(decodeRole(window.localStorage.getItem("empanada-token")));
     const today = new Date().toISOString().slice(0, 10);
     void Promise.all([
       apiFetch<Order[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
@@ -47,6 +54,46 @@ export default function OrdersPage() {
       setFraudLogs(Array.isArray(nextFraudLogs) ? nextFraudLogs : []);
     }).finally(() => setInitialLoading(false));
   }, []);
+
+  function handleOrdersClickCapture(event: MouseEvent<HTMLDivElement>) {
+    if (!canTagFraud) return;
+    const button = (event.target as HTMLElement).closest("button");
+    if (!button) return;
+
+    const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    if (!text) return;
+
+    if (/hide details/i.test(text)) {
+      setFraudOrder(null);
+      return;
+    }
+
+    if (/fraud|edit|save|delete|copy|track|calendar|new order|add note|create delivery job|assign|reassign/i.test(text)) return;
+
+    const orderedMatches = orders.filter((order) => {
+      const orderNumber = String(order.orderNumber ?? "").trim();
+      return orderNumber && text.includes(orderNumber);
+    });
+
+    const match = orderedMatches[0] ?? (() => {
+      const namedMatches = orders.filter((order) => {
+        const customerName = String(order.customer?.name ?? "").trim();
+        return customerName && text.includes(customerName);
+      });
+      return namedMatches.length === 1 ? namedMatches[0] : null;
+    })();
+
+    if (match) setFraudOrder(match);
+  }
+
+  function closeFraudDialog() {
+    setFraudOrder(null);
+  }
+
+  function handleFraudSuccess() {
+    setFraudOrder(null);
+    window.location.reload();
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -67,10 +114,14 @@ export default function OrdersPage() {
           </Button>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto" onClickCapture={handleOrdersClickCapture}>
         {initialLoading ? <OrdersLoadingSkeleton /> : <OrdersView orders={orders} />}
       </div>
       <FraudOrderAlerts orders={orders} logs={fraudLogs} />
+      {fraudOrder && canTagFraud ? <Button type="button" className="fixed right-7 top-[118px] z-[55] gap-2 bg-red-600 text-white shadow-lg hover:bg-red-700" onClick={() => setFraudOrder(fraudOrder)} aria-label="Open fraud drawer">
+        <ShieldAlert className="h-4 w-4" /> Fraud
+      </Button> : null}
+      {fraudOrder && canTagFraud ? <OrderFraudTagDialog order={fraudOrder} onClose={closeFraudDialog} onSuccess={handleFraudSuccess} /> : null}
       {manualOrderOpen ? createPortal(
         <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-6 lg:p-8">
           <button type="button" aria-label="Close new order form" className="absolute inset-0 h-full w-full cursor-default" onClick={() => setManualOrderOpen(false)} />
