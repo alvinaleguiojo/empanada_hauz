@@ -1,9 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { GoogleWorkspaceService } from "../google-workspace/google-workspace.service";
 
 const SYNC_INTERVAL_MS = 30_000;
 const MAX_ORDERS_PER_RUN = 500;
+const CLOSED_ORDER_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface CalendarSyncRunResult {
   total: number;
@@ -19,7 +21,6 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
   private readonly logger = new Logger(GoogleCalendarOrderSyncService.name);
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
-  private lastSyncAt?: Date;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -42,7 +43,14 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
   }
 
   private async sync(source: "startup" | "interval" | "manual", futureOnly = false): Promise<CalendarSyncRunResult> {
-    const empty: CalendarSyncRunResult = { total: 0, synced: 0, deleted: 0, skipped: 0, failed: 0, errors: [] };
+    const empty: CalendarSyncRunResult = {
+      total: 0,
+      synced: 0,
+      deleted: 0,
+      skipped: 0,
+      failed: 0,
+      errors: []
+    };
 
     if (this.running) {
       this.logger.warn(`Google Calendar sync skipped (${source}): another sync is already running`);
@@ -56,7 +64,9 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
       this.logger.log(`Google Calendar sync started (${source})`);
 
       const status = await this.googleWorkspace.status();
-      this.logger.log(`Google Calendar connection status: connected=${status.connected}${status.email ? ` email=${status.email}` : ""}`);
+      this.logger.log(
+        `Google Calendar connection status: connected=${status.connected}${status.email ? ` email=${status.email}` : ""}`
+      );
 
       if (!status.connected) {
         this.logger.warn(`Google Calendar sync skipped (${source}): Google account is not connected`);
@@ -64,54 +74,68 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
       }
 
       const now = new Date();
-      const since = futureOnly ? undefined : this.lastSyncAt;
-      const where = futureOnly
-        ? { preferredSchedule: { gte: now }, status: { notIn: ["cancelled", "completed"] } }
-        : since
-          ? { updatedAt: { gte: since } }
-          : { preferredSchedule: { not: null } };
+      const activeWhere: Prisma.OrderWhereInput = {
+        preferredSchedule: { gte: now },
+        status: { notIn: ["cancelled", "completed"] }
+      };
 
-      const orders = await this.prisma.order.findMany({
-        where,
+      const activeOrders = await this.prisma.order.findMany({
+        where: activeWhere,
         select: { id: true, status: true, preferredSchedule: true },
-        orderBy: { updatedAt: "asc" },
+        orderBy: { preferredSchedule: "asc" },
         take: MAX_ORDERS_PER_RUN
       });
 
-      this.logger.log(`Google Calendar sync found ${orders.length} order(s) (${source})`);
+      this.logger.log(
+        `Google Calendar sync found ${activeOrders.length} future active order(s) (${source})`
+      );
 
-      const result: CalendarSyncRunResult = { ...empty };
-      result.total = orders.length;
+      const result: CalendarSyncRunResult = { ...empty, total: activeOrders.length };
 
-      for (const order of orders) {
-        try {
-          if (!order.preferredSchedule || ["cancelled", "completed"].includes(order.status)) {
-            await this.googleWorkspace.deleteOrderEvent(order.id);
-            result.deleted += 1;
-            this.logger.log(`Calendar event removed for order ${order.id}`);
-          } else {
-            const syncResult = await this.googleWorkspace.syncOrder(order.id);
-            if (syncResult.synced) {
-              result.synced += 1;
-              this.logger.log(`Calendar event synced for order ${order.id}${syncResult.eventId ? ` event=${syncResult.eventId}` : ""}`);
-            } else {
-              result.skipped += 1;
-              this.logger.warn(`Calendar sync skipped for order ${order.id}: ${syncResult.reason ?? "unknown reason"}`);
-            }
-          }
-        } catch (error) {
-          const message = this.formatError(error);
-          result.failed += 1;
-          result.errors.push({ orderId: order.id, error: message });
-          this.logger.error(`Calendar sync failed for order ${order.id}: ${message}`);
-        }
+      for (const order of activeOrders) {
+        await this.syncActiveOrder(order.id, result);
       }
 
-      if (source !== "manual") this.lastSyncAt = new Date();
+      // Manual sync is intentionally limited to future active orders. Automatic
+      // runs also remove Calendar events for recently completed/cancelled orders.
+      if (!futureOnly) {
+        const closedWhere: Prisma.OrderWhereInput = {
+          preferredSchedule: { not: null },
+          status: { in: ["cancelled", "completed"] },
+          updatedAt: { gte: new Date(Date.now() - CLOSED_ORDER_LOOKBACK_MS) }
+        };
+
+        const closedOrders = await this.prisma.order.findMany({
+          where: closedWhere,
+          select: { id: true },
+          orderBy: { updatedAt: "desc" },
+          take: MAX_ORDERS_PER_RUN
+        });
+
+        this.logger.log(
+          `Google Calendar sync found ${closedOrders.length} recently closed order(s) to clean up (${source})`
+        );
+
+        result.total += closedOrders.length;
+
+        for (const order of closedOrders) {
+          try {
+            await this.googleWorkspace.deleteOrderEvent(order.id);
+            result.deleted += 1;
+            this.logger.log(`Calendar event removed for closed order ${order.id}`);
+          } catch (error) {
+            const message = this.formatError(error);
+            result.failed += 1;
+            result.errors.push({ orderId: order.id, error: message });
+            this.logger.error(`Calendar cleanup failed for order ${order.id}: ${message}`);
+          }
+        }
+      }
 
       this.logger.log(
         `Google Calendar sync complete (${source}): total=${result.total} synced=${result.synced} deleted=${result.deleted} skipped=${result.skipped} failed=${result.failed} durationMs=${Date.now() - startedAt}`
       );
+
       return result;
     } catch (error) {
       const message = this.formatError(error);
@@ -119,6 +143,30 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
       return { ...empty, failed: 1, errors: [{ orderId: "*", error: message }] };
     } finally {
       this.running = false;
+    }
+  }
+
+  private async syncActiveOrder(orderId: string, result: CalendarSyncRunResult) {
+    try {
+      const syncResult = await this.googleWorkspace.syncOrder(orderId);
+
+      if (syncResult.synced) {
+        result.synced += 1;
+        this.logger.log(
+          `Calendar event synced for order ${orderId}${syncResult.eventId ? ` event=${syncResult.eventId}` : ""}`
+        );
+        return;
+      }
+
+      result.skipped += 1;
+      this.logger.warn(
+        `Calendar sync skipped for order ${orderId}: ${syncResult.reason ?? "unknown reason"}`
+      );
+    } catch (error) {
+      const message = this.formatError(error);
+      result.failed += 1;
+      result.errors.push({ orderId, error: message });
+      this.logger.error(`Calendar sync failed for order ${orderId}: ${message}`);
     }
   }
 
