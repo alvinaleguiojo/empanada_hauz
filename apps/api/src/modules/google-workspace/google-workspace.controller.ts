@@ -9,8 +9,8 @@ export class GoogleWorkspaceController {
 
   @UseGuards(JwtAuthGuard)
   @Get("oauth/start")
-  startOAuth(@Res() response: Response) {
-    response.redirect(this.google.getOAuthUrl());
+  startOAuth() {
+    return { url: this.google.getOAuthUrl() };
   }
 
   @Get("oauth/callback")
