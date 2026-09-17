@@ -24,7 +24,14 @@ export default function GoogleWorkspaceSettingsPage() {
   useEffect(() => { void load(); }, []);
 
   function connect() {
-    window.location.href = `${process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:4000/api"}/google-workspace/oauth/start`;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+    if (!apiUrl) {
+      setError("API URL is not configured.");
+      return;
+    }
+
+    window.location.href = `${apiUrl}/google-workspace/oauth/start`;
   }
 
   async function disconnect() {
