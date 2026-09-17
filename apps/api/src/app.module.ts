@@ -29,6 +29,7 @@ import { DocumentsModule } from "./modules/documents/documents.module";
 import { TranscriptionModule } from "./modules/transcription/transcription.module";
 import { CacheModule } from "./common/cache/cache.module";
 import { FraudModule } from "./modules/fraud/fraud.module";
+import { GoogleWorkspaceModule } from "./modules/google-workspace/google-workspace.module";
 
 @Module({
   imports: [
@@ -61,7 +62,8 @@ import { FraudModule } from "./modules/fraud/fraud.module";
     McpModule,
     GoogleMapsModule,
     TranscriptionModule,
-    FraudModule
+    FraudModule,
+    GoogleWorkspaceModule
   ]
 })
 export class AppModule {}
