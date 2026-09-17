@@ -130,7 +130,7 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Post(":id/notes")
-  addNote(@Param("id") id: string, @Body() dto: AddOrderNoteDto) { return this.ordersService.addOrderNote ? this.ordersService.addOrderNote(id, dto.body) : this.ordersService.addNote(id, dto.body); }
+  addNote(@Param("id") id: string, @Body() dto: AddOrderNoteDto) { return this.ordersService.addNote(id, dto.body); }
 
   @UseGuards(JwtAuthGuard)
   @Delete(":id")
