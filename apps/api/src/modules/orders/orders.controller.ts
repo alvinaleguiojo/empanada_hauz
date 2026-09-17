@@ -5,6 +5,7 @@ import { PrismaService } from "../../database/prisma.service";
 import { FraudOrderInterceptor } from "../fraud/fraud-order.interceptor";
 import { GoogleWorkspaceService } from "../google-workspace/google-workspace.service";
 import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, PublicOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
+import { GoogleCalendarOrderSyncService } from "./google-calendar-order-sync.service";
 import { OrdersService } from "./orders.service";
 
 const DEFAULT_PICKUP_COORDINATES = { latitude: 10.2760457, longitude: 123.8466921 };
@@ -20,7 +21,8 @@ export class OrdersController {
     private readonly ordersService: OrdersService,
     private readonly deliveryNetworkService: DeliveryNetworkService,
     private readonly prisma: PrismaService,
-    private readonly googleWorkspace: GoogleWorkspaceService
+    private readonly googleWorkspace: GoogleWorkspaceService,
+    private readonly googleCalendarOrderSync: GoogleCalendarOrderSyncService
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -89,6 +91,12 @@ export class OrdersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post("google-calendar/sync-future")
+  syncFutureGoogleCalendar() {
+    return this.googleCalendarOrderSync.syncFutureOrders();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(":id/google-calendar/sync")
   async syncGoogleCalendar(@Param("id") id: string) {
     await this.syncOrderCalendar(id);
@@ -122,7 +130,7 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Post(":id/notes")
-  addNote(@Param("id") id: string, @Body() dto: AddOrderNoteDto) { return this.ordersService.addNote(id, dto.body); }
+  addNote(@Param("id") id: string, @Body() dto: AddOrderNoteDto) { return this.ordersService.addOrderNote ? this.ordersService.addOrderNote(id, dto.body) : this.ordersService.addNote(id, dto.body); }
 
   @UseGuards(JwtAuthGuard)
   @Delete(":id")
