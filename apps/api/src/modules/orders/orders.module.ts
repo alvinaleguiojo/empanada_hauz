@@ -8,13 +8,14 @@ import { FraudModule } from "../fraud/fraud.module";
 import { GoogleWorkspaceModule } from "../google-workspace/google-workspace.module";
 import { GoogleDriveOrderExportService } from "./google-drive-order-export.service";
 import { GoogleSheetsOrderSyncService } from "./google-sheets-order-sync.service";
+import { GoogleCalendarOrderSyncService } from "./google-calendar-order-sync.service";
 import { OrdersController } from "./orders.controller";
 import { OrdersService } from "./orders.service";
 
 @Module({
   imports: [BatchesModule, NotificationsModule, ReferralsModule, DeliveryNetworkModule, ProductsModule, FraudModule, GoogleWorkspaceModule],
   controllers: [OrdersController],
-  providers: [OrdersService, GoogleSheetsOrderSyncService, GoogleDriveOrderExportService],
+  providers: [OrdersService, GoogleSheetsOrderSyncService, GoogleDriveOrderExportService, GoogleCalendarOrderSyncService],
   exports: [OrdersService]
 })
 export class OrdersModule {}
