@@ -9,6 +9,9 @@ import { OrdersService } from "./orders.service";
 
 const DEFAULT_PICKUP_COORDINATES = { latitude: 10.2760457, longitude: 123.8466921 };
 const FRAUD_SEVERITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+const GOOGLE_CALENDAR_STATUS_COLLECTION = "GoogleCalendarOrderSync";
+
+type CalendarSyncStatus = "syncing" | "synced" | "skipped" | "deleted" | "error";
 
 @UseInterceptors(FraudOrderInterceptor)
 @Controller("orders")
@@ -24,7 +27,6 @@ export class OrdersController {
   @Get()
   async list(@Query("date") date?: string, @Query("search") search?: string, @Query("upcoming") upcoming?: string) {
     let orders: any[];
-
     if (upcoming === "true") {
       orders = await this.prisma.order.findMany({
         where: { preferredSchedule: { gte: new Date() }, status: { notIn: ["completed", "cancelled"] } },
@@ -34,7 +36,6 @@ export class OrdersController {
     } else {
       orders = await this.ordersService.list({ date, search });
     }
-
     return this.attachFraudFlags(orders);
   }
 
@@ -53,34 +54,71 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@Body() dto: CreateOrderDto) { return this.ordersService.create(dto); }
+  async create(@Body() dto: CreateOrderDto) {
+    const order = await this.ordersService.create(dto);
+    void this.syncOrderCalendar(order.id);
+    return order;
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post("manual")
-  createManual(@Body() dto: ManualOrderEntryDto) { return this.ordersService.createManual(dto); }
+  async createManual(@Body() dto: ManualOrderEntryDto) {
+    const order = await this.ordersService.createManual(dto);
+    void this.syncOrderCalendar(order.id);
+    return order;
+  }
 
   @Post("public")
-  createPublic(@Body() dto: PublicOrderEntryDto) { return this.ordersService.createPublic(dto); }
+  async createPublic(@Body() dto: PublicOrderEntryDto) {
+    const result = await this.ordersService.createPublic(dto);
+    if (result?.order?.id) void this.syncOrderCalendar(result.order.id);
+    return result;
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post("export/google-drive")
   exportToGoogleDrive(@Body() dto: ExportOrdersToDriveDto) { return this.ordersService.exportToGoogleDrive(dto.orderIds); }
 
   @UseGuards(JwtAuthGuard)
+  @Get("google-calendar/status")
+  async googleCalendarStatuses(@Query("ids") ids?: string) {
+    const orderIds = [...new Set((ids ?? "").split(",").map((id) => id.trim()).filter(Boolean))].slice(0, 200);
+    if (!orderIds.length) return {};
+    const result = await this.prisma.$runCommandRaw({ find: GOOGLE_CALENDAR_STATUS_COLLECTION, filter: { orderId: { $in: orderIds } }, limit: orderIds.length }) as { cursor?: { firstBatch?: Array<{ orderId: string; status: CalendarSyncStatus; eventId?: string; htmlLink?: string; error?: string; updatedAt?: Date }> } };
+    return Object.fromEntries((result.cursor?.firstBatch ?? []).map((item) => [item.orderId, { status: item.status, eventId: item.eventId ?? null, htmlLink: item.htmlLink ?? null, error: item.error ?? null, updatedAt: item.updatedAt ?? null }]));
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(":id/google-calendar/sync")
-  syncGoogleCalendar(@Param("id") id: string) { return this.googleWorkspace.syncOrder(id); }
+  async syncGoogleCalendar(@Param("id") id: string) {
+    await this.syncOrderCalendar(id);
+    return this.googleCalendarStatus(id);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Delete(":id/google-calendar/event")
-  deleteGoogleCalendarEvent(@Param("id") id: string) { return this.googleWorkspace.deleteOrderEvent(id); }
+  async deleteGoogleCalendarEvent(@Param("id") id: string) {
+    await this.removeOrderCalendar(id);
+    return this.googleCalendarStatus(id);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Patch(":id/status")
-  updateStatus(@Param("id") id: string, @Body() dto: UpdateOrderStatusDto) { return this.ordersService.updateStatus(id, dto.status); }
+  async updateStatus(@Param("id") id: string, @Body() dto: UpdateOrderStatusDto) {
+    const order = await this.ordersService.updateStatus(id, dto.status);
+    if (["cancelled", "completed"].includes(order.status)) void this.removeOrderCalendar(order.id);
+    else void this.syncOrderCalendar(order.id);
+    return order;
+  }
 
   @UseGuards(JwtAuthGuard)
   @Patch(":id")
-  update(@Param("id") id: string, @Body() dto: UpdateOrderDto) { return this.ordersService.update(id, dto); }
+  async update(@Param("id") id: string, @Body() dto: UpdateOrderDto) {
+    const order = await this.ordersService.update(id, dto);
+    if (["cancelled", "completed"].includes(order.status)) void this.removeOrderCalendar(order.id);
+    else void this.syncOrderCalendar(order.id);
+    return order;
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post(":id/notes")
@@ -88,7 +126,44 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Delete(":id")
-  remove(@Param("id") id: string) { return this.ordersService.remove(id); }
+  async remove(@Param("id") id: string) {
+    await this.removeOrderCalendar(id);
+    return this.ordersService.remove(id);
+  }
+
+  private async syncOrderCalendar(orderId: string) {
+    await this.setCalendarStatus(orderId, { status: "syncing", error: null });
+    try {
+      const result = await this.googleWorkspace.syncOrder(orderId);
+      if (result.synced) {
+        await this.setCalendarStatus(orderId, { status: "synced", eventId: result.eventId ?? null, htmlLink: result.htmlLink ?? null, error: null });
+      } else {
+        await this.setCalendarStatus(orderId, { status: "skipped", error: result.reason ?? null });
+      }
+    } catch (error) {
+      await this.setCalendarStatus(orderId, { status: "error", error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async removeOrderCalendar(orderId: string) {
+    await this.setCalendarStatus(orderId, { status: "syncing", error: null });
+    try {
+      await this.googleWorkspace.deleteOrderEvent(orderId);
+      await this.setCalendarStatus(orderId, { status: "deleted", eventId: null, htmlLink: null, error: null });
+    } catch (error) {
+      await this.setCalendarStatus(orderId, { status: "error", error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async setCalendarStatus(orderId: string, patch: Record<string, unknown>) {
+    await this.prisma.$runCommandRaw({ update: GOOGLE_CALENDAR_STATUS_COLLECTION, updates: [{ q: { _id: orderId }, u: { $set: { _id: orderId, orderId, ...patch, updatedAt: new Date() } }, upsert: true, multi: false }] });
+  }
+
+  private async googleCalendarStatus(orderId: string) {
+    const result = await this.prisma.$runCommandRaw({ find: GOOGLE_CALENDAR_STATUS_COLLECTION, filter: { _id: orderId }, limit: 1 }) as { cursor?: { firstBatch?: Array<Record<string, unknown>> } };
+    const item = result.cursor?.firstBatch?.[0];
+    return item ? { status: item.status, eventId: item.eventId ?? null, htmlLink: item.htmlLink ?? null, error: item.error ?? null, updatedAt: item.updatedAt ?? null } : { status: "not_synced", eventId: null, htmlLink: null, error: null, updatedAt: null };
+  }
 
   private async attachFraudFlags(orders: any[]) {
     if (!Array.isArray(orders) || orders.length === 0) return orders;
