@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CalendarDays, Cloud, ExternalLink, Unplug } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
+import { API_URL } from "@/lib/config";
 
 type GoogleStatus = { connected: boolean; email: string | null; calendarId: string; driveFolderId: string | null };
 
@@ -24,14 +25,7 @@ export default function GoogleWorkspaceSettingsPage() {
   useEffect(() => { void load(); }, []);
 
   function connect() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-
-    if (!apiUrl) {
-      setError("API URL is not configured.");
-      return;
-    }
-
-    window.location.href = `${apiUrl}/google-workspace/oauth/start`;
+    window.location.href = `${API_URL}/google-workspace/oauth/start`;
   }
 
   async function disconnect() {
