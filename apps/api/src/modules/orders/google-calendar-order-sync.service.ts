@@ -37,18 +37,15 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
       const updatedFilter = since ? { gte: since } : undefined;
 
       const orders = await this.prisma.order.findMany({
-        where: {
-          ...(updatedFilter ? { updatedAt: updatedFilter } : {}),
-          preferredSchedule: { not: null }
-        },
-        select: { id: true, status: true },
+        where: updatedFilter ? { updatedAt: updatedFilter } : undefined,
+        select: { id: true, status: true, preferredSchedule: true },
         orderBy: { updatedAt: "asc" },
         take: 500
       });
 
       for (const order of orders) {
         try {
-          if (["cancelled", "completed"].includes(order.status)) {
+          if (!order.preferredSchedule || ["cancelled", "completed"].includes(order.status)) {
             await this.googleWorkspace.deleteOrderEvent(order.id);
           } else {
             await this.googleWorkspace.syncOrder(order.id);
