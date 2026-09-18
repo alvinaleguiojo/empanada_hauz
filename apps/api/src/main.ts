@@ -73,7 +73,7 @@ async function bootstrap() {
     res.status(401);
     res.setHeader(
       "WWW-Authenticate",
-      `Bearer error="invalid_token", error_description="Authentication required", resource_metadata="${resourceMetadata}"`
+      `Bearer error="invalid_token", error_description="Authentication required", resource_metadata="${resourceMetadata}", scope="mcp offline_access"`
     );
     res.setHeader("Cache-Control", "no-store");
     res.json({
