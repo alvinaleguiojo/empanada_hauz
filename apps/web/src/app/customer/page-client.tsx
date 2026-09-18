@@ -267,24 +267,37 @@ export default function CustomerKioskPage() {
 
   const isStepValid = step === 0 ? summary.items.length > 0 && summary.totalQuantity >= 10 : true;
 
+  useEffect(() => {
+    if (form.deliveryMethod !== "maxim" || form.address.trim().length < 5) {
+      setDeliveryQuote(null);
+      setQuotingDelivery(false);
+      return;
+    }
+    const timer = window.setTimeout(() => quoteDelivery(), 500);
+    return () => window.clearTimeout(timer);
+  }, [form.deliveryMethod, form.address, form.landmark]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (summary.items.length === 0) return setError("Please select at least one flavor.");
     if (summary.totalQuantity < 10) return setError("Minimum order is 10 pieces. Please increase the quantity.");
+    if (form.customerName.trim().length < 2) return setError("Please enter your full name.");
+    if (form.phoneNumber.replace(/\D/g, "").length < 7) return setError("Please enter a valid contact number.");
+    if (form.deliveryMethod === "maxim" && form.address.trim().length < 2) return setError("Please enter your complete delivery address.");
     if (!agreedToPolicy) return setError("Please agree to the Privacy Policy before placing your order.");
 
     setError(null);
     setSuccess(null);
     setSubmitting(true);
     try {
-      const preferredSchedule = form.deliveryDate ? `${form.deliveryDate}T00:00` : undefined;
+      const preferredSchedule = form.deliveryDate ? `${form.deliveryDate}T12:00:00+08:00` : undefined;
       const result = await apiFetch<PublicOrderResponse>("/orders/public", {
         method: "POST",
         body: JSON.stringify({
           customerName: form.customerName,
           phoneNumber: form.phoneNumber,
-          address: form.address,
-          landmark: form.landmark,
+          address: form.address.trim(),
+          landmark: form.landmark.trim() || undefined,
           quantity: summary.totalQuantity,
           unitPrice: 0,
           deliveryMethod: form.deliveryMethod,
@@ -478,7 +491,7 @@ export default function CustomerKioskPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <input placeholder="Full name" value={form.customerName} onChange={(event) => handleChange("customerName", event.target.value)} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50" required />
                   <input placeholder="Contact number" value={form.phoneNumber} onChange={(event) => handleChange("phoneNumber", event.target.value)} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50" required />
-                  <input placeholder="Complete address" value={form.address} onChange={(event) => handleChange("address", event.target.value)} onBlur={quoteDelivery} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50 sm:col-span-2" required />
+                  <input placeholder={form.deliveryMethod === "maxim" ? "Complete delivery address" : "Address"} value={form.address} onChange={(event) => handleChange("address", event.target.value)} onBlur={quoteDelivery} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50 sm:col-span-2" required />
                   <input placeholder="Landmark / nearby place" value={form.landmark} onChange={(event) => handleChange("landmark", event.target.value)} onBlur={quoteDelivery} className="rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50 sm:col-span-2" required />
                   <textarea placeholder="Optional note for us" value={form.notes} onChange={(event) => handleChange("notes", event.target.value)} className="min-h-[110px] rounded-xl border border-[#F2E8D5]/10 bg-[#261d13] px-4 py-3.5 text-sm text-[#F6EFDD] outline-none placeholder:text-[#F2E8D5]/30 focus:border-[#E3A64B]/50 sm:col-span-2" />
                 </div>
