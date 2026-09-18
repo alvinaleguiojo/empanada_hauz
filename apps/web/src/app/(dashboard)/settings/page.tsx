@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Bot, KeyRound, Package, Save, ShieldAlert, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { Bot, Cloud, KeyRound, Package, Save, ShieldAlert, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
 import { decodeRole, hasPermission, type UserRole } from "@/lib/permissions";
@@ -13,6 +13,7 @@ const sections: SettingsSection[] = [
   { href: "/settings/users", title: "Users", description: "Create staff accounts, change roles, reset passwords, and remove access.", icon: Users, permission: "users.manage" },
   { href: "/settings/roles", title: "Roles & Permissions", description: "Review the permissions granted to Admin, Operations, Kitchen, Dispatcher, and Rider roles.", icon: ShieldCheck, permission: "roles.manage" },
   { href: "/settings/products", title: "Products", description: "Add, edit, delete, price, and enable or disable products across the app.", icon: Package, permission: "products.manage" },
+  { href: "/settings/google", title: "Google Workspace", description: "Connect Google Calendar and Drive to synchronize scheduled orders and manage application files.", icon: Cloud, permission: "settings.view" },
   { href: "/settings/ai-instructions", title: "AI Instructions", description: "Configure runtime instructions, customer-facing AI behavior, and AI actions.", icon: Bot, permission: "ai-instructions.manage" },
   { href: "/settings/ai-agent", title: "Admin AI Agent", description: "Chat with an AI operator that can analyze live business data and use approved application tools.", icon: Sparkles, permission: "ai-instructions.manage" },
   { href: "/fraud", title: "Fraud Center", description: "Log known-risk customers and riders and review automatic order and rider assignment matches.", icon: ShieldAlert, permission: "fraud.view" }
