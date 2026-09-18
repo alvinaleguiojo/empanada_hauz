@@ -37,6 +37,8 @@ async function bootstrap() {
   // rawBody enabled for webhook HMAC verification.
   app.use(express.urlencoded({ extended: false, limit: "100kb" }));
 
+  const httpServer = app.getHttpAdapter().getInstance();
+
   // Normalize non-conforming remote MCP POST requests before the SDK sees them.
   // Streamable HTTP requires clients to advertise both response formats.
   httpServer.use("/api/mcp", (req: any, _res: any, next: any) => {
@@ -51,8 +53,6 @@ async function bootstrap() {
 
     next();
   });
-
-  const httpServer = app.getHttpAdapter().getInstance();
 
   // Safe diagnostics for remote MCP/OAuth connectivity. We intentionally log
   // only method/path/content type, body field names, header names/presence,
