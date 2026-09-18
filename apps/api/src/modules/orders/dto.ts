@@ -227,13 +227,15 @@ export class PublicOrderEntryDto {
   @MinLength(7)
   phoneNumber!: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(2)
-  address!: string;
+  address?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(2)
-  landmark!: string;
+  landmark?: string;
 
   @IsInt()
   @Min(1)
