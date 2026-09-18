@@ -1,26 +1,83 @@
-# Messenger MCP
+# Empanada Hauz MCP
 
-The API exposes a Streamable HTTP MCP endpoint for the existing Empanada Hauz Messenger integration.
+The API exposes Streamable HTTP MCP endpoints that use provider-independent OAuth 2.0 authentication with PKCE (S256).
 
-## Endpoint
+This means the same Empanada Hauz MCP authentication flow can be used by compatible MCP clients such as ChatGPT, Claude, Grok, and other MCP hosts. Authentication is not tied to an OpenAI, Anthropic, or xAI token.
 
-`POST /api/mcp/messenger`
+## MCP endpoints
 
-The NestJS application already uses the `/api` global prefix, so the production endpoint is:
+Main business MCP:
+
+`https://api.empanadahauz.com/api/mcp`
+
+Messenger MCP:
 
 `https://api.empanadahauz.com/api/mcp/messenger`
 
 ## Authentication
 
-Set `MCP_BEARER_TOKEN` in the API environment. Clients should send:
+MCP clients authenticate through the Empanada Hauz OAuth authorization server.
 
-```http
-Authorization: Bearer <MCP_BEARER_TOKEN>
-```
+Discovery endpoints:
 
-If `MCP_BEARER_TOKEN` is configured, requests with a different or missing bearer token are rejected.
+`GET /.well-known/oauth-protected-resource`
 
-## Tools
+`GET /.well-known/oauth-authorization-server`
+
+OAuth endpoints:
+
+`POST /oauth/register`
+
+`GET /oauth/authorize`
+
+`POST /oauth/authorize`
+
+`POST /oauth/token`
+
+The flow is:
+
+1. The MCP client discovers the protected resource metadata.
+2. The client discovers the OAuth authorization server metadata.
+3. The client registers its redirect URI using dynamic client registration.
+4. The client starts authorization with PKCE S256.
+5. The Empanada Hauz sign-in page authenticates the user's existing account.
+6. The client exchanges the authorization code for a Bearer access token.
+7. The client sends `Authorization: Bearer <token>` to the MCP endpoint.
+
+The API accepts OAuth token submissions as `application/x-www-form-urlencoded`, which is required by many MCP clients, including clients that use standard OAuth token exchange behavior.
+
+No provider-specific API key is required for the OAuth flow.
+
+## Client isolation
+
+Each MCP client receives its own OAuth client registration and authorization flow. ChatGPT, Claude, Grok, or another client does not need to share a token with another provider.
+
+Client registrations contain:
+
+- `client_id`
+- registered `redirect_uris`
+- optional client name
+
+Authorization codes are short-lived and single-use. PKCE S256 is supported and enforced when a client supplies a code challenge.
+
+## Resource protection
+
+Access tokens are JWT Bearer tokens issued specifically for the MCP resource:
+
+`https://api.empanadahauz.com/api/mcp`
+
+The API validates:
+
+- Bearer authentication
+- JWT signature and expiration
+- the token subject against an Empanada Hauz user
+- the OAuth audience against the requested MCP resource
+
+The same authenticated user identity is therefore used regardless of which MCP client initiated the OAuth flow.
+
+## Messenger tools
+
+The Messenger MCP exposes:
 
 - `list_messenger_conversations` — list stored Messenger conversations.
 - `get_messenger_messages` — read stored messages for a conversation.
@@ -29,17 +86,9 @@ If `MCP_BEARER_TOKEN` is configured, requests with a different or missing bearer
 - `sync_messenger` — import Messenger conversations and message history from the configured Meta Page.
 - `request_messenger_thread_control` — request Meta thread handover/control for a PSID.
 
-## Existing Meta configuration
+The MCP layer reuses the existing Messenger service and Meta OAuth/token configuration. It does not require a separate Facebook integration or Page token storage.
 
-The MCP layer reuses the existing Messenger service and therefore the existing Meta OAuth/token configuration. See `META_OAUTH_SETUP.md` for:
+## Important
 
-- `META_APP_ID`
-- `META_APP_SECRET`
-- `META_PAGE_ID`
-- `META_GRAPH_API_VERSION`
-- `META_VERIFY_TOKEN`
-- `META_OAUTH_REDIRECT_URI`
-- `META_WEBHOOK_URL`
-- `META_TOKEN_ENCRYPTION_KEY`
+The OAuth authorization server is provider-independent, but each AI product still needs to support remote MCP over Streamable HTTP and OAuth discovery/authorization. The MCP server cannot force a client that does not support these standards to connect.
 
-No second Facebook integration or Page token storage is introduced by this MCP layer.
