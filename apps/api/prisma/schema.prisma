@@ -547,6 +547,22 @@ model McpOAuthAuthorizationCode {
   @@index([expiresAt])
 }
 
+model McpOAuthRefreshToken {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  tokenHash  String    @unique
+  clientId   String
+  userId     String    @db.ObjectId
+  scope      String
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([clientId, expiresAt])
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
 model FraudCase {
   id            String           @id @default(auto()) @map("_id") @db.ObjectId
   entityType    String
