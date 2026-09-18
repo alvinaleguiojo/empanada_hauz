@@ -418,8 +418,8 @@ export class McpOAuthController {
     const tokenHash = createHash("sha256").update(refreshToken).digest("hex");
     const current = await this.prisma.mcpOAuthRefreshToken.findUnique({ where: { tokenHash } });
     if (!current || current.revokedAt || current.expiresAt.getTime() <= Date.now() || current.clientId !== clientId) throw new UnauthorizedException("Refresh token is invalid or expired");
-    const requestedScope = this.normalizeScope(scope);
     const originalScope = this.normalizeScope(current.scope);
+    const requestedScope = scope === undefined ? originalScope : this.normalizeScope(scope);
     const originalSet = new Set(originalScope.split(" "));
     if (requestedScope.split(" ").some(value => !originalSet.has(value))) throw new UnauthorizedException("Requested scope exceeds the originally granted scope");
     const user = await this.prisma.user.findUnique({ where: { id: current.userId }, select: { id: true, email: true, role: true } });
