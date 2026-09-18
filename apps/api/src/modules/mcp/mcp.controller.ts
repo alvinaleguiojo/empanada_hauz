@@ -64,21 +64,12 @@ export class McpController {
     try {
       const mcpBody = this.normalizeMcpRequest(req);
 
-      // Some remote MCP clients/proxies omit Accept or send a narrow value
-      // during JSON-RPC verification. Normalize POST negotiation before the
-      // SDK validates it. This is limited to the MCP endpoint.
-      if (req.method === "POST") {
-        const accept = (req.headers.accept ?? "").toString().toLowerCase();
-        if (!accept.includes("application/json") && !accept.includes("text/event-stream") && !accept.includes("*/*")) {
-          req.headers.accept = "application/json";
-        } else if (!accept.includes("application/json") && accept.includes("text/event-stream")) {
-          req.headers.accept = "application/json, text/event-stream";
-        }
-      }
-
-      // Some remote MCP clients/proxies send JSON-RPC as application/octet-stream.
-      // Decode it before passing the request to the transport.
-      if (this.isOctetStreamRequest(req)) {
+      // The remote verifier is sending application/octet-stream and its
+      // Accept value is not usable for Streamable HTTP negotiation. For this
+      // stateless MCP endpoint, force JSON response negotiation for this
+      // compatibility case before the SDK validates the request.
+      if (req.method === "POST" && this.isOctetStreamRequest(req)) {
+        req.headers.accept = "application/json";
         req.headers["content-type"] = "application/json";
       }
 
