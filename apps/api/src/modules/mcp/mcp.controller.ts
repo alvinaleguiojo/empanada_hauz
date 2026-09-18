@@ -58,8 +58,19 @@ export class McpController {
     });
 
     try {
+      const mcpBody = this.normalizeMcpRequest(req);
+
+      // Streamable HTTP requires POST clients to advertise both response
+      // formats. Some remote MCP clients/proxies currently send a generic
+      // Accept header together with application/octet-stream. Normalize only
+      // that compatibility case; normal MCP clients are left untouched.
+      if (this.isOctetStreamRequest(req)) {
+        req.headers.accept = "application/json, text/event-stream";
+        req.headers["content-type"] = "application/json";
+      }
+
       await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      await transport.handleRequest(req, res, mcpBody);
     } catch (error) {
       this.logger.error(`MCP transport failed: ${this.errorMessage(error)}`);
       if (!res.headersSent) {
@@ -582,6 +593,42 @@ export class McpController {
     );
 
     return server;
+  }
+
+  private isOctetStreamRequest(req: Request) {
+    return (req.headers["content-type"] ?? "")
+      .toString()
+      .toLowerCase()
+      .split(";")[0]
+      .trim() === "application/octet-stream";
+  }
+
+  private normalizeMcpRequest(req: Request) {
+    if (!this.isOctetStreamRequest(req)) {
+      return req.body;
+    }
+
+    const body = req.body;
+    if (body && typeof body === "object" && !Buffer.isBuffer(body)) {
+      return body;
+    }
+
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+    const payload = Buffer.isBuffer(body)
+      ? body
+      : Buffer.isBuffer(rawBody)
+        ? rawBody
+        : undefined;
+
+    if (!payload || payload.length === 0) {
+      return req.body;
+    }
+
+    try {
+      return JSON.parse(payload.toString("utf8"));
+    } catch {
+      return req.body;
+    }
   }
 
   private baseUrl(req: Request) {
