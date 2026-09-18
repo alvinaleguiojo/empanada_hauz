@@ -94,7 +94,8 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
     latestRefreshIdRef.current = refreshId;
     const normalizedSearch = searchValue.trim();
     const queryParams = new URLSearchParams();
-    if (normalizedSearch) queryParams.set("search", normalizedSearch); else if (dateValue) queryParams.set("date", dateValue);
+    if (dateValue) queryParams.set("date", dateValue);
+    if (normalizedSearch) queryParams.set("search", normalizedSearch);
     const query = queryParams.toString() ? `?${queryParams.toString()}` : "";
     const refreshed = await apiFetch<any[]>(`/orders${query}`);
     if (refreshId !== latestRefreshIdRef.current || dateValue !== selectedDateRef.current || searchValue !== searchRef.current) return;
@@ -106,16 +107,22 @@ export function OrdersBoard({ orders }: { orders: Array<any> }) {
   useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
   useEffect(() => { searchRef.current = search; }, [search]);
   useEffect(() => {
+    // The selected date is the source of truth. Parent/realtime orders are only
+    // allowed to hydrate the board while viewing today.
     if (search.trim()) return;
+    if (selectedDate !== getTodayDateInputValue()) return;
     setItems(orders);
     setSelectedId((current) => current ?? orders[0]?.id ?? null);
-  }, [orders, search]);
+  }, [orders, search, selectedDate]);
   useEffect(() => {
     let cancelled = false;
     const searchValue = search;
+    const dateValue = selectedDate;
     setIsDateChanging(true);
+    setItems([]);
+    setSelectedId(null);
     const timeout = window.setTimeout(() => {
-      refreshOrders(selectedDate, searchValue).catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Unable to refresh orders"); }).finally(() => { if (!cancelled) setIsDateChanging(false); });
+      refreshOrders(dateValue, searchValue).catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Unable to refresh orders"); }).finally(() => { if (!cancelled) setIsDateChanging(false); });
     }, searchValue.trim() ? 250 : 0);
     return () => { cancelled = true; window.clearTimeout(timeout); };
   }, [refreshOrders, search, selectedDate]);
@@ -273,3 +280,5 @@ function createZipHeader(signature: number, nameBytes: Uint8Array, contentBytes:
 function crc32(bytes: Uint8Array) { let crc = 0xffffffff; for (const byte of bytes) { crc ^= byte; for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); } return (crc ^ 0xffffffff) >>> 0; }
 function columnName(index: number) { let name = ""; let value = index + 1; while (value > 0) { const remainder = (value - 1) % 26; name = String.fromCharCode(65 + remainder) + name; value = Math.floor((value - 1) / 26); } return name; }
 function escapeXml(value: string) { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
+
+
