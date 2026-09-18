@@ -537,6 +537,7 @@ model McpOAuthAuthorizationCode {
   redirectUri         String
   codeChallenge       String?
   codeChallengeMethod String?
+  scope               String   @default("mcp")
   accessToken         String
   expiresAt            DateTime
   consumedAt          DateTime?
