@@ -32,7 +32,7 @@ async function bootstrap() {
     ]
   });
 
-  // OAuth clients such as Claude send token and authorization form submissions
+  // Some remote MCP clients/proxies send Streamable HTTP JSON-RPC as application/octet-stream.\n  // Parse that body explicitly so the MCP transport receives the JSON-RPC object.\n  app.use("/api/mcp", express.raw({ type: "application/octet-stream", limit: "1mb" }));\n\n  // OAuth clients such as Claude send token and authorization form submissions
   // as application/x-www-form-urlencoded. Use Express's parser while keeping
   // rawBody enabled for webhook HMAC verification.
   app.use(express.urlencoded({ extended: false, limit: "100kb" }));
