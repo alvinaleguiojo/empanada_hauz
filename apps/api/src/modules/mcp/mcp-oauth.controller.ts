@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Header, Logger, Post, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Header, Logger, Post, Query, Req, Res, UnauthorizedException, UseInterceptors } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import type { Request, Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthService } from "../auth/auth.service";
+import { NoCacheInterceptor } from "./no-cache.interceptor";
 
 type ClientRegistration = {
   client_id: string;
@@ -20,6 +21,7 @@ type AuthorizationCode = {
   expiresAt: Date;
 };
 
+@UseInterceptors(NoCacheInterceptor)
 @Controller()
 export class McpOAuthController {
   private readonly logger = new Logger(McpOAuthController.name);
