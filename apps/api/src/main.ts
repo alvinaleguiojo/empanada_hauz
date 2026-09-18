@@ -74,33 +74,9 @@ async function bootstrap() {
     next();
   });
 
-  // MCP requires a real HTTP 401 challenge when the protected resource is
-  // called without a bearer token. Returning the OAuth error directly here
-  // avoids Nest's generic UnauthorizedException response from obscuring the
-  // challenge that MCP hosts use to start/restart OAuth discovery.
-  httpServer.use((req: any, res: any, next: any) => {
-    const path = typeof req.path === "string" ? req.path : "";
-    if (path !== "/api/mcp" || typeof req.headers.authorization === "string") {
-      next();
-      return;
-    }
-
-    const proto = req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol;
-    const host = req.headers["x-forwarded-host"]?.split(",")[0]?.trim() || req.get("host");
-    const baseUrl = `${proto}://${host}`;
-    const resourceMetadata = `${baseUrl}/.well-known/oauth-protected-resource`;
-
-    res.status(401);
-    res.setHeader(
-      "WWW-Authenticate",
-      `Bearer error="invalid_token", error_description="Authentication required", resource_metadata="${resourceMetadata}", scope="mcp offline_access"`
-    );
-    res.setHeader("Cache-Control", "no-store");
-    res.json({
-      error: "invalid_token",
-      error_description: "Authentication required"
-    });
-  });
+  // Let the MCP transport initialize and expose tool security metadata. OAuth is
+  // enforced inside each tool handler so ChatGPT can receive the MCP runtime
+  // error containing _meta["mcp/www_authenticate"], which triggers its OAuth UI.
 
   const cache = app.get(CacheService);
   app.useGlobalInterceptors(
