@@ -50,7 +50,11 @@ export class McpController {
 
     const server = this.createServer(req);
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined
+      sessionIdGenerator: undefined,
+      // ChatGPT/remote MCP verification may send JSON-RPC POSTs without an
+      // Accept header or with a narrow Accept value. JSON responses are enough
+      // for our stateless endpoint, so allow application/json negotiation.
+      enableJsonResponse: true
     });
 
     res.on("close", () => {
@@ -60,12 +64,21 @@ export class McpController {
     try {
       const mcpBody = this.normalizeMcpRequest(req);
 
-      // Streamable HTTP requires POST clients to advertise both response
-      // formats. Some remote MCP clients/proxies currently send a generic
-      // Accept header together with application/octet-stream. Normalize only
-      // that compatibility case; normal MCP clients are left untouched.
+      // Some remote MCP clients/proxies omit Accept or send a narrow value
+      // during JSON-RPC verification. Normalize POST negotiation before the
+      // SDK validates it. This is limited to the MCP endpoint.
+      if (req.method === "POST") {
+        const accept = (req.headers.accept ?? "").toString().toLowerCase();
+        if (!accept.includes("application/json") && !accept.includes("text/event-stream") && !accept.includes("*/*")) {
+          req.headers.accept = "application/json";
+        } else if (!accept.includes("application/json") && accept.includes("text/event-stream")) {
+          req.headers.accept = "application/json, text/event-stream";
+        }
+      }
+
+      // Some remote MCP clients/proxies send JSON-RPC as application/octet-stream.
+      // Decode it before passing the request to the transport.
       if (this.isOctetStreamRequest(req)) {
-        req.headers.accept = "application/json, text/event-stream";
         req.headers["content-type"] = "application/json";
       }
 
