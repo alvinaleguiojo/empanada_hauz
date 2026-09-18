@@ -85,6 +85,7 @@ export class OrdersService {
 
   async createPublic(dto: PublicOrderEntryDto) {
     const trustedItems = await this.resolveTrustedLineItems(dto.items);
+    if (dto.deliveryMethod === "maxim" && !dto.address?.trim()) throw new BadRequestException("Delivery orders require a complete address.");
     const totalQuantity = trustedItems.reduce((sum, item) => sum + item.quantity, 0); if (totalQuantity < MINIMUM_PUBLIC_ORDER_QUANTITY) throw new BadRequestException(`Minimum order is ${MINIMUM_PUBLIC_ORDER_QUANTITY} pieces.`);
     const totalAmount = trustedItems.reduce((sum, item) => sum + item.subtotal, 0); const unitPrice = totalQuantity > 0 ? totalAmount / totalQuantity : 0;
     let deliveryFee = 0;
