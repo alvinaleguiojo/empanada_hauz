@@ -61,19 +61,17 @@ export class McpOAuthController {
   authorizationServer(@Req() request: Request) {
     const baseUrl = this.baseUrl(request);
     this.logger.log(`OAuth metadata requested: issuer=${baseUrl} resource=${baseUrl}/api/mcp`);
-    return {
-      issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/oauth/authorize`,
-      token_endpoint: `${baseUrl}/oauth/token`,
-      registration_endpoint: `${baseUrl}/oauth/register`,
-      response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code", "refresh_token"],
-      token_endpoint_auth_methods_supported: ["none"],
-      code_challenge_methods_supported: ["S256"],
-      client_id_metadata_document_supported: true,
-      authorization_response_iss_parameter_supported: true,
-      scopes_supported: ["mcp", "offline_access"]
-    };
+    return this.oauthMetadata(baseUrl);
+  }
+
+  // Some OAuth clients still use the OpenID Connect discovery location. Serving
+  // the same issuer metadata here is harmless and makes discovery interoperable
+  // without changing the authorization server identity or endpoints.
+  @Get(".well-known/openid-configuration")
+  openIdConfiguration(@Req() request: Request) {
+    const baseUrl = this.baseUrl(request);
+    this.logger.log(`OAuth OIDC metadata requested: issuer=${baseUrl} resource=${baseUrl}/api/mcp`);
+    return this.oauthMetadata(baseUrl);
   }
 
   @Post("oauth/register")
@@ -264,45 +262,26 @@ export class McpOAuthController {
     }
 
     const resource = this.assertMcpResource(body.resource, this.baseUrl(request));
-
-    const entry = await this.prisma.mcpOAuthAuthorizationCode.findUnique({
-      where: { code: body.code }
-    });
+    const entry = await this.prisma.mcpOAuthAuthorizationCode.findUnique({ where: { code: body.code } });
 
     if (!entry || entry.expiresAt.getTime() < Date.now()) {
       this.logger.warn(`OAuth token rejected: code ${entry ? "expired" : "not found"}`);
       throw new UnauthorizedException("Authorization code is invalid or expired");
     }
-
     if (entry.clientId !== body.client_id || entry.redirectUri !== body.redirect_uri) {
       this.logger.warn(`OAuth token rejected: client or redirect URI mismatch for clientId=${body.client_id ?? "missing"}`);
       throw new UnauthorizedException("OAuth client mismatch");
     }
-
     if (!this.verifyPkce(entry, body.code_verifier)) {
       this.logger.warn(`OAuth token rejected: PKCE verification failed for clientId=${body.client_id ?? "missing"}`);
       throw new UnauthorizedException("OAuth PKCE verification failed");
     }
 
-    // Mint the token BEFORE touching consumption state — minting is pure/in-process and
-    // doesn't depend on winning the claim below. What matters is that the WINNING token
-    // gets persisted atomically in the same write that claims the code, so a losing
-    // concurrent/retried request can hand back the exact token the winner got instead of
-    // guessing from timing (clock skew and ordering gaps across serverless instances made
-    // an earlier timing-window approach unreliable).
     let accessToken: string;
     let tokenPayload: { sub?: string; email?: string; role?: string };
     try {
-      tokenPayload = await this.jwt.verifyAsync<{
-        sub?: string;
-        email?: string;
-        role?: string;
-      }>(entry.accessToken);
-
-      if (!tokenPayload.sub) {
-        throw new UnauthorizedException("Invalid OAuth access token");
-      }
-
+      tokenPayload = await this.jwt.verifyAsync<{ sub?: string; email?: string; role?: string }>(entry.accessToken);
+      if (!tokenPayload.sub) throw new UnauthorizedException("Invalid OAuth access token");
       accessToken = await this.jwt.signAsync({
         sub: tokenPayload.sub,
         email: tokenPayload.email,
@@ -322,11 +301,7 @@ export class McpOAuthController {
 
     const claimedAt = new Date();
     const claim = await this.prisma.mcpOAuthAuthorizationCode.updateMany({
-      where: {
-        code: body.code,
-        consumedAt: null,
-        expiresAt: { gt: claimedAt }
-      },
+      where: { code: body.code, consumedAt: null, expiresAt: { gt: claimedAt } },
       data: { consumedAt: claimedAt, issuedAccessToken: accessToken }
     });
 
@@ -334,31 +309,33 @@ export class McpOAuthController {
       const scope = this.normalizeScope(entry.scope);
       const refreshToken = await this.createRefreshToken(tokenPayload.sub!, body.client_id!, scope);
       this.logger.log(`OAuth token response: status=success tokenType=Bearer scope=${scope} expiresIn=${this.jwtExpiresInSeconds()}`);
-      return {
-        access_token: accessToken,
-        token_type: "Bearer",
-        expires_in: this.jwtExpiresInSeconds(),
-        refresh_token: refreshToken,
-        scope
-      };
+      return { access_token: accessToken, token_type: "Bearer", expires_in: this.jwtExpiresInSeconds(), refresh_token: refreshToken, scope };
     }
 
-    // Lost the claim — someone else (a concurrent request or an earlier retry of this
-    // same exchange) already consumed this code. If it was this same client/redirect,
-    // hand back whatever token they got instead of failing a legitimate retry.
     const current = await this.prisma.mcpOAuthAuthorizationCode.findUnique({ where: { code: body.code } });
     if (current?.issuedAccessToken && current.clientId === body.client_id && current.redirectUri === body.redirect_uri) {
       this.logger.warn(`OAuth token: reusing previously issued token for a retried exchange (clientId=${body.client_id ?? "missing"})`);
-      return {
-        access_token: current.issuedAccessToken,
-        token_type: "Bearer",
-        expires_in: this.jwtExpiresInSeconds(),
-        scope: "mcp"
-      };
+      return { access_token: current.issuedAccessToken, token_type: "Bearer", expires_in: this.jwtExpiresInSeconds(), scope: this.normalizeScope(current.scope) };
     }
 
     this.logger.warn(`OAuth token rejected: authorization code was already consumed for clientId=${body.client_id ?? "missing"}`);
     throw new UnauthorizedException("Authorization code is invalid or already used");
+  }
+
+  private oauthMetadata(baseUrl: string) {
+    return {
+      issuer: baseUrl,
+      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      token_endpoint: `${baseUrl}/oauth/token`,
+      registration_endpoint: `${baseUrl}/oauth/register`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_methods_supported: ["none"],
+      code_challenge_methods_supported: ["S256"],
+      client_id_metadata_document_supported: true,
+      authorization_response_iss_parameter_supported: true,
+      scopes_supported: ["mcp", "offline_access"]
+    };
   }
 
   private assertRegisteredRedirectUri(client: ClientMetadata, redirectUri: string) {
@@ -444,33 +421,16 @@ export class McpOAuthController {
 
   private assertMcpResource(resource: string | undefined, baseUrl: string) {
     const expected = `${baseUrl}/api/mcp`;
-    if (!resource) {
-      throw new UnauthorizedException("OAuth resource is required");
-    }
-
+    if (!resource) throw new UnauthorizedException("OAuth resource is required");
     let parsed: URL;
-    try {
-      parsed = new URL(resource);
-    } catch {
-      throw new UnauthorizedException("OAuth resource is invalid");
-    }
-
-    if (parsed.toString() !== expected) {
-      throw new UnauthorizedException("OAuth resource does not match the MCP endpoint");
-    }
-
+    try { parsed = new URL(resource); } catch { throw new UnauthorizedException("OAuth resource is invalid"); }
+    if (parsed.toString() !== expected) throw new UnauthorizedException("OAuth resource does not match the MCP endpoint");
     return parsed.toString();
   }
 
   private verifyPkce(entry: AuthorizationCode, codeVerifier?: string) {
-    if (!entry.codeChallenge) {
-      return true;
-    }
-
-    if (!codeVerifier || entry.codeChallengeMethod !== "S256") {
-      return false;
-    }
-
+    if (!entry.codeChallenge) return true;
+    if (!codeVerifier || entry.codeChallengeMethod !== "S256") return false;
     const hash = createHash("sha256").update(codeVerifier).digest("base64url");
     return hash === entry.codeChallenge;
   }
@@ -521,53 +481,8 @@ export class McpOAuthController {
     scope?: string;
     error?: string;
   }) {
-    return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Empanada Hauz MCP Sign In</title>
-  <style>
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111827; color: #f8fafc; font-family: Arial, sans-serif; }
-    main { width: min(420px, calc(100vw - 32px)); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: #161d2f; padding: 24px; box-shadow: 0 24px 70px rgba(0,0,0,.42); }
-    h1 { margin: 0 0 8px; font-size: 22px; }
-    p { margin: 0 0 20px; color: rgba(248,250,252,.68); line-height: 1.5; }
-    label { display: block; margin: 14px 0 6px; font-size: 13px; font-weight: 700; color: rgba(248,250,252,.82); }
-    input { box-sizing: border-box; width: 100%; height: 44px; border-radius: 8px; border: 1px solid rgba(255,255,255,.18); background: #0f172a; color: #fff; padding: 0 12px; font-size: 15px; }
-    button { margin-top: 18px; width: 100%; height: 44px; border: 0; border-radius: 8px; background: #ef6637; color: #fff; font-weight: 800; cursor: pointer; }
-    .error { margin-bottom: 14px; border: 1px solid rgba(248,113,113,.35); border-radius: 8px; background: rgba(127,29,29,.32); padding: 10px 12px; color: #fecaca; font-size: 13px; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Empanada Hauz</h1>
-    <p>Sign in with your Empanada Hauz staff account to authorize the MCP connector.</p>
-    ${input.error ? `<div class="error">${this.escapeHtml(input.error)}</div>` : ""}
-    <form method="post" action="/oauth/authorize">
-      <input type="hidden" name="client_id" value="${this.escapeHtml(input.clientId)}" />
-      <input type="hidden" name="redirect_uri" value="${this.escapeHtml(input.redirectUri)}" />
-      <input type="hidden" name="state" value="${this.escapeHtml(input.state ?? "")}" />
-      <input type="hidden" name="code_challenge" value="${this.escapeHtml(input.codeChallenge ?? "")}" />
-      <input type="hidden" name="code_challenge_method" value="${this.escapeHtml(input.codeChallengeMethod ?? "")}" />
-      <input type="hidden" name="resource" value="${this.escapeHtml(input.resource)}" />
-      <input type="hidden" name="scope" value="${this.escapeHtml(input.scope ?? "mcp")}" />
-      <label for="email">Email</label>
-      <input id="email" name="email" type="email" autocomplete="username" required />
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required />
-      <button type="submit">Authorize MCP</button>
-    </form>
-  </main>
-</body>
-</html>`;
-  }
-
-  private escapeHtml(value: string) {
-    return value
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
+    const escaped = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
+    const error = input.error ? `<p style="color:#b91c1c">${escaped(input.error)}</p>` : "";
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in to Empanada Hauz</title></head><body style="font-family:system-ui;max-width:420px;margin:48px auto;padding:24px"><h1>Sign in to Empanada Hauz</h1>${error}<form method="post" action="/oauth/authorize"><input type="hidden" name="client_id" value="${escaped(input.clientId)}"><input type="hidden" name="redirect_uri" value="${escaped(input.redirectUri)}"><input type="hidden" name="state" value="${escaped(input.state ?? "")}"><input type="hidden" name="code_challenge" value="${escaped(input.codeChallenge ?? "")}"><input type="hidden" name="code_challenge_method" value="${escaped(input.codeChallengeMethod ?? "")}"><input type="hidden" name="resource" value="${escaped(input.resource)}"><input type="hidden" name="scope" value="${escaped(input.scope ?? "mcp offline_access")}"><label>Email<br><input required type="email" name="email" style="width:100%;padding:8px"></label><br><br><label>Password<br><input required type="password" name="password" style="width:100%;padding:8px"></label><br><br><button type="submit">Sign in and authorize</button></form></body></html>`;
   }
 }
