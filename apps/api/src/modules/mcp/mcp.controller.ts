@@ -64,12 +64,13 @@ export class McpController {
     try {
       const mcpBody = this.normalizeMcpRequest(req);
 
-      // The remote verifier is sending application/octet-stream and its
-      // Accept value is not usable for Streamable HTTP negotiation. For this
-      // stateless MCP endpoint, force JSON response negotiation for this
-      // compatibility case before the SDK validates the request.
+      // The remote verifier sends application/octet-stream and may omit Accept
+      // or send a narrow value. The MCP Streamable HTTP SDK requires POST
+      // clients to advertise BOTH response formats, even when
+      // enableJsonResponse is true. Normalize only this compatibility case
+      // before the SDK validates the request.
       if (req.method === "POST" && this.isOctetStreamRequest(req)) {
-        req.headers.accept = "application/json";
+        req.headers.accept = "application/json, text/event-stream";
         req.headers["content-type"] = "application/json";
       }
 
