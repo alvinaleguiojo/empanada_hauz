@@ -61,12 +61,8 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
     const startedAt = Date.now();
 
     try {
-      this.logger.log(`Google Calendar sync started (${source})`);
 
       const status = await this.googleWorkspace.status();
-      this.logger.log(
-        `Google Calendar connection status: connected=${status.connected}${status.email ? ` email=${status.email}` : ""}`
-      );
 
       if (!status.connected) {
         this.logger.warn(`Google Calendar sync skipped (${source}): Google account is not connected`);
@@ -85,10 +81,6 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
         orderBy: { preferredSchedule: "asc" },
         take: MAX_ORDERS_PER_RUN
       });
-
-      this.logger.log(
-        `Google Calendar sync found ${activeOrders.length} future active order(s) (${source})`
-      );
 
       const result: CalendarSyncRunResult = { ...empty, total: activeOrders.length };
 
@@ -111,10 +103,6 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
           orderBy: { updatedAt: "desc" },
           take: MAX_ORDERS_PER_RUN
         });
-
-        this.logger.log(
-          `Google Calendar sync found ${closedOrders.length} recently closed order(s) to clean up (${source})`
-        );
 
         result.total += closedOrders.length;
 
@@ -151,9 +139,6 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
 
       if (syncResult.synced) {
         result.synced += 1;
-        this.logger.log(
-          `Calendar event synced for order ${orderId}${syncResult.eventId ? ` event=${syncResult.eventId}` : ""}`
-        );
         return;
       }
 
