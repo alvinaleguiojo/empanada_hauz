@@ -21,6 +21,7 @@ type ToolRegistrar = (
     title: string;
     description: string;
     inputSchema: Record<string, z.ZodTypeAny>;
+    securitySchemes: { type: "oauth2"; scopes: string[] }[];
     annotations: {
       readOnlyHint: boolean;
       destructiveHint?: boolean;
@@ -93,6 +94,7 @@ export class McpController {
           fromDate: z.string().datetime().optional(),
           toDate: z.string().datetime().optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: true,
           openWorldHint: false
@@ -112,6 +114,7 @@ export class McpController {
           id: z.string().optional(),
           orderNumber: z.string().optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: true,
           openWorldHint: false
@@ -179,6 +182,7 @@ export class McpController {
             .optional(),
           notes: z.string().optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
@@ -261,6 +265,7 @@ export class McpController {
             .optional(),
           notes: z.string().optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
@@ -292,6 +297,7 @@ export class McpController {
           id: z.string().optional(),
           orderNumber: z.string().optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: false,
           destructiveHint: true,
@@ -325,6 +331,7 @@ export class McpController {
           fromDate: z.string().datetime().optional(),
           toDate: z.string().datetime().optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: true,
           openWorldHint: false
@@ -348,6 +355,7 @@ export class McpController {
           startDate: z.string().optional(),
           endDate: z.string().optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: true,
           openWorldHint: false
@@ -371,6 +379,7 @@ export class McpController {
         inputSchema: {
           id: z.string().min(1)
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: true,
           openWorldHint: false
@@ -402,6 +411,7 @@ export class McpController {
           amount: z.number().min(0.01),
           expenseDate: z.string().min(1)
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
@@ -444,6 +454,7 @@ export class McpController {
         title: "List Messenger conversations",
         description: "Read the latest Empanada Hauz Facebook Messenger conversations, including customer details and the latest message.",
         inputSchema: {},
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: { readOnlyHint: true, openWorldHint: false }
       },
       async () => ({
@@ -457,6 +468,7 @@ export class McpController {
         title: "Get Messenger messages",
         description: "Read all stored messages for one Empanada Hauz Messenger conversation in chronological order.",
         inputSchema: { conversationId: z.string().min(1) },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: { readOnlyHint: true, openWorldHint: false }
       },
       async (args) => {
@@ -474,6 +486,7 @@ export class McpController {
         title: "Get Messenger profile",
         description: "Read the public Messenger profile name available for a customer PSID through Meta Graph API.",
         inputSchema: { psid: z.string().min(1) },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: { readOnlyHint: true, openWorldHint: true }
       },
       async (args) => {
@@ -491,6 +504,7 @@ export class McpController {
         title: "Send Messenger message",
         description: "Send a text message to a Facebook Messenger customer by PSID and persist the outbound message in Empanada Hauz.",
         inputSchema: { psid: z.string().min(1), text: z.string().min(1).max(2000) },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
       },
       async (args) => {
@@ -512,6 +526,7 @@ export class McpController {
           maxConversations: z.number().int().min(1).max(500).optional(),
           maxMessagesPerConversation: z.number().int().min(1).max(5000).optional()
         },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
       },
       async (args) => ({
@@ -531,6 +546,7 @@ export class McpController {
         title: "Request Messenger thread control",
         description: "Request control of a Messenger conversation from another app or Page inbox integration using Meta thread handover.",
         inputSchema: { psid: z.string().min(1), metadata: z.string().max(1000).optional() },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
       },
       async (args) => {
