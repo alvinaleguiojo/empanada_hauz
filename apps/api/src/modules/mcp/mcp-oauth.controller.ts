@@ -7,9 +7,21 @@ import { AuthService } from "../auth/auth.service";
 import { NoCacheInterceptor } from "./no-cache.interceptor";
 
 type ClientRegistration = {
+  client_id?: string;
+  redirect_uris?: string[];
+  client_name?: string;
+  grant_types?: string[];
+  response_types?: string[];
+  scope?: string;
+};
+
+type ClientMetadata = {
   client_id: string;
   redirect_uris: string[];
   client_name?: string;
+  grant_types?: string[];
+  response_types?: string[];
+  scope?: string;
 };
 
 type AuthorizationCode = {
@@ -40,7 +52,7 @@ export class McpOAuthController {
       authorization_servers: [baseUrl],
       bearer_methods_supported: ["header"],
       resource_documentation: `${baseUrl}/api/mcp`,
-      scopes_supported: ["mcp"]
+      scopes_supported: ["mcp", "offline_access"]
     };
   }
 
@@ -54,9 +66,10 @@ export class McpOAuthController {
       token_endpoint: `${baseUrl}/oauth/token`,
       registration_endpoint: `${baseUrl}/oauth/register`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
+      client_id_metadata_document_supported: true,
       authorization_response_iss_parameter_supported: true,
       scopes_supported: ["mcp"]
     };
@@ -67,6 +80,9 @@ export class McpOAuthController {
     const redirectUris = Array.isArray(body.redirect_uris)
       ? body.redirect_uris.filter((value) => typeof value === "string" && this.isAllowedRedirectUri(value))
       : [];
+
+    const requestedScope = this.normalizeScope(body.scope);
+    const requestedGrantTypes = ["authorization_code", "refresh_token"];
 
     if (redirectUris.length === 0) {
       throw new UnauthorizedException("At least one valid OAuth redirect URI is required");
@@ -88,9 +104,9 @@ export class McpOAuthController {
       client_id_issued_at: Math.floor(Date.now() / 1000),
       redirect_uris: redirectUris,
       token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code"],
+      grant_types: requestedGrantTypes,
       response_types: ["code"],
-      scope: "mcp"
+      scope: requestedScope
     };
   }
 
@@ -103,9 +119,12 @@ export class McpOAuthController {
     @Query("code_challenge") codeChallenge: string | undefined,
     @Query("code_challenge_method") codeChallengeMethod: string | undefined,
     @Query("resource") resource: string | undefined,
+    @Query("scope") scope: string | undefined,
     @Res() response: Response
   ) {
-    await this.assertRegisteredRedirectUri(clientId, redirectUri);
+    const client = await this.resolveClient(clientId);
+    this.assertRegisteredRedirectUri(client, redirectUri);
+    const requestedScope = this.normalizeScope(scope);
     const validatedResource = this.assertMcpResource(resource, this.baseUrlFromRequest(response.req));
     this.logger.log(
       `OAuth authorize form: clientId=${clientId} redirectUri=${this.safeUrl(redirectUri)} resource=${validatedResource} state=${state ? "present" : "missing"} pkce=${codeChallengeMethod ?? "none"}`
@@ -117,7 +136,8 @@ export class McpOAuthController {
         state,
         codeChallenge,
         codeChallengeMethod,
-        resource: validatedResource
+        resource: validatedResource,
+        scope: requestedScope
       })
     );
   }
@@ -132,6 +152,7 @@ export class McpOAuthController {
       code_challenge?: string;
       code_challenge_method?: string;
       resource?: string;
+      scope?: string;
       email?: string;
       password?: string;
     },
@@ -140,9 +161,11 @@ export class McpOAuthController {
   ) {
     const clientId = body.client_id ?? "";
     const redirectUri = body.redirect_uri ?? "";
-    await this.assertRegisteredRedirectUri(clientId, redirectUri);
+    const client = await this.resolveClient(clientId);
+    this.assertRegisteredRedirectUri(client, redirectUri);
 
     const resource = this.assertMcpResource(body.resource, this.baseUrl(request));
+    const requestedScope = this.normalizeScope(body.scope);
     this.logger.log(
       `OAuth authorize submit: clientId=${clientId} redirectUri=${this.safeUrl(redirectUri)} resource=${resource} state=${body.state ? "present" : "missing"} pkce=${body.code_challenge_method ?? "none"}`
     );
@@ -164,6 +187,7 @@ export class McpOAuthController {
             codeChallenge: body.code_challenge,
             codeChallengeMethod: body.code_challenge_method,
             resource,
+            scope: requestedScope,
             error: "Invalid Empanada Hauz email or password."
           })
         );
@@ -220,12 +244,17 @@ export class McpOAuthController {
       client_id?: string;
       code_verifier?: string;
       resource?: string;
+      scope?: string;
     },
     @Req() request: Request
   ) {
     this.logger.log(
       `OAuth token request: grantType=${body.grant_type ?? "missing"} clientId=${body.client_id ?? "missing"} redirectUri=${body.redirect_uri ? this.safeUrl(body.redirect_uri) : "missing"} resource=${body.resource ?? "missing"} code=${body.code ? "present" : "missing"} verifier=${body.code_verifier ? "present" : "missing"}`
     );
+
+    if (body.grant_type === "refresh_token") {
+      return this.refreshAccessToken(body.client_id, body.code, body.scope, body.resource, request);
+    }
 
     if (body.grant_type !== "authorization_code" || !body.code) {
       throw new UnauthorizedException("Unsupported OAuth grant");
@@ -299,12 +328,15 @@ export class McpOAuthController {
     });
 
     if (claim.count === 1) {
-      this.logger.log(`OAuth token response: status=success tokenType=Bearer scope=mcp expiresIn=${this.jwtExpiresInSeconds()}`);
+      const scope = this.normalizeScope();
+      const refreshToken = await this.createRefreshToken(tokenPayload.sub!, body.client_id!, scope);
+      this.logger.log(`OAuth token response: status=success tokenType=Bearer scope=${scope} expiresIn=${this.jwtExpiresInSeconds()}`);
       return {
         access_token: accessToken,
         token_type: "Bearer",
         expires_in: this.jwtExpiresInSeconds(),
-        scope: "mcp"
+        refresh_token: refreshToken,
+        scope
       };
     }
 
@@ -326,22 +358,74 @@ export class McpOAuthController {
     throw new UnauthorizedException("Authorization code is invalid or already used");
   }
 
-  private async assertRegisteredRedirectUri(clientId: string, redirectUri: string) {
-    const client = await this.prisma.mcpOAuthClient.findUnique({
-      where: { clientId }
-    });
+  private assertRegisteredRedirectUri(client: ClientMetadata, redirectUri: string) {
+    if (!redirectUri || !client.redirect_uris.includes(redirectUri)) throw new UnauthorizedException("OAuth redirect URI is not registered");
+  }
 
-    if (!client) {
-      throw new UnauthorizedException("Unknown OAuth client");
-    }
+  private async resolveClient(clientId: string): Promise<ClientMetadata> {
+    if (!clientId) throw new UnauthorizedException("OAuth client_id is required");
+    if (clientId.startsWith("https://")) return this.fetchClientMetadata(clientId);
+    const client = await this.prisma.mcpOAuthClient.findUnique({ where: { clientId } });
+    if (!client) throw new UnauthorizedException("Unknown OAuth client");
+    const redirectUris = Array.isArray(client.redirectUris) ? client.redirectUris.filter((value): value is string => typeof value === "string") : [];
+    return { client_id: client.clientId, client_name: client.clientName ?? undefined, redirect_uris: redirectUris };
+  }
 
-    const redirectUris = Array.isArray(client.redirectUris)
-      ? client.redirectUris.filter((value): value is string => typeof value === "string")
-      : [];
+  private async fetchClientMetadata(clientId: string): Promise<ClientMetadata> {
+    let url: URL;
+    try { url = new URL(clientId); } catch { throw new UnauthorizedException("Invalid client metadata URL"); }
+    if (url.protocol !== "https:" || this.isPrivateHostname(url.hostname)) throw new UnauthorizedException("Client metadata URL must be a public HTTPS URL");
+    let response: globalThis.Response;
+    try { response = await fetch(url, { redirect: "error", headers: { accept: "application/json" } }); }
+    catch { throw new UnauthorizedException("Unable to fetch client metadata"); }
+    if (!response.ok) throw new UnauthorizedException("Client metadata request failed");
+    let metadata: ClientMetadata;
+    try { metadata = (await response.json()) as ClientMetadata; } catch { throw new UnauthorizedException("Client metadata is not valid JSON"); }
+    if (metadata.client_id !== clientId || !Array.isArray(metadata.redirect_uris) || metadata.redirect_uris.length === 0) throw new UnauthorizedException("Client metadata is invalid");
+    const redirectUris = metadata.redirect_uris.filter((value) => typeof value === "string" && this.isAllowedRedirectUri(value));
+    if (redirectUris.length !== metadata.redirect_uris.length) throw new UnauthorizedException("Client metadata contains an invalid redirect URI");
+    return { ...metadata, redirect_uris: redirectUris };
+  }
 
-    if (!redirectUri || !redirectUris.includes(redirectUri)) {
-      throw new UnauthorizedException("OAuth redirect URI is not registered");
-    }
+  private isPrivateHostname(hostname: string) {
+    const value = hostname.toLowerCase();
+    return value === "localhost" || value.endsWith(".localhost") || value === "::1" ||
+      /^127\./.test(value) || /^10\./.test(value) || /^192\.168\./.test(value) ||
+      /^169\.254\./.test(value) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(value);
+  }
+
+  private normalizeScope(scope?: string) {
+    const values = (scope ?? "mcp offline_access").split(/\s+/).filter(Boolean);
+    const allowed = new Set(["mcp", "offline_access"]);
+    if (values.some((value) => !allowed.has(value))) throw new UnauthorizedException("Unsupported OAuth scope");
+    return [...new Set(values)].join(" ");
+  }
+
+  private async createRefreshToken(userId: string, clientId: string, scope: string) {
+    const raw = randomUUID() + randomUUID();
+    const tokenHash = createHash("sha256").update(raw).digest("hex");
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60_000);
+    await this.prisma.mcpOAuthRefreshToken.create({ data: { tokenHash, clientId, userId, scope, expiresAt } });
+    return raw;
+  }
+
+  private async refreshAccessToken(clientId: string | undefined, refreshToken: string | undefined, scope: string | undefined, resource: string | undefined, request: Request) {
+    if (!clientId || !refreshToken) throw new UnauthorizedException("Refresh token and client_id are required");
+    await this.resolveClient(clientId);
+    const validatedResource = this.assertMcpResource(resource, this.baseUrl(request));
+    const tokenHash = createHash("sha256").update(refreshToken).digest("hex");
+    const current = await this.prisma.mcpOAuthRefreshToken.findUnique({ where: { tokenHash } });
+    if (!current || current.revokedAt || current.expiresAt.getTime() <= Date.now() || current.clientId !== clientId) throw new UnauthorizedException("Refresh token is invalid or expired");
+    const requestedScope = this.normalizeScope(scope);
+    const originalScope = this.normalizeScope(current.scope);
+    const originalSet = new Set(originalScope.split(" "));
+    if (requestedScope.split(" ").some(value => !originalSet.has(value))) throw new UnauthorizedException("Requested scope exceeds the originally granted scope");
+    const user = await this.prisma.user.findUnique({ where: { id: current.userId }, select: { id: true, email: true, role: true } });
+    if (!user) throw new UnauthorizedException("MCP user account was not found");
+    const accessToken = await this.jwt.signAsync({ sub: user.id, email: user.email, role: user.role, aud: validatedResource });
+    const newRefreshToken = await this.createRefreshToken(user.id, clientId, originalScope);
+    await this.prisma.mcpOAuthRefreshToken.update({ where: { id: current.id }, data: { revokedAt: new Date() } });
+    return { access_token: accessToken, token_type: "Bearer", expires_in: this.jwtExpiresInSeconds(), refresh_token: newRefreshToken, scope: originalScope };
   }
 
   private isAllowedRedirectUri(value: string) {
@@ -462,6 +546,7 @@ export class McpOAuthController {
       <input type="hidden" name="code_challenge" value="${this.escapeHtml(input.codeChallenge ?? "")}" />
       <input type="hidden" name="code_challenge_method" value="${this.escapeHtml(input.codeChallengeMethod ?? "")}" />
       <input type="hidden" name="resource" value="${this.escapeHtml(input.resource)}" />
+      <input type="hidden" name="scope" value="${this.escapeHtml(input.scope ?? "mcp")}" />
       <label for="email">Email</label>
       <input id="email" name="email" type="email" autocomplete="username" required />
       <label for="password">Password</label>
