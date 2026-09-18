@@ -77,8 +77,9 @@ export class McpController {
       name: "empanada-hauz-orders",
       version: "1.0.0"
     });
+    const registerMcpTool = server.registerTool.bind(server) as any;
     const registerTool = ((name: string, config: Parameters<ToolRegistrar>[1], callback: Parameters<ToolRegistrar>[2]) => {
-      server.registerTool(name, config, async (args) => {
+      registerMcpTool(name, config, async (args: Record<string, unknown>) => {
         try {
           await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"), req);
           this.logger.log(`MCP tool auth accepted: ${name}`);
