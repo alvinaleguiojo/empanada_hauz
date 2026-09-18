@@ -18,6 +18,25 @@ import { useOrdersRealtime } from "@/hooks/use-orders-realtime";
 
 type Order = Record<string, any> & { id: string };
 
+const BUSINESS_TIME_ZONE = "Asia/Manila";
+
+function getBusinessDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function getSelectedOrdersDate() {
+  if (typeof document === "undefined") return getBusinessDate();
+  const dateInput = document.querySelector<HTMLInputElement>('input[type="date"]');
+  return dateInput?.value || getBusinessDate();
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -31,15 +50,22 @@ export default function OrdersPage() {
   const canTagFraud = hasPermission(role, "fraud.manage");
 
   const handleOrderCreated = useCallback((order: OrderRealtimeEvent) => {
-    const today = new Date().toISOString().slice(0, 10);
+    // OrdersBoard owns the selected-date query. Do not let a realtime event for
+    // today's orders replace a historical date that the user is currently viewing.
+    const selectedDate = getSelectedOrdersDate();
     const preferredSchedule = typeof order.preferredSchedule === "string" ? order.preferredSchedule.slice(0, 10) : null;
     const createdAt = typeof order.createdAt === "string" ? order.createdAt.slice(0, 10) : null;
-    if (preferredSchedule !== today && (!preferredSchedule && createdAt !== today)) return;
+    const orderDate = preferredSchedule ?? createdAt;
+    if (selectedDate !== getBusinessDate() || orderDate !== selectedDate) return;
     setOrders((current) => applyOrderRealtimeEvent(current, order, "created"));
   }, []);
 
   const handleOrderUpdated = useCallback((event: OrderRealtimeEvent) => {
     if (!event.id) return;
+    // The parent state is the initial/current-day feed. When a historical date
+    // is selected, leaving this state untouched prevents the OrdersBoard's
+    // prop-sync effect from pushing today's orders back into the selected date.
+    if (getSelectedOrdersDate() !== getBusinessDate()) return;
     setOrders((current) => applyOrderRealtimeEvent(current, event, "updated"));
   }, []);
 
@@ -47,7 +73,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     setRole(decodeRole(window.localStorage.getItem("empanada-token")));
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getBusinessDate();
     void Promise.all([
       apiFetch<Order[]>(`/orders?date=${encodeURIComponent(today)}`).catch(() => []),
       apiFetch<any[]>("/fraud/logs?limit=200").catch(() => [])
