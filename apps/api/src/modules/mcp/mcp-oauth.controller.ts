@@ -30,6 +30,7 @@ type AuthorizationCode = {
   codeChallenge?: string | null;
   codeChallengeMethod?: string | null;
   accessToken: string;
+  scope?: string | null;
   expiresAt: Date;
 };
 
@@ -71,7 +72,7 @@ export class McpOAuthController {
       code_challenge_methods_supported: ["S256"],
       client_id_metadata_document_supported: true,
       authorization_response_iss_parameter_supported: true,
-      scopes_supported: ["mcp"]
+      scopes_supported: ["mcp", "offline_access"]
     };
   }
 
@@ -517,6 +518,7 @@ export class McpOAuthController {
     codeChallenge?: string;
     codeChallengeMethod?: string;
     resource: string;
+    scope?: string;
     error?: string;
   }) {
     return `<!doctype html>
