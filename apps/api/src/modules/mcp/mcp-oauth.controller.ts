@@ -209,6 +209,7 @@ export class McpOAuthController {
           redirectUri,
           codeChallenge: body.code_challenge,
           codeChallengeMethod: body.code_challenge_method,
+          scope: requestedScope,
           accessToken: login.accessToken,
           expiresAt,
           consumedAt: null
@@ -240,6 +241,7 @@ export class McpOAuthController {
     body: {
       grant_type?: string;
       code?: string;
+      refresh_token?: string;
       redirect_uri?: string;
       client_id?: string;
       code_verifier?: string;
@@ -253,7 +255,7 @@ export class McpOAuthController {
     );
 
     if (body.grant_type === "refresh_token") {
-      return this.refreshAccessToken(body.client_id, body.code, body.scope, body.resource, request);
+      return this.refreshAccessToken(body.client_id, body.refresh_token, body.scope, body.resource, request);
     }
 
     if (body.grant_type !== "authorization_code" || !body.code) {
@@ -328,7 +330,7 @@ export class McpOAuthController {
     });
 
     if (claim.count === 1) {
-      const scope = this.normalizeScope();
+      const scope = this.normalizeScope(entry.scope);
       const refreshToken = await this.createRefreshToken(tokenPayload.sub!, body.client_id!, scope);
       this.logger.log(`OAuth token response: status=success tokenType=Bearer scope=${scope} expiresIn=${this.jwtExpiresInSeconds()}`);
       return {
