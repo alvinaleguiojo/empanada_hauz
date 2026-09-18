@@ -1,4 +1,4 @@
-import { All, Controller, Logger, Req, Res, UnauthorizedException, UseInterceptors } from "@nestjs/common";
+import { All, Controller, Logger, Req, Res, UseInterceptors } from "@nestjs/common";
 import { NoCacheInterceptor } from "./no-cache.interceptor";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -46,10 +46,9 @@ export class McpController {
 
   @All()
   async handle(@Req() req: Request, @Res() res: Response) {
-    await this.assertAuthorized(req, res);
     res.setHeader("Cache-Control", "no-store");
 
-    const server = this.createServer();
+    const server = this.createServer(req);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined
     });
@@ -73,12 +72,33 @@ export class McpController {
     }
   }
 
-  private createServer() {
+  private createServer(req: Request) {
     const server = new McpServer({
       name: "empanada-hauz-orders",
       version: "1.0.0"
     });
-    const registerTool = server.registerTool.bind(server) as ToolRegistrar;
+    const registerTool = ((name: string, config: Parameters<ToolRegistrar>[1], callback: Parameters<ToolRegistrar>[2]) => {
+      server.registerTool(name, config, async (args) => {
+        try {
+          await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"), req);
+          this.logger.log(`MCP tool auth accepted: ${name}`);
+          return callback(args);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`MCP tool auth rejected: ${name}: ${reason}`);
+          const baseUrl = this.baseUrl(req);
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Authentication required: please sign in to use this MCP tool." }],
+            _meta: {
+              "mcp/www_authenticate": [
+                `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource", error="invalid_token", error_description="Authentication required"`
+              ]
+            }
+          };
+        }
+      });
+    }) as ToolRegistrar;
 
     registerTool(
       "list_orders",
@@ -561,19 +581,6 @@ export class McpController {
     );
 
     return server;
-  }
-
-  private async assertAuthorized(req: Request, res: Response) {
-    try {
-      await this.mcpAuth.authenticateAuthorizationHeader(req.header("authorization"), req);
-      this.logger.log(`MCP auth accepted for ${req.method} ${req.path}`);
-    } catch (error) {
-      const reason = error instanceof UnauthorizedException ? error.message : this.errorMessage(error);
-      this.logger.warn(`MCP auth rejected for ${req.method} ${req.path}: ${reason}`);
-      const baseUrl = this.baseUrl(req);
-      res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
-      throw new UnauthorizedException("Sign in with Empanada Hauz to use MCP");
-    }
   }
 
   private baseUrl(req: Request) {
