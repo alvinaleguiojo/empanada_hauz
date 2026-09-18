@@ -22,7 +22,8 @@ export class CacheService implements OnModuleDestroy {
       this.redis = new Redis(redisUrl, {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
-        enableOfflineQueue: false
+        enableOfflineQueue: false,
+        connectTimeout: 2000
       });
       this.redis.on("error", (error) => {
         this.logger.warn(`Redis cache unavailable: ${error.message}`);
