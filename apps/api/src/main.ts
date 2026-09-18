@@ -24,6 +24,7 @@ async function bootstrap() {
     exclude: [
       { path: ".well-known/oauth-protected-resource", method: RequestMethod.GET },
       { path: ".well-known/oauth-authorization-server", method: RequestMethod.GET },
+      { path: ".well-known/openid-configuration", method: RequestMethod.GET },
       { path: "oauth/register", method: RequestMethod.POST },
       { path: "oauth/authorize", method: RequestMethod.GET },
       { path: "oauth/authorize", method: RequestMethod.POST },
