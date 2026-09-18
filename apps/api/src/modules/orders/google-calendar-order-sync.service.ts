@@ -120,9 +120,8 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
 
         for (const order of closedOrders) {
           try {
-            await this.googleWorkspace.deleteOrderEvent(order.id);
-            result.deleted += 1;
-            this.logger.log(`Calendar event removed for closed order ${order.id}`);
+            const deleteResult = await this.googleWorkspace.deleteOrderEvent(order.id);
+            if (deleteResult.deleted) result.deleted += 1;
           } catch (error) {
             const message = this.formatError(error);
             result.failed += 1;
