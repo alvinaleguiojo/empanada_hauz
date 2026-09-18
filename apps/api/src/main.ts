@@ -39,18 +39,37 @@ async function bootstrap() {
   const httpServer = app.getHttpAdapter().getInstance();
 
   // Safe diagnostics for remote MCP/OAuth connectivity. We intentionally log
-  // only the method/path/content type, body field names, and header names/presence,
-  // never credentials, authorization codes, PKCE verifiers, or access tokens.
-  httpServer.use((req: any, _res: any, next: any) => {
+  // only method/path/content type, body field names, header names/presence,
+  // response status, and whether a challenge exists. Never log credentials,
+  // authorization codes, PKCE verifiers, refresh tokens, or access tokens.
+  httpServer.use((req: any, res: any, next: any) => {
     const path = typeof req.path === "string" ? req.path : "";
-    if (path === "/api/mcp" || path.startsWith("/.well-known/") || path.startsWith("/oauth/")) {
-      const bodyKeys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
-      const headerNames = Object.keys(req.headers).sort();
-      const hasAuthorization = typeof req.headers.authorization === "string";
-      console.log(
-        `[Remote MCP] ${req.method} ${path} content-type=${req.headers["content-type"] ?? "none"} body-keys=${bodyKeys.join(",") || "none"} authorization=${hasAuthorization ? "present" : "missing"} header-names=${headerNames.join(",") || "none"}`
-      );
+    const isRemoteMcpPath =
+      path === "/api/mcp" ||
+      path.startsWith("/.well-known/") ||
+      path.startsWith("/oauth/");
+
+    if (!isRemoteMcpPath) {
+      next();
+      return;
     }
+
+    const bodyKeys = req.body && typeof req.body === "object" ? Object.keys(req.body) : [];
+    const headerNames = Object.keys(req.headers).sort();
+    const hasAuthorization = typeof req.headers.authorization === "string";
+    const startedAt = Date.now();
+
+    console.log(
+      `[Remote MCP] ${req.method} ${path} content-type=${req.headers["content-type"] ?? "none"} body-keys=${bodyKeys.join(",") || "none"} authorization=${hasAuthorization ? "present" : "missing"} header-names=${headerNames.join(",") || "none"}`
+    );
+
+    res.once("finish", () => {
+      const challenge = res.getHeader("www-authenticate");
+      console.log(
+        `[Remote MCP] ${req.method} ${path} -> ${res.statusCode} content-type=${res.getHeader("content-type") ?? "none"} www-authenticate=${challenge ? "present" : "missing"} durationMs=${Date.now() - startedAt}`
+      );
+    });
+
     next();
   });
 
