@@ -37,6 +37,21 @@ async function bootstrap() {
   // rawBody enabled for webhook HMAC verification.
   app.use(express.urlencoded({ extended: false, limit: "100kb" }));
 
+  // Normalize non-conforming remote MCP POST requests before the SDK sees them.
+  // Streamable HTTP requires clients to advertise both response formats.
+  httpServer.use("/api/mcp", (req: any, _res: any, next: any) => {
+    const contentType = typeof req.headers["content-type"] === "string"
+      ? req.headers["content-type"].split(";")[0].trim().toLowerCase()
+      : "";
+
+    if (req.method === "POST" && contentType === "application/octet-stream") {
+      req.headers.accept = "application/json, text/event-stream";
+      req.headers["content-type"] = "application/json";
+    }
+
+    next();
+  });
+
   const httpServer = app.getHttpAdapter().getInstance();
 
   // Safe diagnostics for remote MCP/OAuth connectivity. We intentionally log
@@ -61,7 +76,7 @@ async function bootstrap() {
     const startedAt = Date.now();
 
     console.log(
-      `[Remote MCP] ${req.method} ${path} content-type=${req.headers["content-type"] ?? "none"} body-keys=${bodyKeys.join(",") || "none"} authorization=${hasAuthorization ? "present" : "missing"} header-names=${headerNames.join(",") || "none"}`
+      `[Remote MCP] ${req.method} ${path} content-type=${req.headers["content-type"] ?? "none"} body-keys=${bodyKeys.join(",") || "none"} authorization=${hasAuthorization ? "present" : "missing"} accept=${req.headers.accept ?? "none"} header-names=${headerNames.join(",") || "none"}`
     );
 
     res.once("finish", () => {
