@@ -38,13 +38,14 @@ The flow is:
 
 1. The MCP client discovers the protected resource metadata.
 2. The client discovers the OAuth authorization server metadata.
-3. The client registers its redirect URI using dynamic client registration.
-4. The client starts authorization with PKCE S256.
+3. The client identifies itself either with a Client ID Metadata Document (CIMD) URL or, for backward compatibility, through dynamic client registration.
+4. The client starts authorization with PKCE S256 and may request `offline_access` for long-lived connectivity.
 5. The Empanada Hauz sign-in page authenticates the user's existing account.
-6. The client exchanges the authorization code for a Bearer access token.
+6. The client exchanges the authorization code for a Bearer access token and refresh token.
 7. The client sends `Authorization: Bearer <token>` to the MCP endpoint.
+8. When the access token expires, the client can exchange the refresh token at `/oauth/token`; refresh tokens are rotated and the previous token is revoked.
 
-The API accepts OAuth token submissions as `application/x-www-form-urlencoded`, which is required by many MCP clients, including clients that use standard OAuth token exchange behavior.
+The API accepts OAuth token submissions as `application/x-www-form-urlencoded`, which is required by many MCP clients, including clients that use standard OAuth token exchange behavior. The authorization-server metadata advertises `client_id_metadata_document_supported: true`, `refresh_token`, and `offline_access` for current MCP clients, while the legacy registration endpoint remains available for compatibility.
 
 No provider-specific API key is required for the OAuth flow.
 
@@ -58,7 +59,7 @@ Client registrations contain:
 - registered `redirect_uris`
 - optional client name
 
-Authorization codes are short-lived and single-use. PKCE S256 is supported and enforced when a client supplies a code challenge.
+Authorization codes are short-lived and single-use. PKCE S256 is supported and enforced when a client supplies a code challenge. Refresh tokens are stored as hashes, expire after 30 days, are bound to the OAuth client and user, and are rotated on refresh. CIMD client metadata is fetched only from public HTTPS URLs; localhost/private-network metadata URLs are rejected.
 
 ## Resource protection
 
