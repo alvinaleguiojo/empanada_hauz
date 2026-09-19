@@ -76,7 +76,9 @@ export class OrdersService {
 
   async create(dto: CreateOrderDto) {
     const batch = await this.batchesService.assignBatch(dto.quantity);
-    const deliveryFee = await this.resolveOrderDeliveryFee(dto.deliveryMethod, [dto.address, dto.location].filter(Boolean).join(", "), dto.deliveryFee ?? 0);
+    // Manual/MCP order creation does not accept or calculate a delivery fee.
+    // Delivery charges are handled separately after the order is created.
+    const deliveryFee = 0;
     const discountAmount = dto.discountAmount ?? 0;
     const totalAmount = Math.max(0, dto.quantity * dto.unitPrice + deliveryFee - discountAmount);
     const order = await this.prisma.order.create({ data: { orderNumber: `EMP-${Date.now()}`, customerId: dto.customerId, quantity: dto.quantity, unitPrice: dto.unitPrice, totalAmount, deliveryFee, discountAmount, deliveryMethod: dto.deliveryMethod, paymentMethod: dto.paymentMethod ?? "cod", location: dto.location, address: dto.address, preferredSchedule: this.parsePreferredSchedule(dto.preferredSchedule), scheduleReminderSentAt: null, items: dto.items, notes: dto.notes, adLabel: dto.adLabel, ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}), batchId: batch?.id, status: batch ? "queued" : "awaiting_confirmation" }, include: { customer: true, batch: true, orderNotes: { orderBy: { createdAt: "desc" } } } });
@@ -88,12 +90,8 @@ export class OrdersService {
     if (dto.deliveryMethod === "maxim" && !dto.address?.trim()) throw new BadRequestException("Delivery orders require a complete address.");
     const totalQuantity = trustedItems.reduce((sum, item) => sum + item.quantity, 0); if (totalQuantity < MINIMUM_PUBLIC_ORDER_QUANTITY) throw new BadRequestException(`Minimum order is ${MINIMUM_PUBLIC_ORDER_QUANTITY} pieces.`);
     const totalAmount = trustedItems.reduce((sum, item) => sum + item.subtotal, 0); const unitPrice = totalQuantity > 0 ? totalAmount / totalQuantity : 0;
-    let deliveryFee = 0;
-    if (dto.deliveryMethod === "maxim") {
-      const dropoffAddress = [dto.landmark?.trim(), dto.address?.trim()].filter(Boolean).join(", "); const hasDropoffCoordinates = Number.isFinite(dto.latitude) && Number.isFinite(dto.longitude);
-      const quote = await this.deliveryNetworkService.quoteJob({ pickupAddress: EMPANADA_HAUZ_PICKUP.address, pickupLatitude: EMPANADA_HAUZ_PICKUP.latitude, pickupLongitude: EMPANADA_HAUZ_PICKUP.longitude, dropoffAddress, ...(hasDropoffCoordinates ? { dropoffLatitude: dto.latitude, dropoffLongitude: dto.longitude } : {}) });
-      deliveryFee = quote.estimatedFare;
-    }
+    // Public orders never include a delivery fee. Delivery charges, if any, are handled separately after order creation.
+    const deliveryFee = 0;
     const order = await this.createManual({ customerName: dto.customerName, phoneNumber: dto.phoneNumber, quantity: totalQuantity, unitPrice, deliveryFee, deliveryMethod: dto.deliveryMethod, paymentMethod: dto.paymentMethod, address: dto.address, location: dto.landmark, preferredSchedule: dto.preferredSchedule, items: trustedItems, notes: dto.notes, adLabel: dto.adLabel });
     await this.referralsService.recordOrderReferral({ referralCode: dto.referralCode, customerId: order.customer.id, customerName: order.customer.name, phoneNumber: order.customer.phoneNumber, orderId: order.id, orderNumber: order.orderNumber, orderTotal: Number(order.totalAmount ?? 0), status: order.status });
     return { order, trackingPath: `/track/${order.id}` };
