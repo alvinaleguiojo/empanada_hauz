@@ -179,13 +179,12 @@ export class McpController {
       {
         title: "Create order",
         description:
-          "Create a new Empanada Hauz manual order. Known menu item prices and subtotals are computed by the server. Defaults to Pork Regular unit price, deliveryMethod pickup, paymentMethod cod, and deliveryFee 0 when omitted.",
+          "Create a new Empanada Hauz manual order. Known menu item prices and subtotals are computed by the server. Defaults to Pork Regular unit price, deliveryMethod pickup, and paymentMethod cod. Delivery fees are not included when creating orders.",
         inputSchema: {
           customerName: z.string().min(1),
           phoneNumber: z.string().optional(),
           quantity: z.number().int().min(1),
           unitPrice: z.number().min(0).optional(),
-          deliveryFee: z.number().min(0).optional(),
           deliveryMethod: z.enum(["pickup", "maxim", "own_delivery"]).optional(),
           paymentMethod: z.enum(["cod", "gcash"]).optional(),
           location: z.string().optional(),
@@ -669,7 +668,6 @@ export class McpController {
       phoneNumber: this.toOptionalString(args.phoneNumber),
       quantity: typeof args.quantity === "number" ? args.quantity : undefined,
       unitPrice: typeof args.unitPrice === "number" ? args.unitPrice : undefined,
-      deliveryFee: typeof args.deliveryFee === "number" ? args.deliveryFee : undefined,
       deliveryMethod: this.toDeliveryMethod(args.deliveryMethod),
       paymentMethod: this.toPaymentMethod(args.paymentMethod),
       location: this.toOptionalString(args.location),
