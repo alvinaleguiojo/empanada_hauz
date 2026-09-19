@@ -35,20 +35,14 @@ export class McpOrdersService {
     return this.serializeOrder(order);
   }
 
-  async createOrder(params: { customerName: string; phoneNumber?: string; quantity: number; unitPrice?: number; deliveryFee?: number; deliveryMethod?: DeliveryMethod; paymentMethod?: PaymentMethod; location?: string; address?: string; preferredSchedule?: string; status?: OrderStatus; items?: ManualOrderEntryDto["items"]; notes?: string }) {
+  async createOrder(params: { customerName: string; phoneNumber?: string; quantity: number; unitPrice?: number; deliveryMethod?: DeliveryMethod; paymentMethod?: PaymentMethod; location?: string; address?: string; preferredSchedule?: string; status?: OrderStatus; items?: ManualOrderEntryDto["items"]; notes?: string }) {
     const items = await this.resolveMcpLineItems(params.items);
     const quantity = items.length > 0 ? items.reduce((sum, item) => sum + item.quantity, 0) : params.quantity;
     if (!Number.isFinite(quantity) || quantity < 1) throw new BadRequestException("Order quantity must be a positive number.");
     const unitPrice = items.length > 0 ? items.reduce((sum, item) => sum + item.subtotal, 0) / quantity : params.unitPrice ?? 0;
-    let deliveryFee = params.deliveryFee;
-    if (params.deliveryMethod === "own_delivery" && deliveryFee === undefined) {
-      const dropoffAddress = params.address?.trim() || params.location?.trim();
-      if (!dropoffAddress) throw new BadRequestException("An address or location is required to calculate the own-delivery fee.");
-      const quote = await this.deliveryNetwork.quoteJob({ pickupAddress: DEFAULT_PICKUP_ADDRESS, dropoffAddress });
-      if (quote.estimatedFare === 0) throw new BadRequestException("Unable to calculate an own-delivery fee for the supplied address.");
-      deliveryFee = quote.estimatedFare;
-    }
-    const order = await this.ordersService.createManual({ customerName: params.customerName, phoneNumber: params.phoneNumber, quantity, unitPrice, deliveryFee: deliveryFee ?? 0, deliveryMethod: params.deliveryMethod ?? "pickup", paymentMethod: params.paymentMethod ?? "cod", location: params.location, address: params.address, preferredSchedule: params.preferredSchedule, status: params.status, items: items.length > 0 ? items : undefined, notes: params.notes });
+    // MCP-created orders do not include a delivery fee.
+    const deliveryFee = 0;
+    const order = await this.ordersService.createManual({ customerName: params.customerName, phoneNumber: params.phoneNumber, quantity, unitPrice, deliveryFee, deliveryMethod: params.deliveryMethod ?? "pickup", paymentMethod: params.paymentMethod ?? "cod", location: params.location, address: params.address, preferredSchedule: params.preferredSchedule, status: params.status, items: items.length > 0 ? items : undefined, notes: params.notes });
     return this.serializeOrder(order);
   }
 
