@@ -183,7 +183,15 @@ export class OrdersService {
     const trustedItems = dto.items !== undefined ? await this.resolveTrustedLineItems(dto.items) : undefined;
     const deliveryMethod = dto.deliveryMethod ?? existing.deliveryMethod;
     const dropoffAddress = [dto.address ?? existing.address, dto.location ?? existing.location].filter(Boolean).join(", ");
-    const deliveryFee = await this.resolveOrderDeliveryFee(deliveryMethod, dropoffAddress, dto.deliveryFee ?? existing.deliveryFee ?? 0);
+    // An explicit delivery fee from the edit form is authoritative. This is
+    // important for own-rider/manual orders where the operator may intentionally
+    // set the fee to 0. Only calculate a quote when the fee was not supplied.
+    const hasExplicitDeliveryFee = dto.deliveryFee !== undefined;
+    const deliveryFee = deliveryMethod === "pickup"
+      ? 0
+      : hasExplicitDeliveryFee
+        ? Math.max(0, Number(dto.deliveryFee ?? 0))
+        : await this.resolveOrderDeliveryFee(deliveryMethod, dropoffAddress, Number(existing.deliveryFee ?? 0));
     const discountAmount = dto.discountAmount ?? existing.discountAmount ?? 0; const quantity = dto.quantity ?? existing.quantity; const unitPrice = dto.unitPrice ?? Number(existing.unitPrice); const totalAmount = Math.max(0, quantity * unitPrice + deliveryFee - discountAmount);
     const order = await this.prisma.order.update({ where: { id }, data: { ...(dto.quantity !== undefined ? { quantity } : {}), ...(dto.unitPrice !== undefined ? { unitPrice } : {}), ...(deliveryMethod === "own_delivery" || dto.deliveryFee !== undefined ? { deliveryFee } : {}), ...(dto.discountAmount !== undefined ? { discountAmount } : {}), ...(dto.deliveryMethod !== undefined ? { deliveryMethod: dto.deliveryMethod } : {}), ...(dto.paymentMethod !== undefined ? { paymentMethod: dto.paymentMethod } : {}), ...(dto.location !== undefined ? { location: dto.location } : {}), ...(dto.address !== undefined ? { address: dto.address } : {}), ...(dto.preferredSchedule !== undefined ? { preferredSchedule: this.parsePreferredSchedule(dto.preferredSchedule) } : {}), ...(trustedItems !== undefined ? { items: trustedItems } : {}), ...(dto.notes !== undefined ? { notes: dto.notes } : {}), ...(dto.adLabel !== undefined ? { adLabel: dto.adLabel || null } : {}), ...(dto.customerName !== undefined || dto.phoneNumber !== undefined ? { customer: { update: { ...(dto.customerName !== undefined ? { name: dto.customerName } : {}), ...(dto.phoneNumber !== undefined ? { phoneNumber: dto.phoneNumber || null } : {}) } } } : {}), totalAmount }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } } });
     this.realtime.emit("orders.updated", order); return order;
