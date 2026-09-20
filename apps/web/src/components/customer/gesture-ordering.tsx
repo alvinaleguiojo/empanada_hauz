@@ -274,20 +274,22 @@ export default function GestureOrdering() {
             if (!isPinching && previous && now - swipeAt.current > 700) {
               const distance = Math.hypot(dx, dy);
 
-              if (distance > 90) {
-                swipeAt.current = now;
+              if (distance > 8) {
+                const vertical = Math.abs(dy) > Math.abs(dx) * 1.15;
+                const horizontal = Math.abs(dx) > 90 && Math.abs(dx) > Math.abs(dy) * 1.35;
 
-                if (Math.abs(dy) > Math.abs(dx) * 1.2) {
+                if (vertical) {
                   const formElement = document.getElementById("kiosk-order-form");
                   const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
                   const scrollTarget = step === 0 ? menuElement : formElement;
 
-                  scrollTarget?.scrollBy({
-                    top: dy > 0 ? 220 : -220,
-                    behavior: "smooth"
-                  });
-                  setMsg(dy > 0 ? "Scroll down" : "Scroll up");
-                } else if (Math.abs(dx) > 120 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+                  if (scrollTarget) {
+                    const maxStep = Math.min(90, Math.max(10, Math.abs(dy) * 1.8));
+                    scrollTarget.scrollTop += dy > 0 ? maxStep : -maxStep;
+                    setMsg(dy > 0 ? "Scrolling down" : "Scrolling up");
+                  }
+                } else if (horizontal) {
+                  swipeAt.current = now;
                   navigate(dx < 0 ? "next" : "prev");
                   setMsg(dx < 0 ? "Next step" : "Previous step");
                 }
