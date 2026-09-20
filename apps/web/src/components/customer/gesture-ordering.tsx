@@ -44,6 +44,7 @@ export default function GestureOrdering() {
   const pendingTouchDownStreak = useRef(0);
   const acceptedIsTouchDown = useRef(false);
   const statusRef = useRef("");
+  const cartSnapshot = useRef("");
   const angleDebounceFrames = 2;
   const hoverTimer = useRef<number | null>(null);
   const handMissingSince = useRef<number | null>(null);
@@ -104,6 +105,10 @@ export default function GestureOrdering() {
       count += quantity;
       total += quantity * item.price;
     });
+
+    const snapshot = JSON.stringify([next, count, total]);
+    if (cartSnapshot.current === snapshot) return;
+    cartSnapshot.current = snapshot;
 
     setSelected(next);
     setCartCount(count);
