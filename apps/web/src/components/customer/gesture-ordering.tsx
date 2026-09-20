@@ -195,6 +195,8 @@ export default function GestureOrdering() {
             if (!hand) {
               target.current = null;
               smoothPoint.current = null;
+              lastPoint.current = null;
+              swipeAt.current = 0;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -210,15 +212,16 @@ export default function GestureOrdering() {
             };
 
             const raw = target.current;
-            const previous = lastPoint.current;
-            const dx = previous ? raw.x - previous.x : 0;
-            const dy = previous ? raw.y - previous.y : 0;
-            lastPoint.current = raw;
-
             const currentSmooth = smoothPoint.current ?? raw;
+            const previousSmooth = smoothPoint.current;
+            const dx = previousSmooth ? raw.x - previousSmooth.x : 0;
+            const dy = previousSmooth ? raw.y - previousSmooth.y : 0;
+
+            const currentSmoothPoint = currentSmooth;
             const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.38;
             const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.38;
             smoothPoint.current = { x: sx, y: sy };
+            lastPoint.current = { x: sx, y: sy };
 
             const isPinching = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) < 0.055;
             const now = Date.now();
@@ -271,12 +274,14 @@ export default function GestureOrdering() {
               hoverTarget.current = null;
             }
 
-            if (!isPinching && previous && now - swipeAt.current > 700) {
-              const distance = Math.hypot(dx, dy);
+            if (!isPinching && previousSmooth && now - swipeAt.current > 700) {
+              const smoothDx = sx - previousSmooth.x;
+              const smoothDy = sy - previousSmooth.y;
+              const distance = Math.hypot(smoothDx, smoothDy);
 
               if (distance > 8) {
-                const vertical = Math.abs(dy) > Math.abs(dx) * 1.15;
-                const horizontal = Math.abs(dx) > 90 && Math.abs(dx) > Math.abs(dy) * 1.35;
+                const vertical = Math.abs(smoothDy) > Math.abs(smoothDx) * 1.15;
+                const horizontal = Math.abs(smoothDx) > 90 && Math.abs(smoothDx) > Math.abs(smoothDy) * 1.35;
 
                 if (vertical) {
                   const formElement = document.getElementById("kiosk-order-form");
@@ -284,14 +289,14 @@ export default function GestureOrdering() {
                   const scrollTarget = step === 0 ? menuElement : formElement;
 
                   if (scrollTarget) {
-                    const maxStep = Math.min(90, Math.max(10, Math.abs(dy) * 1.8));
-                    scrollTarget.scrollTop += dy > 0 ? maxStep : -maxStep;
-                    setMsg(dy > 0 ? "Scrolling down" : "Scrolling up");
+                    const scrollDelta = smoothDy * 2.35;
+                    scrollTarget.scrollTop += scrollDelta;
+                    setMsg(smoothDy > 0 ? "Scrolling down" : "Scrolling up");
                   }
                 } else if (horizontal) {
                   swipeAt.current = now;
-                  navigate(dx < 0 ? "next" : "prev");
-                  setMsg(dx < 0 ? "Next step" : "Previous step");
+                  navigate(smoothDx < 0 ? "next" : "prev");
+                  setMsg(smoothDx < 0 ? "Next step" : "Previous step");
                 }
               }
             }
@@ -445,7 +450,7 @@ export default function GestureOrdering() {
                     </div>
                   </div>
 
-                  <div className="eh-gesture-menu grid max-h-[calc(100vh-310px)] gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="eh-gesture-menu grid max-h-[calc(100vh-270px)] gap-4 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-2">
                     {activeItems.map((item) => {
                       const quantity = selected[item.value] ?? 0;
                       return (
@@ -453,15 +458,15 @@ export default function GestureOrdering() {
                           key={item.value}
                           className={`group relative overflow-hidden rounded-[22px] border backdrop-blur-xl transition ${quantity ? "border-[#E3A64B]/80 bg-[#21170d]/85" : "border-white/12 bg-[#17110b]/65"}`}
                         >
-                          <button type="button" onClick={() => clickFlavor(item.value)} className="block min-h-[145px] w-full text-left">
+                          <button type="button" onClick={() => clickFlavor(item.value)} className="block min-h-[210px] w-full text-left">
                             <div className="absolute inset-0">
                               {item.imageUrl ? <img src={item.imageUrl} alt="" className="h-full w-full object-cover opacity-55 transition duration-300 group-hover:scale-105" /> : null}
                               <div className="absolute inset-0 bg-gradient-to-t from-[#110c08] via-[#110c08]/45 to-transparent" />
                             </div>
-                            <div className="relative flex min-h-[145px] flex-col justify-end p-4">
+                            <div className="relative flex min-h-[210px] flex-col justify-end p-5">
                               <div className="flex items-end justify-between gap-3">
                                 <div>
-                                  <div className="font-[family-name:var(--font-display)] text-xl font-extrabold text-white">{item.value}</div>
+                                  <div className="font-[family-name:var(--font-display)] text-2xl font-extrabold text-white">{item.value}</div>
                                   <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-bold text-[#E3A64B]">₱{item.price}</div>
                                 </div>
                                 {quantity > 0 ? (
