@@ -309,29 +309,17 @@ export default function GestureOrdering() {
               cursorElement.style.opacity = "1";
             }
 
-            const hit = document.elementFromPoint(next.x, next.y) as HTMLElement | null;
-            const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label") ?? null;
-            if (interactive !== hovered.current && touchMode.current === "hover") {
-              if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
-              hoverTimer.current = window.setTimeout(() => {
-                if (hovered.current) {
-                  hovered.current.style.outline = "";
-                  hovered.current.style.outlineOffset = "";
-                }
-                hovered.current = interactive;
-                hoverFocusAt.current = performance.now();
-                if (interactive) {
-                  interactive.style.outline = "3px solid rgba(227,166,75,.95)";
-                  interactive.style.outlineOffset = "4px";
-                }
-              }, 45);
-            }
             const focus = document.getElementById("eh-gesture-focus");
             if (focus) {
-              const elapsed = hovered.current && touchMode.current === "hover" ? performance.now() - hoverFocusAt.current : 0;
-              const progress = Math.min(1, elapsed / 720);
-              focus.style.opacity = hovered.current && touchMode.current === "hover" ? "1" : "0";
-              focus.style.transform = "scale(" + (0.7 + progress * 0.3) + ") rotate(" + (progress * 360) + "deg)";
+              const isDwellActive =
+                Boolean(hovered.current) &&
+                hovered.current === dwellTarget.current &&
+                dwellStartedAt.current > 0;
+              const elapsed = isDwellActive ? performance.now() - dwellStartedAt.current : 0;
+              const progress = Math.min(1, Math.max(0, elapsed / dwellDuration));
+              focus.style.opacity = isDwellActive ? "1" : "0";
+              focus.style.transform =
+                "scale(" + (0.7 + progress * 0.3) + ") rotate(" + (progress * 360) + "deg)";
             }
           }
 
