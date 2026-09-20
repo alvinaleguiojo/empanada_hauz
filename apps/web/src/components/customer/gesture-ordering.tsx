@@ -220,8 +220,8 @@ export default function GestureOrdering() {
             const currentSmooth = smoothPoint.current ?? raw;
             const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.38;
             const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.38;
+            const previousPoint = lastPoint.current;
             smoothPoint.current = { x: sx, y: sy };
-            lastPoint.current = { x: sx, y: sy };
 
             const now = Date.now();
             const indexMcp = hand[5];
@@ -287,9 +287,9 @@ export default function GestureOrdering() {
                 window.setTimeout(syncCart, 50);
               }
               resetTap();
-            } else if (!isTapDown && lastPoint.current) {
-              const moveX = sx - lastPoint.current.x;
-              const moveY = sy - lastPoint.current.y;
+            } else if (!isTapDown && previousPoint) {
+              const moveX = sx - previousPoint.x;
+              const moveY = sy - previousPoint.y;
               const movement = Math.hypot(moveX, moveY);
               const horizontal = Math.abs(moveX) > Math.abs(moveY) * 1.35;
               const vertical = Math.abs(moveY) > Math.abs(moveX) * 1.1;
@@ -304,6 +304,8 @@ export default function GestureOrdering() {
                 setMsg("Move");
               }
             }
+
+            lastPoint.current = { x: sx, y: sy };
 
           const wanted = smoothPoint.current;
           if (wanted) {
