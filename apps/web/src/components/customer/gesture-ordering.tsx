@@ -1,152 +1,501 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Camera, Hand, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Camera, Check, ChevronLeft, ChevronRight, Hand, Minus, Plus, ShoppingBag, Sparkles, X } from "lucide-react";
+import { MENU_ITEMS } from "@/lib/menu";
 
-const MODEL="https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
-const WASM="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm";
+const MODEL = "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
+const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm";
 
-export default function GestureOrdering(){
-  const [on,setOn]=useState(false),[msg,setMsg]=useState("Move your finger naturally; pinch to select"),[keyboard,setKeyboard]=useState(false);
-  const video=useRef<HTMLVideoElement>(null), canvas=useRef<HTMLCanvasElement>(null), recognizer=useRef<any>(null), stream=useRef<MediaStream|null>(null), raf=useRef<number|null>(null), last=useRef(0), cursorX=useRef<number|null>(null), cursorY=useRef<number|null>(null), clickAt=useRef(0), lastX=useRef<number|null>(null), lastY=useRef<number|null>(null), swipeAt=useRef(0),pinchAt=useRef(false),pinchStart=useRef<{x:number;y:number}|null>(null),pinchMoved=useRef(false),hovered=useRef<HTMLElement|null>(null);
+type Point = { x: number; y: number };
 
-  useEffect(()=>{if(!on)return;let dead=false;const orderForm=document.getElementById("kiosk-order-form");orderForm?.classList.add("eh-gesture-order-form");document.documentElement.classList.add("eh-gesture-active");
-    (async()=>{
-      try{
-        const v=await import("@mediapipe/tasks-vision"), files=await v.FilesetResolver.forVisionTasks(WASM);
-        const r=await v.GestureRecognizer.createFromOptions(files,{baseOptions:{modelAssetPath:MODEL},runningMode:"VIDEO",numHands:1,minHandDetectionConfidence:.55,minHandPresenceConfidence:.55,minTrackingConfidence:.55});
-        if(dead){r.close();return} recognizer.current=r;
-        const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:false});
-        if(dead){s.getTracks().forEach(t=>t.stop());return} stream.current=s;
-        const el=video.current;if(!el)return;el.srcObject=s;await el.play();
-        const loop=(t:number)=>{if(dead)return;raf.current=requestAnimationFrame(loop);if(!el.videoWidth||t-last.current<33)return;last.current=t;
-          const res=r.recognizeForVideo(el,t),hand=res.landmarks?.[0];draw(hand||[]);
-          if(!hand){setMsg("Show your hand");lastX.current=null;lastY.current=null;cursorX.current=null;cursorY.current=null;if(hovered.current){hovered.current.style.outline="";hovered.current=null}return}
-          const p=hand[8],x=(1-p.x)*innerWidth,y=p.y*innerHeight;
-          const sx=cursorX.current===null?x:cursorX.current+(x-cursorX.current)*.32;
-          const sy=cursorY.current===null?y:cursorY.current+(y-cursorY.current)*.32;
-          cursorX.current=sx;cursorY.current=sy;
-          const cur=document.getElementById("eh-gesture-cursor");
-          if(cur){cur.style.transform=`translate3d(${sx}px,${sy}px,0)`;cur.style.opacity="1"}
-          const pinch=Math.hypot(hand[4].x-hand[8].x,hand[4].y-hand[8].y)<.055;
-          const g=res.gestures?.[0]?.[0]?.categoryName?.replaceAll("_"," ")||"Tracking";
-          const now=Date.now();
-          const dx=lastX.current===null?0:p.x-lastX.current;
-          const dy=lastY.current===null?0:p.y-lastY.current;
-          const verticalMove=Math.abs(dy)>.006&&Math.abs(dy)>Math.abs(dx)*1.05;
+export default function GestureOrdering() {
+  const [on, setOn] = useState(false);
+  const [msg, setMsg] = useState("Point at a flavor");
+  const [step, setStep] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
+  const [cartTotal, setCartTotal] = useState(0);
+  const [selected, setSelected] = useState<Record<string, number>>({});
 
-          // Finger = cursor. Highlight the exact interactive element underneath it.
-          const target=document.elementFromPoint(sx,sy) as HTMLElement|null;
-          const nextHover=target?.closest<HTMLElement>("button,a,input,textarea,select,label");
-          if(nextHover!==hovered.current){
-            if(hovered.current) hovered.current.style.outline="";
-            hovered.current=nextHover||null;
-            if(hovered.current){
-              hovered.current.style.outline="3px solid #E3A64B";
-              hovered.current.style.outlineOffset="3px";
+  const video = useRef<HTMLVideoElement>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const recognizer = useRef<any>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const raf = useRef<number | null>(null);
+  const inferAt = useRef(0);
+  const target = useRef<Point | null>(null);
+  const cursor = useRef<Point | null>(null);
+  const lastPoint = useRef<Point | null>(null);
+  const pinch = useRef(false);
+  const pinchStart = useRef<Point | null>(null);
+  const pinchMoved = useRef(false);
+  const pinchAt = useRef(0);
+  const swipeAt = useRef(0);
+  const hovered = useRef<HTMLElement | null>(null);
+
+  const activeItems = useMemo(
+    () => MENU_ITEMS.filter((item) => item.available !== false),
+    []
+  );
+
+  const syncCart = () => {
+    const form = document.getElementById("kiosk-order-form");
+    if (!form) return;
+    const next: Record<string, number> = {};
+    let count = 0;
+    let total = 0;
+
+    form.querySelectorAll<HTMLInputElement>('input[aria-label$=" quantity"]').forEach((input) => {
+      const name = input.getAttribute("aria-label")?.replace(/ quantity$/, "") ?? "";
+      const quantity = Math.max(0, Number(input.value || 0));
+      if (!name || quantity < 1) return;
+      const item = MENU_ITEMS.find((entry) => entry.label === name || entry.value === name);
+      if (!item) return;
+      next[item.value] = quantity;
+      count += quantity;
+      total += quantity * item.price;
+    });
+
+    setSelected(next);
+    setCartCount(count);
+    setCartTotal(total);
+  };
+
+  const clickFlavor = (value: string) => {
+    const form = document.getElementById("kiosk-order-form");
+    if (!form) return;
+    const buttons = Array.from(form.querySelectorAll<HTMLButtonElement>("article button"));
+    const button = buttons.find((item) => item.textContent?.includes(value));
+    button?.click();
+    window.setTimeout(syncCart, 40);
+  };
+
+  const changeQuantity = (value: string, delta: number) => {
+    const form = document.getElementById("kiosk-order-form");
+    if (!form) return;
+    const input = Array.from(form.querySelectorAll<HTMLInputElement>("input")).find((item) =>
+      item.getAttribute("aria-label")?.replace(/ quantity$/, "") === value
+    );
+    if (!input) return;
+
+    const buttons = Array.from(input.closest("div")?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+    const button = delta > 0
+      ? buttons.find((item) => item.getAttribute("aria-label")?.startsWith("Increase"))
+      : buttons.find((item) => item.getAttribute("aria-label")?.startsWith("Decrease"));
+    button?.click();
+    window.setTimeout(syncCart, 40);
+  };
+
+  const navigate = (direction: "next" | "prev") => {
+    const selector = direction === "next" ? "[data-gesture-next]" : "[data-gesture-prev]";
+    const button = document.querySelector<HTMLElement>(selector);
+    if (!button || button.getAttribute("disabled") !== null) return;
+    button.click();
+    window.setTimeout(() => {
+      const text = document.querySelector("#kiosk-order-form h2")?.textContent?.toLowerCase() ?? "";
+      setStep(text.includes("almost") || text.includes("review") ? 2 : text.includes("how should") ? 1 : 0);
+      syncCart();
+    }, 50);
+  };
+
+  useEffect(() => {
+    if (!on) return;
+    const form = document.getElementById("kiosk-order-form");
+    form?.classList.add("eh-gesture-order-form");
+    document.documentElement.classList.add("eh-gesture-active");
+
+    const interval = window.setInterval(syncCart, 250);
+    syncCart();
+
+    let dead = false;
+
+    (async () => {
+      try {
+        const vision = await import("@mediapipe/tasks-vision");
+        const files = await vision.FilesetResolver.forVisionTasks(WASM);
+        const r = await vision.GestureRecognizer.createFromOptions(files, {
+          baseOptions: { modelAssetPath: MODEL },
+          runningMode: "VIDEO",
+          numHands: 1,
+          minHandDetectionConfidence: 0.55,
+          minHandPresenceConfidence: 0.55,
+          minTrackingConfidence: 0.55
+        });
+
+        if (dead) {
+          r.close();
+          return;
+        }
+
+        recognizer.current = r;
+        const s = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+
+        if (dead) {
+          s.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        stream.current = s;
+        const el = video.current;
+        if (!el) return;
+        el.srcObject = s;
+        await el.play();
+
+        const draw = (points: any[]) => {
+          const c = canvas.current;
+          if (!c) return;
+          const width = c.clientWidth;
+          const height = c.clientHeight;
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          c.width = width * dpr;
+          c.height = height * dpr;
+          const ctx = c.getContext("2d");
+          if (!ctx) return;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.clearRect(0, 0, width, height);
+
+          const lines = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+          ctx.strokeStyle = "rgba(246,239,221,.72)";
+          ctx.lineWidth = 1.5;
+          lines.forEach(([a,b]) => {
+            const p = points[a], q = points[b];
+            if (!p || !q) return;
+            ctx.beginPath();
+            ctx.moveTo((1 - p.x) * width, p.y * height);
+            ctx.lineTo((1 - q.x) * width, q.y * height);
+            ctx.stroke();
+          });
+          points.forEach((p) => {
+            ctx.beginPath();
+            ctx.arc((1 - p.x) * width, p.y * height, 2.2, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(227,166,75,.9)";
+            ctx.fill();
+          });
+        };
+
+        const loop = (time: number) => {
+          if (dead) return;
+          raf.current = requestAnimationFrame(loop);
+
+          const t = performance.now();
+          if (el.videoWidth && t - inferAt.current >= 33) {
+            inferAt.current = t;
+            const result = r.recognizeForVideo(el, t);
+            const hand = result.landmarks?.[0];
+            draw(hand ?? []);
+
+            if (!hand) {
+              target.current = null;
+              setMsg("Show your hand to start");
+              if (hovered.current) {
+                hovered.current.style.outline = "";
+                hovered.current = null;
+              }
+              return;
             }
-          }
 
-          setMsg(g+" · "+(pinch?(pinchMoved.current?"drag to scroll":"release to select"):verticalMove?"move to scroll":"move finger"));
+            const index = hand[8];
+            target.current = {
+              x: (1 - index.x) * window.innerWidth,
+              y: index.y * window.innerHeight
+            };
 
-          // Pinch acts like a touchscreen press. Drag vertically while pinched
-          // to scroll; release without moving to perform a normal tap/click.
-          if(pinch&&!pinchAt.current){
-            pinchAt.current=true;
-            pinchStart.current={x:sx,y:sy};
-            pinchMoved.current=false;
-            clickAt.current=now;
-          } else if(pinch&&pinchAt.current&&pinchStart.current){
-            const moveX=sx-pinchStart.current.x;
-            const moveY=sy-pinchStart.current.y;
-            if(Math.hypot(moveX,moveY)>14)pinchMoved.current=true;
-            if(pinchMoved.current&&Math.abs(moveY)>Math.abs(moveX)*.8){
-              (orderForm ?? document.documentElement).scrollBy({top:-(sy-(lastY.current===null?sy:lastY.current*innerHeight))*1.35,behavior:"auto"});
+            const sx = target.current.x;
+            const sy = target.current.y;
+            const previous = lastPoint.current;
+            const dx = previous ? sx - previous.x : 0;
+            const dy = previous ? sy - previous.y : 0;
+            lastPoint.current = { x: sx, y: sy };
+
+            const isPinching = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) < 0.055;
+            const now = Date.now();
+
+            if (isPinching && !pinch.current) {
+              pinch.current = true;
+              pinchStart.current = { x: sx, y: sy };
+              pinchMoved.current = false;
+              pinchAt.current = now;
             }
-          } else if(!pinch&&pinchAt.current){
-            const wasMoved=pinchMoved.current;
-            pinchAt.current=false;
-            pinchStart.current=null;
-            pinchMoved.current=false;
-            if(!wasMoved&&now-clickAt.current>80){
-              const clickTarget=document.elementFromPoint(sx,sy) as HTMLElement|null;
-              const el2=clickTarget?.closest<HTMLElement>("button,a,input,textarea,select,label");
-              if(el2){
-                el2.click();
-                el2.style.transform="scale(.96)";
-                window.setTimeout(()=>{el2.style.transform=""},180);
-                if(el2 instanceof HTMLInputElement||el2 instanceof HTMLTextAreaElement){el2.focus();setKeyboard(true)}
+
+            if (isPinching && pinch.current && pinchStart.current) {
+              const moveX = sx - pinchStart.current.x;
+              const moveY = sy - pinchStart.current.y;
+              if (Math.hypot(moveX, moveY) > 18) pinchMoved.current = true;
+
+              if (pinchMoved.current && Math.abs(moveY) > Math.abs(moveX) * 0.8) {
+                const formElement = document.getElementById("kiosk-order-form");
+                formElement?.scrollBy({ top: -dy * 1.7, behavior: "auto" });
+                setMsg("Dragging · release to stop");
+              } else {
+                setMsg("Pinch held · release to select");
+              }
+            }
+
+            if (!isPinching && pinch.current) {
+              const wasMoved = pinchMoved.current;
+              pinch.current = false;
+              pinchStart.current = null;
+              pinchMoved.current = false;
+
+              if (!wasMoved && now - pinchAt.current > 90) {
+                const hit = document.elementFromPoint(sx, sy) as HTMLElement | null;
+                const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label");
+                interactive?.click();
+                if (interactive) {
+                  interactive.animate(
+                    [{ transform: "scale(1)" }, { transform: "scale(.94)" }, { transform: "scale(1)" }],
+                    { duration: 180, easing: "ease-out" }
+                  );
+                  setMsg("Selected");
+                  window.setTimeout(syncCart, 50);
+                }
+              }
+            }
+
+            if (!isPinching && previous && Math.abs(dx) > 120 && Math.abs(dx) > Math.abs(dy) * 1.35 && now - swipeAt.current > 1000) {
+              swipeAt.current = now;
+              navigate(dx < 0 ? "next" : "prev");
+              setMsg(dx < 0 ? "Next step" : "Previous step");
+            }
+
+            const hit = document.elementFromPoint(sx, sy) as HTMLElement | null;
+            const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label");
+            if (interactive !== hovered.current) {
+              if (hovered.current) hovered.current.style.outline = "";
+              hovered.current = interactive;
+              if (interactive) {
+                interactive.style.outline = "2px solid rgba(227,166,75,.95)";
+                interactive.style.outlineOffset = "3px";
               }
             }
           }
 
-          // Horizontal swipe remains navigation, but never while dragging.
-          if(!pinch&&lastX.current!==null&&Math.abs(dx)>.22&&Math.abs(dx)>Math.abs(dy)*1.25&&now-swipeAt.current>1200){
-            swipeAt.current=now;
-            const selector=dx<0?"[data-gesture-next]":"[data-gesture-prev]";
-            (document.querySelector(selector) as HTMLElement|null)?.click();
+          const wanted = target.current;
+          if (wanted) {
+            const current = cursor.current ?? wanted;
+            const next = {
+              x: current.x + (wanted.x - current.x) * 0.28,
+              y: current.y + (wanted.y - current.y) * 0.28
+            };
+            cursor.current = next;
+            const cursorElement = document.getElementById("eh-gesture-cursor");
+            if (cursorElement) {
+              cursorElement.style.transform = `translate3d(${next.x}px,${next.y}px,0)`;
+              cursorElement.style.opacity = "1";
+            }
           }
-          lastX.current=p.x;
-          lastY.current=p.y;
-        };raf.current=requestAnimationFrame(loop);
-      }catch(e){setMsg(e instanceof Error?e.message:"Camera/gesture setup failed")}
-    })();
-    const draw=(pts:any[])=>{const c=canvas.current;if(!c)return;const w=c.clientWidth,h=c.clientHeight,d=devicePixelRatio;c.width=w*d;c.height=h*d;const ctx=c.getContext("2d");if(!ctx)return;ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,w,h);
-      const lines=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-      ctx.strokeStyle="#E3A64B";ctx.lineWidth=2;lines.forEach(([a,b])=>{const p=pts[a],q=pts[b];if(!p||!q)return;ctx.beginPath();ctx.moveTo((1-p.x)*w,p.y*h);ctx.lineTo((1-q.x)*w,q.y*h);ctx.stroke()});pts.forEach(p=>{ctx.beginPath();ctx.arc((1-p.x)*w,p.y*h,3,0,Math.PI*2);ctx.fillStyle="#F6EFDD";ctx.fill()});
-    };
-    return()=>{dead=true;if(raf.current)cancelAnimationFrame(raf.current);recognizer.current?.close();stream.current?.getTracks().forEach(t=>t.stop());recognizer.current=null;stream.current=null;orderForm?.classList.remove("eh-gesture-order-form");document.documentElement.classList.remove("eh-gesture-active");if(hovered.current){hovered.current.style.outline="";hovered.current=null}};
-  },[on]);
 
-  useEffect(()=>{if(!on)return;const f=(e:FocusEvent)=>{const t=e.target;setKeyboard(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement)};document.addEventListener("focusin",f);return()=>document.removeEventListener("focusin",f)},[on]);
+          const pulse = document.getElementById("eh-gesture-pulse");
+          if (pulse) {
+            pulse.style.transform = `scale(${1 + Math.sin(performance.now() / 480) * 0.08})`;
+          }
+        };
 
-  const typeKey=(key:string)=>{const t=document.activeElement;if(!(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement))return;const a=t.selectionStart??t.value.length,b=t.selectionEnd??t.value.length,v=key==="⌫"?t.value.slice(0,Math.max(0,a-1))+t.value.slice(b):t.value.slice(0,a)+key+t.value.slice(b);const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(t),"value")?.set;setter?.call(t,v);t.dispatchEvent(new Event("input",{bubbles:true}));t.dispatchEvent(new Event("change",{bubbles:true}));const pos=key==="⌫"?Math.max(0,a-1):a+key.length;t.setSelectionRange(pos,pos)};
-
-  return <><button type="button" onClick={()=>setOn(true)} className="fixed bottom-5 left-5 z-[70] inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/40 bg-[#241c13]/95 px-4 py-3 text-sm font-extrabold text-[#F6EFDD] shadow-2xl"><Hand size={17} className="text-[#E3A64B]"/> Gesture Order</button>
-  {on&&<div className="pointer-events-none fixed inset-0 z-[60]">
-    <div className="pointer-events-auto absolute inset-3 overflow-hidden rounded-3xl border border-white/15 bg-black/90 shadow-2xl sm:inset-5">
-      <div className="relative h-full w-full bg-black">
-        <video ref={video} muted playsInline className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"/>
-        <canvas ref={canvas} className="absolute inset-0 h-full w-full"/>
-        <div className="absolute inset-x-0 top-0 z-[68] flex items-center justify-between gap-3 bg-gradient-to-b from-black/80 to-transparent p-4 sm:p-5">
-          <div><div className="flex items-center gap-2 text-sm font-extrabold text-white"><Camera size={17} className="text-[#E3A64B]"/> GESTURE ORDER</div><div className="mt-1 text-xs text-white/65">{msg}</div></div>
-          <button type="button" onClick={()=>setOn(false)} className="pointer-events-auto grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/20 bg-black/50 text-white"><X size={19}/></button>
-        </div>
-        <div className="absolute bottom-4 left-4 z-[68] rounded-xl border border-white/15 bg-black/55 px-3 py-2 text-[11px] text-white/75 sm:bottom-5 sm:left-5 sm:text-xs">☝ Move · 🤏 pinch = click · 🤏 drag = scroll · ←/→ swipe = navigate</div>
-      </div>
-    </div>
-    <div id="eh-gesture-cursor" className="absolute left-0 top-0 h-9 w-9 -ml-4.5 -mt-4.5 rounded-full border-2 border-[#E3A64B] bg-[#E3A64B]/30 shadow-[0_0_0_8px_rgba(227,166,75,.15)]"/>
-    {keyboard&&<div className="pointer-events-auto absolute bottom-4 left-1/2 z-[75] w-[min(700px,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#17110b]/95 p-3 shadow-2xl"><div className="mb-2 flex justify-between text-xs text-white/50"><span>Point at a key and pinch</span><button type="button" onClick={()=>setKeyboard(false)} className="text-[#E3A64B]">Done</button></div><div className="grid grid-cols-10 gap-1">{[..."1234567890QWERTYUIOPASDFGHJKLZXCVBNM"].map(k=><button type="button" key={k} onClick={()=>typeKey(k)} className="min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">{k}</button>)}<button type="button" onClick={()=>typeKey(" ")} className="col-span-7 min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">SPACE</button><button type="button" onClick={()=>typeKey("⌫")} className="col-span-3 min-h-10 rounded-lg border border-[#E3A64B]/20 bg-[#E3A64B]/10 text-xs font-bold text-[#E3A64B]">DELETE</button></div></div>}
-    <div className="absolute bottom-5 right-5 z-[68] rounded-xl border border-white/10 bg-[#17110b]/85 px-3 py-2 text-[11px] text-white/60">☝ Move · 🤏 pinch = click · 🤏 drag = scroll · ←/→ swipe = navigate</div>
-  </div>}
-  <style jsx global>{`
-    html.eh-gesture-active { overflow: hidden; }
-    form.eh-gesture-order-form {
-      position: fixed !important;
-      z-index: 65 !important;
-      top: 76px !important;
-      right: 18px !important;
-      bottom: 74px !important;
-      left: 18px !important;
-      width: auto !important;
-      max-width: none !important;
-      margin: 0 !important;
-      overflow: auto !important;
-      overscroll-behavior: contain;
-      scrollbar-width: thin;
-      background: transparent !important;
-    }
-    form.eh-gesture-order-form > section {
-      background: rgba(32,24,15,.78) !important;
-      backdrop-filter: blur(8px);
-    }
-    @media (max-width: 640px) {
-      form.eh-gesture-order-form {
-        top: 72px !important;
-        right: 10px !important;
-        bottom: 64px !important;
-        left: 10px !important;
+        raf.current = requestAnimationFrame(loop);
+      } catch (error) {
+        setMsg(error instanceof Error ? error.message : "Camera setup failed");
       }
-    }
-  `}</style></> ;
+    })();
+
+    return () => {
+      dead = true;
+      window.clearInterval(interval);
+      if (raf.current) cancelAnimationFrame(raf.current);
+      recognizer.current?.close();
+      stream.current?.getTracks().forEach((track) => track.stop());
+      recognizer.current = null;
+      stream.current = null;
+      form?.classList.remove("eh-gesture-order-form");
+      document.documentElement.classList.remove("eh-gesture-active");
+      if (hovered.current) {
+        hovered.current.style.outline = "";
+        hovered.current = null;
+      }
+    };
+  }, [on]);
+
+  useEffect(() => {
+    if (!on) return;
+    const timer = window.setInterval(() => {
+      const title = document.querySelector("#kiosk-order-form h2")?.textContent?.toLowerCase() ?? "";
+      setStep(title.includes("almost") ? 2 : title.includes("how should") ? 1 : 0);
+      syncCart();
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [on]);
+
+  const close = () => setOn(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOn(true)}
+        className="fixed bottom-5 left-5 z-[70] inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/40 bg-[#17110b]/95 px-4 py-3 text-sm font-extrabold text-[#F6EFDD] shadow-2xl backdrop-blur"
+      >
+        <Hand size={17} className="text-[#E3A64B]" />
+        Gesture Order
+      </button>
+
+      {on ? (
+        <div className="fixed inset-0 z-[60] bg-[#090705]">
+          <div className="absolute inset-0 overflow-hidden">
+            <video ref={video} muted playsInline className="absolute inset-0 h-full w-full scale-x-[-1] object-cover opacity-75" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,transparent_0%,rgba(9,7,5,.22)_42%,rgba(9,7,5,.82)_100%)]" />
+            <canvas ref={canvas} className="absolute inset-0 h-full w-full" />
+
+            <header className="absolute inset-x-0 top-0 z-[80] flex items-center justify-between px-4 py-4 sm:px-7 sm:py-6">
+              <div className="flex items-center gap-3">
+                <div className="grid h-11 w-11 place-items-center rounded-2xl border border-white/15 bg-black/35 backdrop-blur-xl">
+                  <Sparkles size={19} className="text-[#E3A64B]" />
+                </div>
+                <div>
+                  <div className="font-[family-name:var(--font-display)] text-lg font-extrabold text-white">Empanada Hauz</div>
+                  <div className="text-[10px] font-bold uppercase tracking-[.2em] text-white/45">Gesture ordering</div>
+                </div>
+              </div>
+              <button type="button" onClick={close} className="grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-black/35 text-white backdrop-blur-xl">
+                <X size={19} />
+              </button>
+            </header>
+
+            <div className="absolute left-1/2 top-20 z-[70] -translate-x-1/2 rounded-full border border-white/12 bg-black/35 px-4 py-2 text-[11px] font-semibold text-white/70 backdrop-blur-xl sm:top-24">
+              {msg}
+            </div>
+
+            {step === 0 ? (
+              <section className="absolute inset-x-0 top-32 bottom-28 z-[70] flex flex-col px-4 sm:top-36 sm:px-8">
+                <div className="mx-auto w-full max-w-6xl">
+                  <div className="mb-4 flex items-end justify-between gap-4">
+                    <div>
+                      <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
+                      <div className="mt-1 text-sm text-white/55">Point at a card · pinch and release to add</div>
+                    </div>
+                    <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
+                      <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
+                      <div className="font-[family-name:var(--font-mono)] text-sm font-bold text-white">10 pcs</div>
+                    </div>
+                  </div>
+
+                  <div className="eh-gesture-menu grid max-h-[calc(100vh-310px)] gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                    {activeItems.map((item) => {
+                      const quantity = selected[item.value] ?? 0;
+                      return (
+                        <div
+                          key={item.value}
+                          className={`group relative overflow-hidden rounded-[22px] border backdrop-blur-xl transition ${quantity ? "border-[#E3A64B]/80 bg-[#21170d]/85" : "border-white/12 bg-[#17110b]/65"}`}
+                        >
+                          <button type="button" onClick={() => clickFlavor(item.value)} className="block min-h-[145px] w-full text-left">
+                            <div className="absolute inset-0">
+                              {item.imageUrl ? <img src={item.imageUrl} alt="" className="h-full w-full object-cover opacity-55 transition duration-300 group-hover:scale-105" /> : null}
+                              <div className="absolute inset-0 bg-gradient-to-t from-[#110c08] via-[#110c08]/45 to-transparent" />
+                            </div>
+                            <div className="relative flex min-h-[145px] flex-col justify-end p-4">
+                              <div className="flex items-end justify-between gap-3">
+                                <div>
+                                  <div className="font-[family-name:var(--font-display)] text-xl font-extrabold text-white">{item.value}</div>
+                                  <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-bold text-[#E3A64B]">₱{item.price}</div>
+                                </div>
+                                {quantity > 0 ? (
+                                  <span className="grid h-9 min-w-9 place-items-center rounded-full bg-[#E3A64B] px-2 font-[family-name:var(--font-mono)] text-xs font-extrabold text-[#20160d]">
+                                    {quantity}
+                                  </span>
+                                ) : (
+                                  <span className="grid h-9 w-9 place-items-center rounded-full border border-white/15 bg-black/25 text-white/70"><Plus size={17} /></span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                          {quantity > 0 ? (
+                            <div className="absolute right-3 top-3 flex items-center overflow-hidden rounded-full border border-white/15 bg-black/60 backdrop-blur-xl">
+                              <button type="button" aria-label={`Decrease ${item.value}`} onClick={() => changeQuantity(item.value, -1)} className="grid h-9 w-9 place-items-center text-white/75"><Minus size={14} /></button>
+                              <span className="w-7 text-center font-[family-name:var(--font-mono)] text-xs font-bold text-white">{quantity}</span>
+                              <button type="button" aria-label={`Increase ${item.value}`} onClick={() => changeQuantity(item.value, 1)} className="grid h-9 w-9 place-items-center text-[#E3A64B]"><Plus size={14} /></button>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </section>
+            ) : (
+              <section className="absolute inset-x-0 top-28 bottom-24 z-[65] flex items-center justify-center px-3 sm:px-8">
+                <div className="eh-gesture-detail-shell w-full max-w-3xl rounded-[28px] border border-white/15 bg-[#17110b]/72 p-2 shadow-2xl backdrop-blur-2xl">
+                  <div className="max-h-[calc(100vh-190px)] overflow-hidden rounded-[22px]">
+                    <div className="eh-gesture-real-form">{/* The live form is visually surfaced here by CSS. */}</div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            <div id="eh-gesture-cursor" className="pointer-events-none absolute left-0 top-0 z-[95] h-8 w-8 -ml-4 -mt-4 rounded-full border-2 border-[#F6EFDD] bg-[#E3A64B]/35 shadow-[0_0_0_7px_rgba(227,166,75,.18),0_0_24px_rgba(227,166,75,.65)] opacity-0">
+              <div id="eh-gesture-pulse" className="absolute inset-[-5px] rounded-full border border-[#E3A64B]/45" />
+              <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
+            </div>
+
+            <footer className="absolute inset-x-0 bottom-0 z-[80] flex items-center justify-between gap-3 border-t border-white/10 bg-black/45 px-4 py-3 backdrop-blur-2xl sm:px-7">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/5">
+                  <ShoppingBag size={18} className="text-[#E3A64B]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-[family-name:var(--font-mono)] text-sm font-bold text-white">{cartCount} pcs · ₱{cartTotal}</div>
+                  <div className="text-[10px] text-white/45">Your order updates live</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => navigate("prev")} className="grid h-12 w-12 place-items-center rounded-2xl border border-white/12 bg-white/5 text-white/70 backdrop-blur-xl">
+                  <ChevronLeft size={19} />
+                </button>
+                <button type="button" onClick={() => navigate("next")} disabled={step === 0 && cartCount < 10} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[#E3A64B] px-5 font-extrabold text-[#20160d] shadow-lg disabled:cursor-not-allowed disabled:opacity-35">
+                  {step === 2 ? "Place order" : "Continue"} <ChevronRight size={18} />
+                </button>
+              </div>
+            </footer>
+
+            <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
+              ☝ Move · 🤏 Pinch = select · 🤏 Drag = scroll · ← → Swipe
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <style jsx global>{`
+        html.eh-gesture-active { overflow: hidden; }
+
+        form.eh-gesture-order-form {
+          position: fixed !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 1px !important;
+          height: 1px !important;
+          max-width: none !important;
+          overflow: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+          z-index: -1 !important;
+        }
+
+        .eh-gesture-detail-shell .eh-gesture-real-form { display: none; }
+
+        html.eh-gesture-active #kiosk-order-form {
+          visibility: hidden !important;
+        }
+
+        .eh-gesture-menu { scrollbar-width: thin; scrollbar-color: rgba(227,166,75,.45) transparent; }
+        .eh-gesture-menu::-webkit-scrollbar { width: 5px; }
+        .eh-gesture-menu::-webkit-scrollbar-thumb { background: rgba(227,166,75,.45); border-radius: 999px; }
+
+        @media (max-width: 640px) {
+          .eh-gesture-menu { grid-template-columns: 1fr; }
+          .eh-gesture-menu > div { min-height: 132px; }
+        }
+      `}</style>
+    </>
+  );
 }
