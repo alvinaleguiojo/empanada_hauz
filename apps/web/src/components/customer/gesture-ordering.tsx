@@ -229,21 +229,23 @@ export default function GestureOrdering() {
             const isPinching = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) < 0.055;
             const now = Date.now();
 
-            // Select with a true index-finger "air tap": move the fingertip
-            // toward the camera (z-axis) while keeping the cursor over an item.
-            // This avoids using vertical movement for selection, so up/down
-            // movement remains dedicated to scrolling.
-            const indexDepth = hand[8].z - hand[6].z;
-            const tapThreshold = -0.045;
-            if (!isPinching && now - tapCooldownAt.current > 450) {
-              if (indexDepth < tapThreshold && !tapActive.current) {
-                const cursorTarget = document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
-                  "button,a,input,textarea,select,label"
-                ) ?? hovered.current;
+            // Select with a simple air-tap: a short down/up movement of the
+            // index fingertip. Larger vertical movement is reserved for scrolling.
+            const tapDy = previousSmooth ? sy - previousSmooth.y : 0;
+            const tapTarget = () =>
+              document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
+                "button,a,input,textarea,select,label"
+              ) ?? hovered.current;
 
-                if (cursorTarget) {
-                  cursorTarget.click();
-                  cursorTarget.animate(
+            if (!isPinching && now - tapCooldownAt.current > 350) {
+              if (!tapActive.current && tapDy > 3) {
+                tapActive.current = true;
+              } else if (tapActive.current && tapDy < -3) {
+                const tapTargetElement = tapTarget();
+
+                if (tapTargetElement) {
+                  tapTargetElement.click();
+                  tapTargetElement.animate(
                     [{ transform: "scale(1)" }, { transform: "scale(.94)" }, { transform: "scale(1)" }],
                     { duration: 180, easing: "ease-out" }
                   );
@@ -251,10 +253,10 @@ export default function GestureOrdering() {
                   window.setTimeout(syncCart, 50);
                   tapCooldownAt.current = now;
                 }
-                tapActive.current = true;
-              } else if (indexDepth > -0.02) {
                 tapActive.current = false;
               }
+            } else if (isPinching) {
+              tapActive.current = false;
             }
 
             if (isPinching && !pinch.current) {
