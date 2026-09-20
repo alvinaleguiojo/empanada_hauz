@@ -303,6 +303,7 @@ export default function GestureOrdering() {
             }
 
             lastPoint.current = { x: sx, y: sy };
+          }
 
           const wanted = smoothPoint.current;
           if (wanted) {
