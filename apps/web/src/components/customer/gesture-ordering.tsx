@@ -37,9 +37,7 @@ export default function GestureOrdering() {
   const hoverTimer = useRef<number | null>(null);
   const hoverFocusAt = useRef(0);
   const hoverTarget = useRef<HTMLElement | null>(null);
-  const tapState = useRef<"idle" | "down" | "up">("idle");
-  const tapDownAt = useRef(0);
-  const tapDownPoint = useRef<Point | null>(null);
+  const tapActive = useRef(false);
   const tapCooldownAt = useRef(0);
 
   const activeItems = useMemo(
@@ -201,8 +199,7 @@ export default function GestureOrdering() {
               smoothPoint.current = null;
               lastPoint.current = null;
               swipeAt.current = 0;
-              tapState.current = "idle";
-              tapDownPoint.current = null;
+              tapActive.current = false;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -232,45 +229,31 @@ export default function GestureOrdering() {
             const isPinching = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) < 0.055;
             const now = Date.now();
 
-            // Air-tap selection: a quick down/up movement of the index finger.
-            // Scrolling remains tied to longer vertical movement, while a short tap
-            // selects the interactive element currently under the cursor.
-            if (!isPinching && previousSmooth && now - tapCooldownAt.current > 350) {
-              const tapDx = sx - previousSmooth.x;
-              const tapDy = sy - previousSmooth.y;
+            // Select with a true index-finger "air tap": move the fingertip
+            // toward the camera (z-axis) while keeping the cursor over an item.
+            // This avoids using vertical movement for selection, so up/down
+            // movement remains dedicated to scrolling.
+            const indexDepth = hand[8].z - hand[6].z;
+            const tapThreshold = -0.045;
+            if (!isPinching && now - tapCooldownAt.current > 450) {
+              if (indexDepth < tapThreshold && !tapActive.current) {
+                const cursorTarget = document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
+                  "button,a,input,textarea,select,label"
+                ) ?? hovered.current;
 
-              if (tapState.current === "idle" && tapDy > 7 && Math.abs(tapDy) > Math.abs(tapDx) * 1.1) {
-                tapState.current = "down";
-                tapDownAt.current = now;
-                tapDownPoint.current = { x: sx, y: sy };
-              } else if (tapState.current === "down") {
-                const elapsed = now - tapDownAt.current;
-                const start = tapDownPoint.current;
-                const upDistance = start ? start.y - sy : 0;
-
-                if (elapsed > 320 || (Math.abs(sx - (start?.x ?? sx)) > 45)) {
-                  tapState.current = "idle";
-                  tapDownPoint.current = null;
-                } else if (upDistance > 7 && tapDy < -4) {
-                  const cursorTarget = document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
-                    "button,a,input,textarea,select,label"
-                  ) ?? hovered.current;
-
-                  if (cursorTarget) {
-                    cursorTarget.click();
-                    cursorTarget.animate(
-                      [{ transform: "scale(1)" }, { transform: "scale(.94)" }, { transform: "scale(1)" }],
-                      { duration: 180, easing: "ease-out" }
-                    );
-                    setMsg("Tapped · Selected");
-                    window.setTimeout(syncCart, 50);
-                    tapCooldownAt.current = now;
-                  }
-                  tapState.current = "up";
-                  tapDownPoint.current = null;
+                if (cursorTarget) {
+                  cursorTarget.click();
+                  cursorTarget.animate(
+                    [{ transform: "scale(1)" }, { transform: "scale(.94)" }, { transform: "scale(1)" }],
+                    { duration: 180, easing: "ease-out" }
+                  );
+                  setMsg("Tapped · Selected");
+                  window.setTimeout(syncCart, 50);
+                  tapCooldownAt.current = now;
                 }
-              } else if (tapState.current === "up") {
-                tapState.current = "idle";
+                tapActive.current = true;
+              } else if (indexDepth > -0.02) {
+                tapActive.current = false;
               }
             }
 
@@ -314,7 +297,7 @@ export default function GestureOrdering() {
               hoverTarget.current = null;
             }
 
-            if (!isPinching && tapState.current === "idle" && previousSmooth && now - swipeAt.current > 700) {
+            if (!isPinching && previousSmooth && now - swipeAt.current > 700) {
               const smoothDx = sx - previousSmooth.x;
               const smoothDy = sy - previousSmooth.y;
               const distance = Math.hypot(smoothDx, smoothDy);
@@ -568,7 +551,7 @@ export default function GestureOrdering() {
             </footer>
 
             <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
-              ☝ Move · 🤏 Pinch = select · 🤏 Drag = scroll · ← → Swipe
+              ☝ Point · 👆 Tap = select · ↕ Swipe = scroll · ← → Step
             </div>
           </div>
         </div>
