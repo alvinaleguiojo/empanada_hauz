@@ -319,6 +319,7 @@ export default function GestureOrdering() {
               }
               resetTouch();
             }
+          }
 
           const wanted = smoothPoint.current;
           if (wanted) {
