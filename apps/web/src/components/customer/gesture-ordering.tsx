@@ -196,7 +196,6 @@ export default function GestureOrdering() {
               target.current = null;
               smoothPoint.current = null;
               lastPoint.current = null;
-              swipeAt.current = 0;
               touchMode.current = "hover";
               touchStart.current = null;
               touchLast.current = null;
@@ -363,7 +362,7 @@ export default function GestureOrdering() {
             if (focus) {
               const elapsed = hovered.current && touchMode.current === "hover" ? performance.now() - hoverFocusAt.current : 0;
               const progress = Math.min(1, elapsed / 520);
-              focus.style.opacity = hovered.current && !pinch.current ? "1" : "0";
+              focus.style.opacity = hovered.current && touchMode.current === "hover" ? "1" : "0";
               focus.style.transform = "scale(" + (0.7 + progress * 0.3) + ") rotate(" + (progress * 360) + "deg)";
             }
           }
