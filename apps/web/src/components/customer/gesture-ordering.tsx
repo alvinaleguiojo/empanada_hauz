@@ -100,11 +100,18 @@ export default function GestureOrdering(){
 
   return <><button type="button" onClick={()=>setOn(true)} className="fixed bottom-5 left-5 z-[70] inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/40 bg-[#241c13]/95 px-4 py-3 text-sm font-extrabold text-[#F6EFDD] shadow-2xl"><Hand size={17} className="text-[#E3A64B]"/> Gesture Order</button>
   {on&&<div className="pointer-events-none fixed inset-0 z-[60]">
-    <div className="pointer-events-auto absolute right-4 top-4 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/15 bg-[#17110b]/90 shadow-2xl">
-      <div className="relative aspect-video bg-black"><video ref={video} muted playsInline className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"/><canvas ref={canvas} className="absolute inset-0 h-full w-full"/><span className="absolute left-3 top-3 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-white"><Camera size={11} className="mr-1 inline"/> HAND TRACKING</span></div>
-      <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-white/70"><span>{msg}</span><button type="button" onClick={()=>setOn(false)} className="grid h-8 w-8 place-items-center rounded-full border border-white/10"><X size={15}/></button></div>
+    <div className="pointer-events-auto absolute inset-3 overflow-hidden rounded-3xl border border-white/15 bg-black/90 shadow-2xl sm:inset-5">
+      <div className="relative h-full w-full bg-black">
+        <video ref={video} muted playsInline className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"/>
+        <canvas ref={canvas} className="absolute inset-0 h-full w-full"/>
+        <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 bg-gradient-to-b from-black/80 to-transparent p-4 sm:p-5">
+          <div><div className="flex items-center gap-2 text-sm font-extrabold text-white"><Camera size={17} className="text-[#E3A64B]"/> GESTURE ORDER</div><div className="mt-1 text-xs text-white/65">{msg}</div></div>
+          <button type="button" onClick={()=>setOn(false)} className="pointer-events-auto grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/20 bg-black/50 text-white"><X size={19}/></button>
+        </div>
+        <div className="absolute bottom-4 left-4 rounded-xl border border-white/15 bg-black/55 px-3 py-2 text-[11px] text-white/75 sm:bottom-5 sm:left-5 sm:text-xs">☝ Move · 🤏 pinch = click · 🤏 drag = scroll · ←/→ swipe = navigate</div>
+      </div>
     </div>
-    <div id="eh-gesture-cursor" className="absolute left-0 top-0 h-7 w-7 -ml-3.5 -mt-3.5 rounded-full border-2 border-[#E3A64B] bg-[#E3A64B]/30 shadow-[0_0_0_7px_rgba(227,166,75,.15)]"/>
+    <div id="eh-gesture-cursor" className="absolute left-0 top-0 h-9 w-9 -ml-4.5 -mt-4.5 rounded-full border-2 border-[#E3A64B] bg-[#E3A64B]/30 shadow-[0_0_0_8px_rgba(227,166,75,.15)]"/>
     {keyboard&&<div className="pointer-events-auto absolute bottom-4 left-1/2 w-[min(700px,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#17110b]/95 p-3 shadow-2xl"><div className="mb-2 flex justify-between text-xs text-white/50"><span>Point at a key and pinch</span><button type="button" onClick={()=>setKeyboard(false)} className="text-[#E3A64B]">Done</button></div><div className="grid grid-cols-10 gap-1">{[..."1234567890QWERTYUIOPASDFGHJKLZXCVBNM"].map(k=><button type="button" key={k} onClick={()=>typeKey(k)} className="min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">{k}</button>)}<button type="button" onClick={()=>typeKey(" ")} className="col-span-7 min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">SPACE</button><button type="button" onClick={()=>typeKey("⌫")} className="col-span-3 min-h-10 rounded-lg border border-[#E3A64B]/20 bg-[#E3A64B]/10 text-xs font-bold text-[#E3A64B]">DELETE</button></div></div>}
     <div className="absolute bottom-5 right-5 rounded-xl border border-white/10 bg-[#17110b]/85 px-3 py-2 text-[11px] text-white/60">☝ Move · 🤏 pinch = click · 🤏 drag = scroll · ←/→ swipe = navigate</div>
   </div>}</>;
