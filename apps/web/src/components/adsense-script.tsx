@@ -5,20 +5,12 @@ import { usePathname } from "next/navigation";
 
 const ADSENSE_CLIENT = "ca-pub-2210175902805612";
 
+/**
+ * AdSense is intentionally restricted to public, indexable/content pages.
+ * Keep this as an allowlist so new internal application routes never
+ * receive AdSense by accident.
+ */
 function shouldLoadAds(pathname: string) {
-  if (
-    pathname.startsWith("/admin") ||
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/auth") ||
-    pathname.startsWith("/rider") ||
-    pathname.startsWith("/customer") ||
-    pathname.startsWith("/order") ||
-    pathname.startsWith("/track/") ||
-    pathname.startsWith("/referrals")
-  ) {
-    return false;
-  }
-
   return (
     pathname === "/" ||
     pathname === "/privacy" ||
