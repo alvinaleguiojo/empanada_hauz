@@ -238,7 +238,7 @@ export default function GestureOrdering() {
             const indexAngle = v1Length && v2Length
               ? Math.acos(Math.max(-1, Math.min(1, dot / (v1Length * v2Length)))) * (180 / Math.PI)
               : 180;
-            const isTouchDown = indexAngle < 125;
+            const isTouchDown = indexAngle < 150;
             const interactiveAtCursor = () =>
               document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
                 "button,a,input,textarea,select,label"
@@ -251,8 +251,8 @@ export default function GestureOrdering() {
               touchMoved.current = false;
             };
 
-            // Virtual touchscreen: a curled index finger means touch-down;
-            // moving while held behaves like dragging a real touchscreen.
+            // Virtual touchscreen: a gently bent index finger means touch-down;
+            // small movements immediately behave like dragging a real touchscreen.
             if (isTouchDown && touchMode.current === "hover") {
               const point = { x: sx, y: sy };
               touchMode.current = "pressed";
@@ -271,9 +271,9 @@ export default function GestureOrdering() {
               const totalMovement = Math.hypot(totalX, totalY);
               const movement = Math.hypot(moveX, moveY);
 
-              if (totalMovement > 24) touchMoved.current = true;
+              if (totalMovement > 18) touchMoved.current = true;
 
-              if (touchMode.current === "pressed" && totalMovement >= 18) {
+              if (touchMode.current === "pressed" && totalMovement >= 8) {
                 const vertical = Math.abs(totalY) >= Math.abs(totalX) * 1.15;
                 const horizontal = Math.abs(totalX) >= Math.abs(totalY) * 1.25;
                 if (horizontal && Math.abs(totalX) >= 55) {
@@ -283,11 +283,11 @@ export default function GestureOrdering() {
                 }
               }
 
-              if (touchMode.current === "scrolling" && movement > 0.8) {
+              if (touchMode.current === "scrolling" && movement > 0.35) {
                 const formElement = document.getElementById("kiosk-order-form");
                 const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
                 const scrollTarget = step === 0 ? menuElement : formElement;
-                scrollTarget?.scrollBy({ top: moveY, behavior: "auto" });
+                scrollTarget?.scrollBy({ top: moveY * 1.7, behavior: "auto" });
                 setMsg("Scrolling");
               } else if (
                 touchMode.current === "swiping" &&
