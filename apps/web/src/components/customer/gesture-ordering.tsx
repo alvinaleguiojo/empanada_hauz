@@ -505,12 +505,12 @@ export default function GestureOrdering() {
                           key={item.value}
                           className={`group relative overflow-hidden rounded-[22px] border backdrop-blur-xl transition ${quantity ? "border-[#E3A64B]/80 bg-[#21170d]/85" : "border-white/12 bg-[#17110b]/65"}`}
                         >
-                          <button type="button" onClick={() => clickFlavor(item.value)} className="block min-h-[210px] w-full text-left">
+                          <button type="button" onClick={() => clickFlavor(item.value)} className="block min-h-[240px] w-full text-left">
                             <div className="absolute inset-0">
                               {item.imageUrl ? <img src={item.imageUrl} alt="" className="h-full w-full object-cover opacity-55 transition duration-300 group-hover:scale-105" /> : null}
                               <div className="absolute inset-0 bg-gradient-to-t from-[#110c08] via-[#110c08]/45 to-transparent" />
                             </div>
-                            <div className="relative flex min-h-[210px] flex-col justify-end p-5">
+                            <div className="relative flex min-h-[240px] flex-col justify-end p-6">
                               <div className="flex items-end justify-between gap-3">
                                 <div>
                                   <div className="font-[family-name:var(--font-display)] text-2xl font-extrabold text-white">{item.value}</div>
@@ -527,10 +527,10 @@ export default function GestureOrdering() {
                             </div>
                           </button>
                           {quantity > 0 ? (
-                            <div className="absolute right-3 top-3 flex items-center overflow-hidden rounded-full border border-white/15 bg-black/60 backdrop-blur-xl">
-                              <button type="button" aria-label={`Decrease ${item.value}`} onClick={() => changeQuantity(item.value, -1)} className="grid h-9 w-9 place-items-center text-white/75"><Minus size={14} /></button>
-                              <span className="w-7 text-center font-[family-name:var(--font-mono)] text-xs font-bold text-white">{quantity}</span>
-                              <button type="button" aria-label={`Increase ${item.value}`} onClick={() => changeQuantity(item.value, 1)} className="grid h-9 w-9 place-items-center text-[#E3A64B]"><Plus size={14} /></button>
+                            <div className="absolute right-3 top-3 z-20 flex min-h-16 items-center overflow-hidden rounded-[20px] border-2 border-[#E3A64B]/45 bg-black/75 p-1 shadow-2xl backdrop-blur-xl">
+                              <button type="button" aria-label={`Decrease ${item.value}`} onClick={() => changeQuantity(item.value, -1)} className="grid h-14 w-14 place-items-center rounded-[16px] text-white/90 transition active:scale-95 hover:bg-white/10"><Minus size={22} /></button>
+                              <span className="w-12 text-center font-[family-name:var(--font-mono)] text-lg font-extrabold text-white">{quantity}</span>
+                              <button type="button" aria-label={`Increase ${item.value}`} onClick={() => changeQuantity(item.value, 1)} className="grid h-14 w-14 place-items-center rounded-[16px] text-[#E3A64B] transition active:scale-95 hover:bg-[#E3A64B]/15"><Plus size={24} /></button>
                             </div>
                           ) : null}
                         </div>
