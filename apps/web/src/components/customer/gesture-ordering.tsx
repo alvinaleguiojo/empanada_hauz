@@ -43,6 +43,7 @@ export default function GestureOrdering() {
   const pendingRawTouchDown = useRef<boolean | null>(null);
   const pendingTouchDownStreak = useRef(0);
   const acceptedIsTouchDown = useRef(false);
+  const statusRef = useRef("");
   const angleDebounceFrames = 2;
   const hoverTimer = useRef<number | null>(null);
   const handMissingSince = useRef<number | null>(null);
@@ -152,8 +153,14 @@ export default function GestureOrdering() {
     form?.classList.add("eh-gesture-order-form");
     document.documentElement.classList.add("eh-gesture-active");
 
-    const interval = window.setInterval(syncCart, 250);
+    const interval = window.setInterval(syncCart, 500);
     syncCart();
+
+    const setGestureMessage = (next: string) => {
+      if (statusRef.current === next) return;
+      statusRef.current = next;
+      setGestureMessage(next);
+    };
 
     let dead = false;
 
@@ -197,6 +204,8 @@ export default function GestureOrdering() {
         if (!el) return;
         el.srcObject = s;
         await el.play();
+
+        let drawFrame = 0;
 
         const draw = (points: any[]) => {
           const c = canvas.current;
@@ -250,11 +259,14 @@ export default function GestureOrdering() {
           }
 
           const t = performance.now();
-          if (el.videoWidth && t - inferAt.current >= 33) {
+          if (el.videoWidth && t - inferAt.current >= 40) {
             inferAt.current = t;
             const result = r.recognizeForVideo(el, t);
             const hand = result.landmarks?.[0];
-            draw(hand ?? []);
+            drawFrame = (drawFrame + 1) % 2;
+            if (drawFrame === 0 || !hand) {
+              draw(hand ?? []);
+            }
 
             if (!hand) {
               // Webcam hand tracking drops out for a frame or two very easily
@@ -284,7 +296,7 @@ export default function GestureOrdering() {
               pendingRawTouchDown.current = null;
               pendingTouchDownStreak.current = 0;
               acceptedIsTouchDown.current = false;
-              setMsg("Show your hand to start");
+              setGestureMessage("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
                 hovered.current = null;
@@ -337,7 +349,7 @@ export default function GestureOrdering() {
               // velocity) scrolls DOWN through the list - content follows
               // the finger, same direction convention as a real touchscreen.
               scrollVelocity.current = swiping.current ? -windowVelocity * swipeScrollGain : 0;
-              if (swiping.current) setMsg("Scrolling");
+              if (swiping.current) setGestureMessage("Scrolling");
             } else {
               swipeSamples.current = [{ t, y: sy }];
             }
@@ -431,7 +443,7 @@ export default function GestureOrdering() {
               touchTarget.current = interactive;
               touchMoved.current = false;
               touchStartedAt.current = now;
-              setMsg(interactive ? "Touch" : "Touch and release to select");
+              setGestureMessage(interactive ? "Touch" : "Touch and release to select");
             } else if (isTouchDown && touchMode.current === "touching" && touchLast.current) {
               const totalX = sx - (touchStart.current?.x ?? sx);
               const totalY = sy - (touchStart.current?.y ?? sy);
@@ -475,10 +487,10 @@ export default function GestureOrdering() {
                   ],
                   { duration: 150, easing: "ease-out" }
                 );
-                setMsg("Selected");
+                setGestureMessage("Selected");
                 window.setTimeout(syncCart, 50);
               } else if (touchMoved.current) {
-                setMsg("Released");
+                setGestureMessage("Released");
               }
 
               resetTouch();
@@ -519,7 +531,7 @@ export default function GestureOrdering() {
 
         raf.current = requestAnimationFrame(loop);
       } catch (error) {
-        setMsg(error instanceof Error ? error.message : "Camera setup failed");
+        setGestureMessage(error instanceof Error ? error.message : "Camera setup failed");
       }
     })();
 
@@ -541,6 +553,7 @@ export default function GestureOrdering() {
       pendingRawTouchDown.current = null;
       pendingTouchDownStreak.current = 0;
       acceptedIsTouchDown.current = false;
+      statusRef.current = "";
       if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
       if (hovered.current) {
         hovered.current.style.outline = "";
