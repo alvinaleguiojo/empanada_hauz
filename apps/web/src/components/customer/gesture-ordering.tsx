@@ -8,7 +8,7 @@ const WASM="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm";
 
 export default function GestureOrdering(){
   const [on,setOn]=useState(false),[msg,setMsg]=useState("Move your index finger; pinch to click"),[keyboard,setKeyboard]=useState(false);
-  const video=useRef<HTMLVideoElement>(null), canvas=useRef<HTMLCanvasElement>(null), recognizer=useRef<any>(null), stream=useRef<MediaStream|null>(null), raf=useRef<number>(), last=useRef(0), clickAt=useRef(0);
+  const video=useRef<HTMLVideoElement>(null), canvas=useRef<HTMLCanvasElement>(null), recognizer=useRef<any>(null), stream=useRef<MediaStream|null>(null), raf=useRef<number>(), last=useRef(0), clickAt=useRef(0), lastX=useRef<number|null>(null), swipeAt=useRef(0);
 
   useEffect(()=>{if(!on)return;let dead=false;
     (async()=>{
@@ -23,11 +23,18 @@ export default function GestureOrdering(){
           const res=r.recognizeForVideo(el,t),hand=res.landmarks?.[0];draw(hand||[]);
           if(!hand){setMsg("Show your hand");return}
           const p=hand[8],x=(1-p.x)*innerWidth,y=p.y*innerHeight,cur=document.getElementById("eh-gesture-cursor");
-          if(cur)cur.style.transform=`translate3d(${x}px,${y}px,0)`;
+          if(cur)cur.style.transform=\`translate3d(\${x}px,\${y}px,0)\`;
           const pinch=Math.hypot(hand[4].x-hand[8].x,hand[4].y-hand[8].y)<.055;
           const g=res.gestures?.[0]?.[0]?.categoryName?.replaceAll("_"," ")||"Tracking";
-          setMsg(`${g} · ${pinch?"pinch = click":"move finger"}`);
-          if(pinch&&Date.now()-clickAt.current>850){clickAt.current=Date.now();const target=document.elementFromPoint(x,y) as HTMLElement|null;
+          const now=Date.now();
+          setMsg(\`\${g} · \${pinch?"pinch = select":"move finger"}\`);
+          if(lastX.current!==null&&Math.abs(p.x-lastX.current)>.22&&now-swipeAt.current>1200){
+            swipeAt.current=now;
+            const selector=p.x-lastX.current<0?"[data-gesture-next]":"[data-gesture-prev]";
+            (document.querySelector(selector) as HTMLElement|null)?.click();
+          }
+          lastX.current=p.x;
+          if(pinch&&now-clickAt.current>850){clickAt.current=now;const target=document.elementFromPoint(x,y) as HTMLElement|null;
             const el2=target?.closest<HTMLElement>("button,a,input,textarea,select,label");if(el2){el2.click();if(el2 instanceof HTMLInputElement||el2 instanceof HTMLTextAreaElement){el2.focus();setKeyboard(true)}}}
         };raf.current=requestAnimationFrame(loop);
       }catch(e){setMsg(e instanceof Error?e.message:"Camera/gesture setup failed")}
@@ -51,6 +58,6 @@ export default function GestureOrdering(){
     </div>
     <div id="eh-gesture-cursor" className="absolute left-0 top-0 h-7 w-7 -ml-3.5 -mt-3.5 rounded-full border-2 border-[#E3A64B] bg-[#E3A64B]/30 shadow-[0_0_0_7px_rgba(227,166,75,.15)]"/>
     {keyboard&&<div className="pointer-events-auto absolute bottom-4 left-1/2 w-[min(700px,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#17110b]/95 p-3 shadow-2xl"><div className="mb-2 flex justify-between text-xs text-white/50"><span>Point at a key and pinch</span><button type="button" onClick={()=>setKeyboard(false)} className="text-[#E3A64B]">Done</button></div><div className="grid grid-cols-10 gap-1">{[..."1234567890QWERTYUIOPASDFGHJKLZXCVBNM"].map(k=><button type="button" key={k} onClick={()=>typeKey(k)} className="min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">{k}</button>)}<button type="button" onClick={()=>typeKey(" ")} className="col-span-7 min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">SPACE</button><button type="button" onClick={()=>typeKey("⌫")} className="col-span-3 min-h-10 rounded-lg border border-[#E3A64B]/20 bg-[#E3A64B]/10 text-xs font-bold text-[#E3A64B]">DELETE</button></div></div>}
-    <div className="absolute bottom-5 right-5 rounded-xl border border-white/10 bg-[#17110b]/85 px-3 py-2 text-[11px] text-white/60">☝ Move · 🤏 pinch = click</div>
+    <div className="absolute bottom-5 right-5 rounded-xl border border-white/10 bg-[#17110b]/85 px-3 py-2 text-[11px] text-white/60">☝ Move · 🤏 pinch = select · ←/→ swipe = navigate</div>
   </div>}</>;
 }
