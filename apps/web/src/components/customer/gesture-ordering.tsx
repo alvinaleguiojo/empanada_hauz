@@ -319,6 +319,17 @@ export default function GestureOrdering() {
 
   useEffect(() => {
     if (!on) return;
+    const root = document.documentElement;
+    const updateStepClass = () => {
+      root.classList.remove("eh-gesture-step-0", "eh-gesture-step-1", "eh-gesture-step-2");
+      root.classList.add(`eh-gesture-step-${step}`);
+    };
+    updateStepClass();
+    return () => root.classList.remove("eh-gesture-step-0", "eh-gesture-step-1", "eh-gesture-step-2");
+  }, [on, step]);
+
+  useEffect(() => {
+    if (!on) return;
     const timer = window.setInterval(() => {
       const title = document.querySelector("#kiosk-order-form h2")?.textContent?.toLowerCase() ?? "";
       setStep(title.includes("almost") ? 2 : title.includes("how should") ? 1 : 0);
@@ -423,11 +434,9 @@ export default function GestureOrdering() {
                 </div>
               </section>
             ) : (
-              <section className="absolute inset-x-0 top-28 bottom-24 z-[65] flex items-center justify-center px-3 sm:px-8">
-                <div className="eh-gesture-detail-shell w-full max-w-3xl rounded-[28px] border border-white/15 bg-[#17110b]/72 p-2 shadow-2xl backdrop-blur-2xl">
-                  <div className="max-h-[calc(100vh-190px)] overflow-hidden rounded-[22px]">
-                    <div className="eh-gesture-real-form">{/* The live form is visually surfaced here by CSS. */}</div>
-                  </div>
+              <section className="pointer-events-none absolute inset-x-0 top-28 bottom-24 z-[65] flex items-center justify-center px-3 sm:px-8">
+                <div className="w-full max-w-3xl rounded-[30px] border border-white/10 bg-black/15 p-2 shadow-2xl backdrop-blur-sm">
+                  <div className="h-[min(68vh,620px)] rounded-[24px] border border-white/8 bg-black/10" />
                 </div>
               </section>
             )}
@@ -470,21 +479,51 @@ export default function GestureOrdering() {
 
         form.eh-gesture-order-form {
           position: fixed !important;
-          left: 0 !important;
-          top: 0 !important;
-          width: 1px !important;
-          height: 1px !important;
-          max-width: none !important;
-          overflow: hidden !important;
-          opacity: 0 !important;
-          pointer-events: none !important;
-          z-index: -1 !important;
+          left: 50% !important;
+          top: 112px !important;
+          bottom: 92px !important;
+          width: min(760px, calc(100vw - 24px)) !important;
+          max-width: 760px !important;
+          height: auto !important;
+          margin: 0 !important;
+          transform: translateX(-50%) !important;
+          overflow: auto !important;
+          overscroll-behavior: contain !important;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(227,166,75,.45) transparent;
+          border: 1px solid rgba(255,255,255,.12) !important;
+          border-radius: 30px !important;
+          background: rgba(23,17,11,.68) !important;
+          backdrop-filter: blur(20px) saturate(1.1) !important;
+          box-shadow: 0 30px 100px rgba(0,0,0,.45) !important;
+          padding: 8px !important;
+          opacity: 1 !important;
+          pointer-events: auto !important;
+          z-index: 72 !important;
         }
 
-        .eh-gesture-detail-shell .eh-gesture-real-form { display: none; }
-
-        html.eh-gesture-active #kiosk-order-form {
+        html.eh-gesture-active.eh-gesture-step-0 #kiosk-order-form {
           visibility: hidden !important;
+          pointer-events: none !important;
+        }
+
+        html.eh-gesture-active.eh-gesture-step-1 #kiosk-order-form,
+        html.eh-gesture-active.eh-gesture-step-2 #kiosk-order-form {
+          visibility: visible !important;
+        }
+
+        html.eh-gesture-active #kiosk-order-form > section {
+          background: rgba(23,17,11,.52) !important;
+          border: 0 !important;
+          box-shadow: none !important;
+          border-radius: 22px !important;
+          backdrop-filter: none !important;
+        }
+
+        html.eh-gesture-active #kiosk-order-form input,
+        html.eh-gesture-active #kiosk-order-form textarea,
+        html.eh-gesture-active #kiosk-order-form button {
+          min-height: 52px;
         }
 
         .eh-gesture-menu { scrollbar-width: thin; scrollbar-color: rgba(227,166,75,.45) transparent; }
@@ -492,6 +531,12 @@ export default function GestureOrdering() {
         .eh-gesture-menu::-webkit-scrollbar-thumb { background: rgba(227,166,75,.45); border-radius: 999px; }
 
         @media (max-width: 640px) {
+          form.eh-gesture-order-form {
+            top: 94px !important;
+            bottom: 82px !important;
+            width: calc(100vw - 16px) !important;
+            border-radius: 24px !important;
+          }
           .eh-gesture-menu { grid-template-columns: 1fr; }
           .eh-gesture-menu > div { min-height: 132px; }
         }
