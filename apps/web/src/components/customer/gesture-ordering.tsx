@@ -26,7 +26,7 @@ export default function GestureOrdering() {
   const target = useRef<Point | null>(null);
   const cursor = useRef<Point | null>(null);
   const lastPoint = useRef<Point | null>(null);
-  type TouchMode = "hover" | "touching" | "dragging";
+  type TouchMode = "hover" | "touching";
   const touchMode = useRef<TouchMode>("hover");
   const touchStart = useRef<Point | null>(null);
   const touchLast = useRef<Point | null>(null);
@@ -43,10 +43,27 @@ export default function GestureOrdering() {
   const touchSettleMs = 100;
   const handGraceMs = 220;
 
+  // Scrolling is now a plain vertical swipe, independent of the tap gesture -
+  // you don't need to curl your finger at all to scroll, just move your hand
+  // up or down. A short rolling buffer of recent fingertip positions is used
+  // to compute vertical velocity so slow "just pointing at something" motion
+  // doesn't get mistaken for an intentional swipe.
+  const swipeSamples = useRef<{ t: number; y: number }[]>([]);
+  const swiping = useRef(false);
+  const swipeSampleWindowMs = 140;
+  const swipeStartVelocity = 0.55; // px/ms to START a swipe
+  const swipeStopVelocity = 0.22; // px/ms to STOP a swipe (hysteresis)
+  const swipeScrollGain = 1.8; // amplify hand movement -> scroll distance so small camera-frame motion still scrolls meaningfully
+
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
     []
   );
+
+  // The tracking loop's effect only re-runs on [on], so it closes over a
+  // stale `step` otherwise. Mirror it into a ref that's always current.
+  const stepRef = useRef(step);
+  stepRef.current = step;
 
   const syncCart = () => {
     const form = document.getElementById("kiosk-order-form");
@@ -231,6 +248,8 @@ export default function GestureOrdering() {
               touchTarget.current = null;
               touchMoved.current = false;
               touchStartedAt.current = 0;
+              swipeSamples.current = [];
+              swiping.current = false;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -253,6 +272,44 @@ export default function GestureOrdering() {
             const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.72;
             const previousPoint = lastPoint.current;
             smoothPoint.current = { x: sx, y: sy };
+
+            // Vertical swipe scrolling - independent of the tap/curl gesture,
+            // just move your hand up or down. Velocity (over a short rolling
+            // window) gates when a swipe "starts"/"stops" (with hysteresis)
+            // so ordinary slower pointing movement doesn't trigger a scroll.
+            if (previousPoint) {
+              swipeSamples.current.push({ t, y: sy });
+              const cutoff = t - swipeSampleWindowMs;
+              while (swipeSamples.current.length > 1 && swipeSamples.current[0].t < cutoff) {
+                swipeSamples.current.shift();
+              }
+
+              const oldestSample = swipeSamples.current[0];
+              const sampleSpan = t - oldestSample.t;
+              const velocity = sampleSpan > 20 ? (sy - oldestSample.y) / sampleSpan : 0;
+
+              if (!swiping.current && Math.abs(velocity) >= swipeStartVelocity) {
+                swiping.current = true;
+              } else if (swiping.current && Math.abs(velocity) < swipeStopVelocity) {
+                swiping.current = false;
+              }
+
+              if (swiping.current) {
+                const frameDeltaY = sy - previousPoint.y;
+                if (frameDeltaY !== 0) {
+                  const formElement = document.getElementById("kiosk-order-form");
+                  const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
+                  const scrollTarget = stepRef.current === 0 ? menuElement : formElement;
+                  // Swipe up (finger moving toward the top of frame, frameDeltaY
+                  // negative) scrolls DOWN through the list - content follows
+                  // the finger, same direction convention as a real touchscreen.
+                  scrollTarget?.scrollBy({ top: -frameDeltaY * swipeScrollGain, behavior: "auto" });
+                  setMsg("Scrolling");
+                }
+              }
+            } else {
+              swipeSamples.current = [{ t, y: sy }];
+            }
 
             const indexMcp = hand[5];
             const indexPip = hand[6];
@@ -279,8 +336,7 @@ export default function GestureOrdering() {
                 "button,a,input,textarea,select,label"
               ) ?? null;
 
-            const wasTouching =
-              touchMode.current === "touching" || touchMode.current === "dragging";
+            const wasTouching = touchMode.current === "touching";
             const isTouchDown = wasTouching
               ? indexAngle < touchUpAngle
               : indexAngle < touchDownAngle;
@@ -312,11 +368,13 @@ export default function GestureOrdering() {
               }, 35);
             }
 
-            // Touchscreen model:
+            // Touch model (scrolling is handled separately, above, by swipe
+            // velocity - this only decides tap vs. no-op):
             // 1) bend index finger -> touch down
-            // 2) small movement is ignored as hand jitter
-            // 3) movement beyond the tap slop becomes a drag/scroll
-            // 4) release without crossing the slop becomes a tap
+            // 2) small movement right after touch-down is ignored (settling)
+            // 3) if the finger drifts past the slop, it no longer counts as
+            //    a tap, but scrolling still happens independently via swipe
+            // 4) release without drifting past the slop -> tap
             if (isTouchDown && touchMode.current === "hover") {
               const point = { x: sx, y: sy };
               touchMode.current = "touching";
@@ -325,52 +383,24 @@ export default function GestureOrdering() {
               touchTarget.current = interactive;
               touchMoved.current = false;
               touchStartedAt.current = now;
-              setMsg(interactive ? "Touch" : "Touch and move");
-            } else if (
-              isTouchDown &&
-              (touchMode.current === "touching" || touchMode.current === "dragging") &&
-              touchLast.current
-            ) {
-              const previous = touchLast.current;
-              const moveX = sx - previous.x;
-              const moveY = sy - previous.y;
-              const totalX = sx - (touchStart.current?.x ?? previous.x);
-              const totalY = sy - (touchStart.current?.y ?? previous.y);
+              setMsg(interactive ? "Touch" : "Touch and release to select");
+            } else if (isTouchDown && touchMode.current === "touching" && touchLast.current) {
+              const totalX = sx - (touchStart.current?.x ?? sx);
+              const totalY = sy - (touchStart.current?.y ?? sy);
               const totalDistance = Math.hypot(totalX, totalY);
-              const movement = Math.hypot(moveX, moveY);
 
               // Curling the index finger to signal "touch down" naturally
               // drags the fingertip a little as part of the motion, which
-              // was enough to cross touchSlop and get misread as a drag -
-              // turning an intended tap into a released drag that selects
-              // nothing. Ignore that settling motion for a short window
-              // right after touch-down; a real drag continues past it.
+              // used to be enough to cross touchSlop and cancel the tap.
+              // Ignore that settling motion for a short window right after
+              // touch-down; real drift past the slop still cancels it.
               const settled = now - touchStartedAt.current >= touchSettleMs;
-
               if (settled && totalDistance >= touchSlop) {
                 touchMoved.current = true;
-                touchMode.current = "dragging";
-              }
-
-              if (touchMode.current === "dragging" && movement > 0.35) {
-                const formElement = document.getElementById("kiosk-order-form");
-                const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
-                const scrollTarget = step === 0 ? menuElement : formElement;
-
-                if (Math.abs(moveY) >= Math.abs(moveX) * 0.75) {
-                  scrollTarget?.scrollBy({
-                    top: moveY,
-                    behavior: "auto"
-                  });
-                  setMsg("Scrolling");
-                }
               }
 
               touchLast.current = { x: sx, y: sy };
-            } else if (
-              !isTouchDown &&
-              (touchMode.current === "touching" || touchMode.current === "dragging")
-            ) {
+            } else if (!isTouchDown && touchMode.current === "touching") {
               const pressedTarget = touchTarget.current;
               const startPoint = touchStart.current;
               const distance = startPoint
@@ -380,11 +410,9 @@ export default function GestureOrdering() {
                 ? now - touchStartedAt.current
                 : Infinity;
 
-              // Only a deliberate touch-and-release selects.
-              // Once the finger travels beyond the slop, it is a drag and
-              // releasing must never click the original target.
+              // Only a deliberate touch-and-release selects. Once the
+              // finger drifts past the slop, releasing must never click.
               if (
-                touchMode.current === "touching" &&
                 !touchMoved.current &&
                 distance <= touchSlop &&
                 heldFor <= 1200 &&
@@ -401,7 +429,7 @@ export default function GestureOrdering() {
                 );
                 setMsg("Selected");
                 window.setTimeout(syncCart, 50);
-              } else if (touchMode.current === "dragging") {
+              } else if (touchMoved.current) {
                 setMsg("Released");
               }
 
@@ -427,9 +455,7 @@ export default function GestureOrdering() {
 
             const focus = document.getElementById("eh-gesture-focus");
             if (focus) {
-              const touching =
-                (touchMode.current === "touching" || touchMode.current === "dragging") &&
-                Boolean(touchTarget.current);
+              const touching = touchMode.current === "touching" && Boolean(touchTarget.current);
               focus.style.opacity = touching ? "1" : "0";
               focus.style.transform = touching
                 ? "scale(1) rotate(0deg)"
@@ -534,7 +560,7 @@ export default function GestureOrdering() {
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
-                      <div className="mt-1 text-sm text-white/55">Bend to touch · move to scroll · release to select</div>
+                      <div className="mt-1 text-sm text-white/55">Swipe up/down to scroll · bend & release to select</div>
                     </div>
                     <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
                       <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
@@ -620,7 +646,7 @@ export default function GestureOrdering() {
             </footer>
 
             <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
-              Point · touch · drag · release
+              Point · swipe to scroll · bend & release to select
             </div>
           </div>
         </div>
