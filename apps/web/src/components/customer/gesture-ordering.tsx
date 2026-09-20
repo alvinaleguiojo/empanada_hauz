@@ -55,6 +55,18 @@ export default function GestureOrdering() {
   const swipeStopVelocity = 0.22; // px/ms to STOP a swipe (hysteresis)
   const swipeScrollGain = 1.8; // amplify hand movement -> scroll distance so small camera-frame motion still scrolls meaningfully
 
+  // Hand tracking only updates ~30x/sec at best (often less on weaker
+  // devices), which made scrolling feel steppy when scrollBy only ran on
+  // those ticks. Instead, track a continuously-updated velocity from
+  // tracking and apply it every rendered frame (up to display refresh
+  // rate) for smooth, inertia-like motion - the same technique used for
+  // controller/gyro input. This also fixes a "jump" right as you stop:
+  // velocity is zeroed the instant a swipe ends instead of leaving one
+  // last oversized scrollBy queued from a delayed tracking tick.
+  const scrollVelocity = useRef(0);
+  const scrollTargetEl = useRef<HTMLElement | null>(null);
+  const lastFrameTime = useRef(0);
+
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
     []
@@ -219,6 +231,15 @@ export default function GestureOrdering() {
           if (dead) return;
           raf.current = requestAnimationFrame(loop);
 
+          // Apply scroll velocity every rendered frame, not just on the
+          // (much slower) hand-tracking tick below, so motion stays smooth
+          // regardless of tracking framerate.
+          const frameDt = lastFrameTime.current ? time - lastFrameTime.current : 0;
+          lastFrameTime.current = time;
+          if (scrollVelocity.current !== 0 && scrollTargetEl.current && frameDt > 0) {
+            scrollTargetEl.current.scrollBy({ top: scrollVelocity.current * frameDt, behavior: "auto" });
+          }
+
           const t = performance.now();
           if (el.videoWidth && t - inferAt.current >= 33) {
             inferAt.current = t;
@@ -250,6 +271,7 @@ export default function GestureOrdering() {
               touchStartedAt.current = 0;
               swipeSamples.current = [];
               swiping.current = false;
+              scrollVelocity.current = 0;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -277,6 +299,8 @@ export default function GestureOrdering() {
             // just move your hand up or down. Velocity (over a short rolling
             // window) gates when a swipe "starts"/"stops" (with hysteresis)
             // so ordinary slower pointing movement doesn't trigger a scroll.
+            // This only updates scrollVelocity/scrollTargetEl; the actual
+            // scrollBy happens every rendered frame at the top of the loop.
             if (previousPoint) {
               swipeSamples.current.push({ t, y: sy });
               const cutoff = t - swipeSampleWindowMs;
@@ -286,27 +310,22 @@ export default function GestureOrdering() {
 
               const oldestSample = swipeSamples.current[0];
               const sampleSpan = t - oldestSample.t;
-              const velocity = sampleSpan > 20 ? (sy - oldestSample.y) / sampleSpan : 0;
+              const windowVelocity = sampleSpan > 20 ? (sy - oldestSample.y) / sampleSpan : 0;
 
-              if (!swiping.current && Math.abs(velocity) >= swipeStartVelocity) {
+              if (!swiping.current && Math.abs(windowVelocity) >= swipeStartVelocity) {
                 swiping.current = true;
-              } else if (swiping.current && Math.abs(velocity) < swipeStopVelocity) {
+                const formElement = document.getElementById("kiosk-order-form");
+                const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
+                scrollTargetEl.current = stepRef.current === 0 ? menuElement : formElement;
+              } else if (swiping.current && Math.abs(windowVelocity) < swipeStopVelocity) {
                 swiping.current = false;
               }
 
-              if (swiping.current) {
-                const frameDeltaY = sy - previousPoint.y;
-                if (frameDeltaY !== 0) {
-                  const formElement = document.getElementById("kiosk-order-form");
-                  const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
-                  const scrollTarget = stepRef.current === 0 ? menuElement : formElement;
-                  // Swipe up (finger moving toward the top of frame, frameDeltaY
-                  // negative) scrolls DOWN through the list - content follows
-                  // the finger, same direction convention as a real touchscreen.
-                  scrollTarget?.scrollBy({ top: -frameDeltaY * swipeScrollGain, behavior: "auto" });
-                  setMsg("Scrolling");
-                }
-              }
+              // Swipe up (finger moving toward the top of frame, negative
+              // velocity) scrolls DOWN through the list - content follows
+              // the finger, same direction convention as a real touchscreen.
+              scrollVelocity.current = swiping.current ? -windowVelocity * swipeScrollGain : 0;
+              if (swiping.current) setMsg("Scrolling");
             } else {
               swipeSamples.current = [{ t, y: sy }];
             }
@@ -485,6 +504,11 @@ export default function GestureOrdering() {
       stream.current = null;
       form?.classList.remove("eh-gesture-order-form");
       document.documentElement.classList.remove("eh-gesture-active");
+      swipeSamples.current = [];
+      swiping.current = false;
+      scrollVelocity.current = 0;
+      scrollTargetEl.current = null;
+      lastFrameTime.current = 0;
       if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
       if (hovered.current) {
         hovered.current.style.outline = "";
