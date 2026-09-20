@@ -46,35 +46,11 @@ export default function GestureOrdering() {
   const angleDebounceFrames = 2;
   const hoverTimer = useRef<number | null>(null);
   const handMissingSince = useRef<number | null>(null);
-  const touchDownAngle = 150;
-  const touchUpAngle = 165;
-  const touchSlop = 40;
-  const touchSettleMs = 100;
+  const touchDownAngle = 155;
+  const touchUpAngle = 172;
+  const touchSlop = 52;
+  const touchSettleMs = 140;
   const handGraceMs = 220;
-
-  // Scrolling is now a plain vertical swipe, independent of the tap gesture -
-  // you don't need to curl your finger at all to scroll, just move your hand
-  // up or down. A short rolling buffer of recent fingertip positions is used
-  // to compute vertical velocity so slow "just pointing at something" motion
-  // doesn't get mistaken for an intentional swipe.
-  const swipeSamples = useRef<{ t: number; y: number }[]>([]);
-  const swiping = useRef(false);
-  const swipeSampleWindowMs = 140;
-  const swipeStartVelocity = 0.55; // px/ms to START a swipe
-  const swipeStopVelocity = 0.22; // px/ms to STOP a swipe (hysteresis)
-  const swipeScrollGain = 1.8; // amplify hand movement -> scroll distance so small camera-frame motion still scrolls meaningfully
-
-  // Hand tracking only updates ~30x/sec at best (often less on weaker
-  // devices), which made scrolling feel steppy when scrollBy only ran on
-  // those ticks. Instead, track a continuously-updated velocity from
-  // tracking and apply it every rendered frame (up to display refresh
-  // rate) for smooth, inertia-like motion - the same technique used for
-  // controller/gyro input. This also fixes a "jump" right as you stop:
-  // velocity is zeroed the instant a swipe ends instead of leaving one
-  // last oversized scrollBy queued from a delayed tracking tick.
-  const scrollVelocity = useRef(0);
-  const scrollTargetEl = useRef<HTMLElement | null>(null);
-  const lastFrameTime = useRef(0);
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -240,15 +216,6 @@ export default function GestureOrdering() {
           if (dead) return;
           raf.current = requestAnimationFrame(loop);
 
-          // Apply scroll velocity every rendered frame, not just on the
-          // (much slower) hand-tracking tick below, so motion stays smooth
-          // regardless of tracking framerate.
-          const frameDt = lastFrameTime.current ? time - lastFrameTime.current : 0;
-          lastFrameTime.current = time;
-          if (scrollVelocity.current !== 0 && scrollTargetEl.current && frameDt > 0) {
-            scrollTargetEl.current.scrollBy({ top: scrollVelocity.current * frameDt, behavior: "auto" });
-          }
-
           const t = performance.now();
           if (el.videoWidth && t - inferAt.current >= 33) {
             inferAt.current = t;
@@ -278,9 +245,6 @@ export default function GestureOrdering() {
               touchTarget.current = null;
               touchMoved.current = false;
               touchStartedAt.current = 0;
-              swipeSamples.current = [];
-              swiping.current = false;
-              scrollVelocity.current = 0;
               pendingRawTouchDown.current = null;
               pendingTouchDownStreak.current = 0;
               acceptedIsTouchDown.current = false;
@@ -306,41 +270,6 @@ export default function GestureOrdering() {
             const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.72;
             const previousPoint = lastPoint.current;
             smoothPoint.current = { x: sx, y: sy };
-
-            // Vertical swipe scrolling - independent of the tap/curl gesture,
-            // just move your hand up or down. Velocity (over a short rolling
-            // window) gates when a swipe "starts"/"stops" (with hysteresis)
-            // so ordinary slower pointing movement doesn't trigger a scroll.
-            // This only updates scrollVelocity/scrollTargetEl; the actual
-            // scrollBy happens every rendered frame at the top of the loop.
-            if (previousPoint) {
-              swipeSamples.current.push({ t, y: sy });
-              const cutoff = t - swipeSampleWindowMs;
-              while (swipeSamples.current.length > 1 && swipeSamples.current[0].t < cutoff) {
-                swipeSamples.current.shift();
-              }
-
-              const oldestSample = swipeSamples.current[0];
-              const sampleSpan = t - oldestSample.t;
-              const windowVelocity = sampleSpan > 20 ? (sy - oldestSample.y) / sampleSpan : 0;
-
-              if (!swiping.current && Math.abs(windowVelocity) >= swipeStartVelocity) {
-                swiping.current = true;
-                const formElement = document.getElementById("kiosk-order-form");
-                const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
-                scrollTargetEl.current = stepRef.current === 0 ? menuElement : formElement;
-              } else if (swiping.current && Math.abs(windowVelocity) < swipeStopVelocity) {
-                swiping.current = false;
-              }
-
-              // Swipe up (finger moving toward the top of frame, negative
-              // velocity) scrolls DOWN through the list - content follows
-              // the finger, same direction convention as a real touchscreen.
-              scrollVelocity.current = swiping.current ? -windowVelocity * swipeScrollGain : 0;
-              if (swiping.current) setMsg("Scrolling");
-            } else {
-              swipeSamples.current = [{ t, y: sy }];
-            }
 
             const indexMcp = hand[5];
             const indexPip = hand[6];
@@ -416,13 +345,9 @@ export default function GestureOrdering() {
               }, 35);
             }
 
-            // Touch model (scrolling is handled separately, above, by swipe
-            // velocity - this only decides tap vs. no-op):
-            // 1) bend index finger -> touch down
-            // 2) small movement right after touch-down is ignored (settling)
-            // 3) if the finger drifts past the slop, it no longer counts as
-            //    a tap, but scrolling still happens independently via swipe
-            // 4) release without drifting past the slop -> tap
+            // Virtual touchscreen:
+            // bend = touch-down, small movement = tap-safe zone,
+            // deliberate movement = drag/scroll, release = tap if still inside the tap zone.
             if (isTouchDown && touchMode.current === "hover") {
               const point = { x: sx, y: sy };
               touchMode.current = "touching";
@@ -431,24 +356,45 @@ export default function GestureOrdering() {
               touchTarget.current = interactive;
               touchMoved.current = false;
               touchStartedAt.current = now;
-              setMsg(interactive ? "Touch" : "Touch and release to select");
-            } else if (isTouchDown && touchMode.current === "touching" && touchLast.current) {
-              const totalX = sx - (touchStart.current?.x ?? sx);
-              const totalY = sy - (touchStart.current?.y ?? sy);
+              setMsg(interactive ? "Touch" : "Touch and move");
+            } else if (
+              isTouchDown &&
+              touchMode.current === "touching" &&
+              touchLast.current
+            ) {
+              const previous = touchLast.current;
+              const moveX = sx - previous.x;
+              const moveY = sy - previous.y;
+              const totalX = sx - (touchStart.current?.x ?? previous.x);
+              const totalY = sy - (touchStart.current?.y ?? previous.y);
               const totalDistance = Math.hypot(totalX, totalY);
-
-              // Curling the index finger to signal "touch down" naturally
-              // drags the fingertip a little as part of the motion, which
-              // used to be enough to cross touchSlop and cancel the tap.
-              // Ignore that settling motion for a short window right after
-              // touch-down; real drift past the slop still cancels it.
+              const movement = Math.hypot(moveX, moveY);
               const settled = now - touchStartedAt.current >= touchSettleMs;
+
               if (settled && totalDistance >= touchSlop) {
                 touchMoved.current = true;
+                touchMode.current = "dragging";
               }
 
               touchLast.current = { x: sx, y: sy };
-            } else if (!isTouchDown && touchMode.current === "touching") {
+
+              if (touchMode.current === "dragging" && movement > 0.35) {
+                const formElement = document.getElementById("kiosk-order-form");
+                const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
+                const scrollTarget = stepRef.current === 0 ? menuElement : formElement;
+
+                if (Math.abs(moveY) >= Math.abs(moveX) * 0.75) {
+                  scrollTarget?.scrollBy({
+                    top: moveY,
+                    behavior: "auto"
+                  });
+                  setMsg("Scrolling");
+                }
+              }
+            } else if (
+              !isTouchDown &&
+              (touchMode.current === "touching" || touchMode.current === "dragging")
+            ) {
               const pressedTarget = touchTarget.current;
               const startPoint = touchStart.current;
               const distance = startPoint
@@ -458,12 +404,11 @@ export default function GestureOrdering() {
                 ? now - touchStartedAt.current
                 : Infinity;
 
-              // Only a deliberate touch-and-release selects. Once the
-              // finger drifts past the slop, releasing must never click.
               if (
+                touchMode.current === "touching" &&
                 !touchMoved.current &&
                 distance <= touchSlop &&
-                heldFor <= 1200 &&
+                heldFor <= 1400 &&
                 pressedTarget?.isConnected
               ) {
                 pressedTarget.click();
@@ -473,11 +418,11 @@ export default function GestureOrdering() {
                     { transform: "scale(.95)" },
                     { transform: "scale(1)" }
                   ],
-                  { duration: 150, easing: "ease-out" }
+                  { duration: 160, easing: "ease-out" }
                 );
                 setMsg("Selected");
                 window.setTimeout(syncCart, 50);
-              } else if (touchMoved.current) {
+              } else if (touchMode.current === "dragging") {
                 setMsg("Released");
               }
 
@@ -533,11 +478,6 @@ export default function GestureOrdering() {
       stream.current = null;
       form?.classList.remove("eh-gesture-order-form");
       document.documentElement.classList.remove("eh-gesture-active");
-      swipeSamples.current = [];
-      swiping.current = false;
-      scrollVelocity.current = 0;
-      scrollTargetEl.current = null;
-      lastFrameTime.current = 0;
       pendingRawTouchDown.current = null;
       pendingTouchDownStreak.current = 0;
       acceptedIsTouchDown.current = false;
@@ -616,7 +556,7 @@ export default function GestureOrdering() {
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
-                      <div className="mt-1 text-sm text-white/55">Swipe up/down to scroll · bend & release to select</div>
+                      <div className="mt-1 text-sm text-white/55">Bend to touch · move past the touch point to scroll · release to select</div>
                     </div>
                     <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
                       <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
@@ -632,15 +572,15 @@ export default function GestureOrdering() {
                           key={item.value}
                           className={`group relative overflow-hidden rounded-[22px] border backdrop-blur-xl transition ${quantity ? "border-[#E3A64B]/80 bg-[#21170d]/85" : "border-white/12 bg-[#17110b]/65"}`}
                         >
-                          <button type="button" onClick={() => clickFlavor(item.value)} className="block min-h-[240px] w-full text-left">
+                          <button type="button" onClick={() => clickFlavor(item.value)} className="block min-h-[320px] w-full text-left">
                             <div className="absolute inset-0">
                               {item.imageUrl ? <img src={item.imageUrl} alt="" className="h-full w-full object-cover opacity-55 transition duration-300 group-hover:scale-105" /> : null}
                               <div className="absolute inset-0 bg-gradient-to-t from-[#110c08] via-[#110c08]/45 to-transparent" />
                             </div>
-                            <div className="relative flex min-h-[240px] flex-col justify-end p-6">
+                            <div className="relative flex min-h-[320px] flex-col justify-end p-8">
                               <div className="flex items-end justify-between gap-3">
                                 <div>
-                                  <div className="font-[family-name:var(--font-display)] text-2xl font-extrabold text-white">{item.value}</div>
+                                  <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white">{item.value}</div>
                                   <div className="mt-1 font-[family-name:var(--font-mono)] text-sm font-bold text-[#E3A64B]">₱{item.price}</div>
                                 </div>
                                 {quantity > 0 ? (
@@ -654,10 +594,10 @@ export default function GestureOrdering() {
                             </div>
                           </button>
                           {quantity > 0 ? (
-                            <div className="absolute right-3 top-3 z-20 flex min-h-16 items-center overflow-hidden rounded-[20px] border-2 border-[#E3A64B]/45 bg-black/75 p-1 shadow-2xl backdrop-blur-xl">
-                              <button type="button" aria-label={`Decrease ${item.value}`} onClick={() => changeQuantity(item.value, -1)} className="grid h-14 w-14 place-items-center rounded-[16px] text-white/90 transition active:scale-95 hover:bg-white/10"><Minus size={22} /></button>
-                              <span className="w-12 text-center font-[family-name:var(--font-mono)] text-lg font-extrabold text-white">{quantity}</span>
-                              <button type="button" aria-label={`Increase ${item.value}`} onClick={() => changeQuantity(item.value, 1)} className="grid h-14 w-14 place-items-center rounded-[16px] text-[#E3A64B] transition active:scale-95 hover:bg-[#E3A64B]/15"><Plus size={24} /></button>
+                            <div className="absolute right-3 top-3 z-20 flex min-h-20 items-center overflow-hidden rounded-[24px] border-2 border-[#E3A64B]/45 bg-black/75 p-1 shadow-2xl backdrop-blur-xl">
+                              <button type="button" aria-label={`Decrease ${item.value}`} onClick={() => changeQuantity(item.value, -1)} className="grid h-[72px] w-[72px] place-items-center rounded-[18px] text-white/90 transition active:scale-95 hover:bg-white/10"><Minus size={28} /></button>
+                              <span className="w-16 text-center font-[family-name:var(--font-mono)] text-lg font-extrabold text-white">{quantity}</span>
+                              <button type="button" aria-label={`Increase ${item.value}`} onClick={() => changeQuantity(item.value, 1)} className="grid h-[72px] w-[72px] place-items-center rounded-[18px] text-[#E3A64B] transition active:scale-95 hover:bg-[#E3A64B]/15"><Plus size={30} /></button>
                             </div>
                           ) : null}
                         </div>
@@ -674,7 +614,7 @@ export default function GestureOrdering() {
               </section>
             )}
 
-            <div id="eh-gesture-cursor" className="pointer-events-none absolute left-0 top-0 z-[95] h-8 w-8 -ml-4 -mt-4 rounded-full border-2 border-[#F6EFDD] bg-[#E3A64B]/35 shadow-[0_0_0_7px_rgba(227,166,75,.18),0_0_24px_rgba(227,166,75,.65)] opacity-0">
+            <div id="eh-gesture-cursor" className="pointer-events-none absolute left-0 top-0 z-[95] h-10 w-10 -ml-5 -mt-5 rounded-full border-2 border-[#F6EFDD] bg-[#E3A64B]/35 shadow-[0_0_0_7px_rgba(227,166,75,.18),0_0_24px_rgba(227,166,75,.65)] opacity-0">
               <div id="eh-gesture-pulse" className="absolute inset-[-5px] rounded-full border border-[#E3A64B]/45" />
               <div id="eh-gesture-focus" className="absolute inset-[-11px] rounded-full border-2 border-dashed border-[#E3A64B] opacity-0" />
               <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
@@ -692,17 +632,17 @@ export default function GestureOrdering() {
               </div>
 
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => navigate("prev")} className="grid h-12 w-12 place-items-center rounded-2xl border border-white/12 bg-white/5 text-white/70 backdrop-blur-xl">
+                <button type="button" onClick={() => navigate("prev")} className="grid h-14 w-14 place-items-center rounded-2xl border border-white/12 bg-white/5 text-white/70 backdrop-blur-xl">
                   <ChevronLeft size={19} />
                 </button>
-                <button type="button" onClick={() => navigate("next")} disabled={step === 0 && cartCount < 10} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[#E3A64B] px-5 font-extrabold text-[#20160d] shadow-lg disabled:cursor-not-allowed disabled:opacity-35">
+                <button type="button" onClick={() => navigate("next")} disabled={step === 0 && cartCount < 10} className="inline-flex h-14 items-center gap-2 rounded-2xl bg-[#E3A64B] px-5 font-extrabold text-[#20160d] shadow-lg disabled:cursor-not-allowed disabled:opacity-35">
                   {step === 2 ? "Place order" : "Continue"} <ChevronRight size={18} />
                 </button>
               </div>
             </footer>
 
             <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
-              Point · swipe to scroll · bend & release to select
+              Point · bend to touch · drag to scroll · release to select
             </div>
           </div>
         </div>
@@ -772,7 +712,9 @@ export default function GestureOrdering() {
             border-radius: 24px !important;
           }
           .eh-gesture-menu { grid-template-columns: 1fr; }
-          .eh-gesture-menu > div { min-height: 132px; }
+          .eh-gesture-menu > div { min-height: 240px; }
+          .eh-gesture-menu > div > button,
+          .eh-gesture-menu > div > button > div.relative { min-height: 240px; }
         }
       `}</style>
     </>
