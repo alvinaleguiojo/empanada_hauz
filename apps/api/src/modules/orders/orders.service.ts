@@ -107,14 +107,16 @@ export class OrdersService {
     }));
   }
 
-  async createManual(dto: ManualOrderEntryDto) {
+  async createManual(dto: ManualOrderEntryDto, options: { calculateDeliveryFee?: boolean } = {}) {
     const trustedItems = dto.items && dto.items.length > 0 ? await this.resolveTrustedLineItems(dto.items) : [];
     const reusableCustomer = await this.findReusableCustomer(dto);
     const customer = reusableCustomer ? await this.prisma.customer.update({ where: { id: reusableCustomer.id }, data: { name: dto.customerName, ...(dto.phoneNumber ? { phoneNumber: dto.phoneNumber } : {}), ...(dto.address ? { defaultAddress: dto.address } : {}), preferredDeliveryMethod: dto.deliveryMethod } }) : await this.prisma.customer.create({ data: { name: dto.customerName, phoneNumber: dto.phoneNumber, defaultAddress: dto.address, preferredDeliveryMethod: dto.deliveryMethod } });
     const batch = dto.status && ["ready_for_booking", "booked", "completed", "cancelled"].includes(dto.status) ? null : await this.batchesService.assignBatch(dto.quantity);
     const lineItems = trustedItems; const orderQuantity = lineItems.reduce((sum, item) => sum + item.quantity, 0) || dto.quantity;
     const itemSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
-    const deliveryFee = await this.resolveOrderDeliveryFee(dto.deliveryMethod, [dto.address, dto.location].filter(Boolean).join(", "), dto.deliveryFee ?? 0);
+    const deliveryFee = options.calculateDeliveryFee === false
+      ? 0
+      : await this.resolveOrderDeliveryFee(dto.deliveryMethod, [dto.address, dto.location].filter(Boolean).join(", "), dto.deliveryFee ?? 0);
     const discountAmount = dto.discountAmount ?? 0;
     const totalAmount = Math.max(0, (lineItems.length > 0 ? itemSubtotal : dto.quantity * dto.unitPrice) + deliveryFee - discountAmount); const unitPrice = lineItems.length > 0 && orderQuantity > 0 ? itemSubtotal / orderQuantity : dto.unitPrice;
     const order = await this.prisma.order.create({ data: { orderNumber: `EMP-${Date.now()}`, customerId: customer.id, quantity: orderQuantity, unitPrice, totalAmount, deliveryFee, discountAmount, deliveryMethod: dto.deliveryMethod, paymentMethod: dto.paymentMethod ?? "cod", location: dto.location, address: dto.address, preferredSchedule: this.parsePreferredSchedule(dto.preferredSchedule), scheduleReminderSentAt: null, items: lineItems.length > 0 ? lineItems : dto.items, notes: dto.notes, adLabel: dto.adLabel, ...(dto.notes?.trim() ? { orderNotes: { create: { body: dto.notes.trim() } } } : {}), batchId: batch?.id, status: dto.status ?? (batch ? "queued" : "awaiting_confirmation") }, include: { customer: true, batch: true, delivery: true, orderNotes: { orderBy: { createdAt: "desc" } } } });
