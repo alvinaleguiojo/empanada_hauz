@@ -210,8 +210,6 @@ export default function GestureOrdering() {
         el.srcObject = s;
         await el.play();
 
-        let drawFrame = 0;
-
         const draw = (points: any[]) => {
           const c = canvas.current;
           if (!c) return;
@@ -268,10 +266,7 @@ export default function GestureOrdering() {
             inferAt.current = t;
             const result = r.recognizeForVideo(el, t);
             const hand = result.landmarks?.[0];
-            drawFrame = (drawFrame + 1) % 2;
-            if (drawFrame === 0 || !hand) {
-              draw(hand ?? []);
-            }
+            draw(hand ?? []);
 
             if (!hand) {
               // Webcam hand tracking drops out for a frame or two very easily
