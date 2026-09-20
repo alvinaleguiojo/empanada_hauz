@@ -159,7 +159,7 @@ export default function GestureOrdering() {
     const setGestureMessage = (next: string) => {
       if (statusRef.current === next) return;
       statusRef.current = next;
-      setGestureMessage(next);
+      setMsg(next);
     };
 
     let dead = false;
