@@ -223,7 +223,6 @@ export default function GestureOrdering() {
             const previousPoint = lastPoint.current;
             smoothPoint.current = { x: sx, y: sy };
 
-            const now = Date.now();
             const indexMcp = hand[5];
             const indexPip = hand[6];
             const indexTip = hand[8];
@@ -263,8 +262,6 @@ export default function GestureOrdering() {
               touchTarget.current = interactiveAtCursor();
               touchMoved.current = false;
             } else if (isTapDown && touchMode.current === "tapping" && touchLast.current) {
-              const moveX = sx - touchLast.current.x;
-              const moveY = sy - touchLast.current.y;
               const startPoint = touchStart.current ?? touchLast.current;
               const distance = Math.hypot(sx - startPoint.x, sy - startPoint.y);
 
