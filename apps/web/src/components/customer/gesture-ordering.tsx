@@ -8,7 +8,7 @@ const WASM="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm";
 
 export default function GestureOrdering(){
   const [on,setOn]=useState(false),[msg,setMsg]=useState("Move your index finger; pinch to click"),[keyboard,setKeyboard]=useState(false);
-  const video=useRef<HTMLVideoElement>(null), canvas=useRef<HTMLCanvasElement>(null), recognizer=useRef<any>(null), stream=useRef<MediaStream|null>(null), raf=useRef<number>(), last=useRef(0), clickAt=useRef(0), lastX=useRef<number|null>(null), swipeAt=useRef(0);
+  const video=useRef<HTMLVideoElement>(null), canvas=useRef<HTMLCanvasElement>(null), recognizer=useRef<any>(null), stream=useRef<MediaStream|null>(null), raf=useRef<number|null>(null), last=useRef(0), clickAt=useRef(0), lastX=useRef<number|null>(null), swipeAt=useRef(0);
 
   useEffect(()=>{if(!on)return;let dead=false;
     (async()=>{
