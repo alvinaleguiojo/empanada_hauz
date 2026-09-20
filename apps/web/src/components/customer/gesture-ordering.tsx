@@ -36,7 +36,6 @@ export default function GestureOrdering() {
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
   const hoverTimer = useRef<number | null>(null);
-  const hoverFocusAt = useRef(0);
   const touchDownAngle = 150;
   const touchUpAngle = 165;
   const touchSlop = 28;
@@ -257,7 +256,6 @@ export default function GestureOrdering() {
                   hovered.current.style.outlineOffset = "";
                 }
                 hovered.current = interactive;
-                hoverFocusAt.current = performance.now();
                 if (interactive) {
                   interactive.style.outline = "3px solid rgba(227,166,75,.95)";
                   interactive.style.outlineOffset = "4px";
