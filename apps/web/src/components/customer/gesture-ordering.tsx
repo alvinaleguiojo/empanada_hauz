@@ -36,9 +36,12 @@ export default function GestureOrdering() {
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
   const hoverTimer = useRef<number | null>(null);
+  const handMissingSince = useRef<number | null>(null);
   const touchDownAngle = 150;
   const touchUpAngle = 165;
-  const touchSlop = 28;
+  const touchSlop = 40;
+  const touchSettleMs = 100;
+  const handGraceMs = 220;
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -195,6 +198,18 @@ export default function GestureOrdering() {
             draw(hand ?? []);
 
             if (!hand) {
+              // Webcam hand tracking drops out for a frame or two very easily
+              // (motion blur mid-gesture, brief occlusion). Losing tracking
+              // used to hard-reset any in-progress touch immediately, so a
+              // single missed frame during a tap silently failed it with no
+              // feedback. Give tracking a short grace window to recover
+              // before actually abandoning the gesture.
+              const missingSince = handMissingSince.current ?? t;
+              handMissingSince.current = missingSince;
+              if (t - missingSince < handGraceMs) {
+                return;
+              }
+
               target.current = null;
               smoothPoint.current = null;
               lastPoint.current = null;
@@ -211,6 +226,8 @@ export default function GestureOrdering() {
               }
               return;
             }
+
+            handMissingSince.current = null;
 
             const index = hand[8];
             target.current = {
@@ -310,7 +327,15 @@ export default function GestureOrdering() {
               const totalDistance = Math.hypot(totalX, totalY);
               const movement = Math.hypot(moveX, moveY);
 
-              if (totalDistance >= touchSlop) {
+              // Curling the index finger to signal "touch down" naturally
+              // drags the fingertip a little as part of the motion, which
+              // was enough to cross touchSlop and get misread as a drag -
+              // turning an intended tap into a released drag that selects
+              // nothing. Ignore that settling motion for a short window
+              // right after touch-down; a real drag continues past it.
+              const settled = now - touchStartedAt.current >= touchSettleMs;
+
+              if (settled && totalDistance >= touchSlop) {
                 touchMoved.current = true;
                 touchMode.current = "dragging";
               }
