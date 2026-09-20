@@ -31,6 +31,7 @@ export default function GestureOrdering() {
   const pinchMoved = useRef(false);
   const pinchAt = useRef(0);
   const swipeAt = useRef(0);
+  const scrollPoint = useRef<Point | null>(null);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
   const pinchScrollPoint = useRef<Point | null>(null);
@@ -200,6 +201,7 @@ export default function GestureOrdering() {
               smoothPoint.current = null;
               lastPoint.current = null;
               swipeAt.current = 0;
+              scrollPoint.current = null;
               tapActive.current = false;
               setMsg("Show your hand to start");
               if (hovered.current) {
@@ -321,32 +323,33 @@ export default function GestureOrdering() {
               hoverTarget.current = null;
             }
 
-            if (!isPinching && previousSmooth && now - swipeAt.current > 700) {
+            // Scroll only while the index finger is extended. A bent index
+            // is reserved for tapping, so tap gestures cannot accidentally scroll.
+            if (!isPinching && indexAngle > 145 && previousSmooth && now - tapCooldownAt.current > 250) {
               const smoothDx = sx - previousSmooth.x;
               const smoothDy = sy - previousSmooth.y;
-              const distance = Math.hypot(smoothDx, smoothDy);
+              const movement = Math.hypot(smoothDx, smoothDy);
+              const vertical = Math.abs(smoothDy) > Math.abs(smoothDx) * 1.2;
+              const horizontal = Math.abs(smoothDx) > 70 && Math.abs(smoothDx) > Math.abs(smoothDy) * 1.4;
 
-              if (distance > 8) {
-                const vertical = Math.abs(smoothDy) > Math.abs(smoothDx) * 1.15;
-                const horizontal = Math.abs(smoothDx) > 90 && Math.abs(smoothDx) > Math.abs(smoothDy) * 1.35;
+              if (vertical && movement > 2) {
+                const formElement = document.getElementById("kiosk-order-form");
+                const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
+                const scrollTarget = step === 0 ? menuElement : formElement;
 
-                if (vertical) {
-                  const formElement = document.getElementById("kiosk-order-form");
-                  const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
-                  const scrollTarget = step === 0 ? menuElement : formElement;
-
-                  if (scrollTarget) {
-                    const scrollDelta = -smoothDy * 2.35;
-                    scrollTarget.scrollTop += scrollDelta;
-                    setMsg(smoothDy < 0 ? "Scrolling down" : "Scrolling up");
-                  }
-                } else if (horizontal) {
-                  swipeAt.current = now;
-                  navigate(smoothDx < 0 ? "next" : "prev");
-                  setMsg(smoothDx < 0 ? "Next step" : "Previous step");
+                if (scrollTarget) {
+                  scrollTarget.scrollBy({ top: -smoothDy * 3.2, behavior: "auto" });
+                  scrollPoint.current = { x: sx, y: sy };
+                  setMsg(smoothDy < 0 ? "Scrolling down" : "Scrolling up");
                 }
+              } else if (horizontal && movement > 12 && now - swipeAt.current > 650) {
+                swipeAt.current = now;
+                navigate(smoothDx < 0 ? "next" : "prev");
+                setMsg(smoothDx < 0 ? "Next step" : "Previous step");
               }
             }
+
+
 
           }
 
