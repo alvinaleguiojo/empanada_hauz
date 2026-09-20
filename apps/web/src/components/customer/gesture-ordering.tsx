@@ -271,10 +271,27 @@ export default function GestureOrdering() {
               hoverTarget.current = null;
             }
 
-            if (!isPinching && previous && Math.abs(dx) > 120 && Math.abs(dx) > Math.abs(dy) * 1.35 && now - swipeAt.current > 1000) {
-              swipeAt.current = now;
-              navigate(dx < 0 ? "next" : "prev");
-              setMsg(dx < 0 ? "Next step" : "Previous step");
+            if (!isPinching && previous && now - swipeAt.current > 700) {
+              const distance = Math.hypot(dx, dy);
+
+              if (distance > 90) {
+                swipeAt.current = now;
+
+                if (Math.abs(dy) > Math.abs(dx) * 1.2) {
+                  const formElement = document.getElementById("kiosk-order-form");
+                  const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
+                  const scrollTarget = step === 0 ? menuElement : formElement;
+
+                  scrollTarget?.scrollBy({
+                    top: dy > 0 ? 220 : -220,
+                    behavior: "smooth"
+                  });
+                  setMsg(dy > 0 ? "Scroll down" : "Scroll up");
+                } else if (Math.abs(dx) > 120 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+                  navigate(dx < 0 ? "next" : "prev");
+                  setMsg(dx < 0 ? "Next step" : "Previous step");
+                }
+              }
             }
 
           }
