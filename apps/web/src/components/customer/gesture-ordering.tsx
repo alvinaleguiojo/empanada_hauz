@@ -37,8 +37,8 @@ export default function GestureOrdering() {
   const smoothPoint = useRef<Point | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const hoverFocusAt = useRef(0);
-  const touchDownAngle = 145;
-  const touchUpAngle = 158;
+  const touchDownAngle = 150;
+  const touchUpAngle = 165;
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -220,8 +220,8 @@ export default function GestureOrdering() {
 
             const raw = target.current;
             const currentSmooth = smoothPoint.current ?? raw;
-            const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.68;
-            const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.38;
+            const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.72;
+            const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.72;
             const previousPoint = lastPoint.current;
             smoothPoint.current = { x: sx, y: sy };
 
@@ -332,8 +332,8 @@ export default function GestureOrdering() {
           if (wanted) {
             const current = cursor.current ?? wanted;
             const next = {
-              x: current.x + (wanted.x - current.x) * 0.88,
-              y: current.y + (wanted.y - current.y) * 0.5
+              x: current.x + (wanted.x - current.x) * 0.92,
+              y: current.y + (wanted.y - current.y) * 0.92
             };
             cursor.current = next;
             const cursorElement = document.getElementById("eh-gesture-cursor");
