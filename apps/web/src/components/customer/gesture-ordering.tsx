@@ -35,7 +35,15 @@ export default function GestureOrdering() {
   const touchStartedAt = useRef(0);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
-  const smoothedAngle = useRef<number | null>(null);
+  // Debounce (not smooth) the touch-down/up angle crossing: smoothing
+  // dampens brief peaks, which could make a normal quick "straighten to
+  // release" motion never actually cross the release threshold - stuck
+  // mid-tap. A same-value-for-N-consecutive-ticks debounce filters single-
+  // frame landmark noise without attenuating genuine, deliberate motion.
+  const pendingRawTouchDown = useRef<boolean | null>(null);
+  const pendingTouchDownStreak = useRef(0);
+  const acceptedIsTouchDown = useRef(false);
+  const angleDebounceFrames = 2;
   const hoverTimer = useRef<number | null>(null);
   const handMissingSince = useRef<number | null>(null);
   const touchDownAngle = 150;
@@ -273,7 +281,9 @@ export default function GestureOrdering() {
               swipeSamples.current = [];
               swiping.current = false;
               scrollVelocity.current = 0;
-              smoothedAngle.current = null;
+              pendingRawTouchDown.current = null;
+              pendingTouchDownStreak.current = 0;
+              acceptedIsTouchDown.current = false;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -346,22 +356,11 @@ export default function GestureOrdering() {
             const v1Length = Math.hypot(v1.x, v1.y);
             const v2Length = Math.hypot(v2.x, v2.y);
             const dot = v1.x * v2.x + v1.y * v2.y;
-            const rawIndexAngle = v1Length && v2Length
+            const indexAngle = v1Length && v2Length
               ? Math.acos(
                   Math.max(-1, Math.min(1, dot / (v1Length * v2Length)))
                 ) * (180 / Math.PI)
               : 180;
-
-            // Unlike fingertip position, this angle was read straight from
-            // raw landmarks every tick with no smoothing - MediaPipe's
-            // per-frame landmark noise goes directly into it, so near the
-            // 150/165 threshold it could flicker across the line several
-            // times within a single intended tap, each flip resetting the
-            // touch timer/start-point and making taps feel twitchy or
-            // getting dropped outright. Smooth it the same way position is.
-            const previousAngle = smoothedAngle.current ?? rawIndexAngle;
-            const indexAngle = previousAngle + (rawIndexAngle - previousAngle) * 0.55;
-            smoothedAngle.current = indexAngle;
 
             const interactiveAtCursor = () =>
               document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
@@ -369,9 +368,26 @@ export default function GestureOrdering() {
               ) ?? null;
 
             const wasTouching = touchMode.current === "touching";
-            const isTouchDown = wasTouching
+            const rawIsTouchDown = wasTouching
               ? indexAngle < touchUpAngle
               : indexAngle < touchDownAngle;
+
+            // Debounce the crossing rather than smoothing the angle itself:
+            // require the same raw reading for a couple of consecutive
+            // ticks before accepting it, so single-frame landmark noise
+            // can't flip state mid-tap, but a genuine, brief "straighten to
+            // release" motion still registers at full strength instead of
+            // being flattened by a low-pass filter.
+            if (rawIsTouchDown === pendingRawTouchDown.current) {
+              pendingTouchDownStreak.current += 1;
+            } else {
+              pendingRawTouchDown.current = rawIsTouchDown;
+              pendingTouchDownStreak.current = 1;
+            }
+            if (pendingTouchDownStreak.current >= angleDebounceFrames) {
+              acceptedIsTouchDown.current = rawIsTouchDown;
+            }
+            const isTouchDown = acceptedIsTouchDown.current;
 
             const resetTouch = () => {
               touchMode.current = "hover";
@@ -522,7 +538,9 @@ export default function GestureOrdering() {
       scrollVelocity.current = 0;
       scrollTargetEl.current = null;
       lastFrameTime.current = 0;
-      smoothedAngle.current = null;
+      pendingRawTouchDown.current = null;
+      pendingTouchDownStreak.current = 0;
+      acceptedIsTouchDown.current = false;
       if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
       if (hovered.current) {
         hovered.current.style.outline = "";
