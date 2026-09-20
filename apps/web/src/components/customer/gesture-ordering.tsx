@@ -139,7 +139,13 @@ export default function GestureOrdering() {
 
         recognizer.current = r;
         const s = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+          // Lower capture resolution than before (was 1280x720): fingertip
+          // tracking doesn't need much detail, and lower resolution means
+          // meaningfully faster MediaPipe inference per frame, especially on
+          // phones - this was very likely the biggest single contributor to
+          // perceived lag, since a slow recognizeForVideo() call blocks the
+          // whole loop, not just rendering.
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false
         });
 
@@ -160,8 +166,14 @@ export default function GestureOrdering() {
           const width = c.clientWidth;
           const height = c.clientHeight;
           const dpr = Math.min(window.devicePixelRatio || 1, 2);
-          c.width = width * dpr;
-          c.height = height * dpr;
+          // Setting canvas.width/height clears and reallocates the whole
+          // backing bitmap, even when the value doesn't actually change.
+          // This used to run unconditionally on every inference frame (up
+          // to ~30/sec) - only touch it when the size actually changed.
+          const targetWidth = Math.round(width * dpr);
+          const targetHeight = Math.round(height * dpr);
+          if (c.width !== targetWidth) c.width = targetWidth;
+          if (c.height !== targetHeight) c.height = targetHeight;
           const ctx = c.getContext("2d");
           if (!ctx) return;
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
