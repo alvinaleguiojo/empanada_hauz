@@ -258,7 +258,7 @@ export default function GestureOrdering() {
               hoverTarget.current = null;
 
               if (!wasMoved && now - pinchAt.current > 90) {
-                const interactive = hoverTarget.current;
+                const interactive = hoverTarget.current as HTMLElement | null;
                 interactive?.click();
                 if (interactive) {
                   interactive.animate(
