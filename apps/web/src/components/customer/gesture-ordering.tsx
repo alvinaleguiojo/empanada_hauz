@@ -31,7 +31,10 @@ export default function GestureOrdering() {
   const pinchMoved = useRef(false);
   const pinchAt = useRef(0);
   const swipeAt = useRef(0);
-  const scrollPoint = useRef<Point | null>(null);
+  type GestureMode = "idle" | "tap" | "scroll" | "horizontal";
+  const gestureMode = useRef<GestureMode>("idle");
+  const gestureOrigin = useRef<Point | null>(null);
+  const lastGesturePoint = useRef<Point | null>(null);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
   const pinchScrollPoint = useRef<Point | null>(null);
@@ -201,7 +204,9 @@ export default function GestureOrdering() {
               smoothPoint.current = null;
               lastPoint.current = null;
               swipeAt.current = 0;
-              scrollPoint.current = null;
+              gestureMode.current = "idle";
+              gestureOrigin.current = null;
+              lastGesturePoint.current = null;
               tapActive.current = false;
               setMsg("Show your hand to start");
               if (hovered.current) {
@@ -223,7 +228,6 @@ export default function GestureOrdering() {
             const dx = previousSmooth ? raw.x - previousSmooth.x : 0;
             const dy = previousSmooth ? raw.y - previousSmooth.y : 0;
 
-            const currentSmoothPoint = currentSmooth;
             const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.38;
             const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.38;
             smoothPoint.current = { x: sx, y: sy };
@@ -323,29 +327,67 @@ export default function GestureOrdering() {
               hoverTarget.current = null;
             }
 
-            // Scroll only while the index finger is extended. A bent index
-            // is reserved for tapping, so tap gestures cannot accidentally scroll.
-            if (!isPinching && indexAngle > 145 && previousSmooth && now - tapCooldownAt.current > 250) {
-              const smoothDx = sx - previousSmooth.x;
-              const smoothDy = sy - previousSmooth.y;
-              const movement = Math.hypot(smoothDx, smoothDy);
-              const vertical = Math.abs(smoothDy) > Math.abs(smoothDx) * 1.2;
-              const horizontal = Math.abs(smoothDx) > 70 && Math.abs(smoothDx) > Math.abs(smoothDy) * 1.4;
+            // Movement-driven navigation:
+            // - extended index finger starts a gesture only after a clear movement;
+            // - once vertical scrolling starts, every fingertip movement is applied directly;
+            // - when the fingertip stops moving, no more scroll is generated;
+            // - a bent index finger is locked to tap mode so tapping cannot scroll.
+            if (isPinching) {
+              gestureMode.current = "idle";
+              gestureOrigin.current = null;
+              lastGesturePoint.current = null;
+            } else if (indexAngle < 125) {
+              gestureMode.current = "tap";
+              gestureOrigin.current = null;
+              lastGesturePoint.current = null;
+            } else if (indexAngle > 145 && now - tapCooldownAt.current > 250) {
+              const previousGesturePoint = lastGesturePoint.current ?? { x: sx, y: sy };
+              const moveX = sx - previousGesturePoint.x;
+              const moveY = sy - previousGesturePoint.y;
+              const movement = Math.hypot(moveX, moveY);
 
-              if (vertical && movement > 2) {
+              if (!gestureOrigin.current) {
+                gestureOrigin.current = { x: sx, y: sy };
+              }
+              lastGesturePoint.current = { x: sx, y: sy };
+
+              const origin = gestureOrigin.current;
+              const totalX = sx - origin.x;
+              const totalY = sy - origin.y;
+              const totalMovement = Math.hypot(totalX, totalY);
+
+              if (gestureMode.current === "idle" && totalMovement >= 14) {
+                const vertical = Math.abs(totalY) >= Math.abs(totalX) * 1.15;
+                const horizontal = Math.abs(totalX) >= Math.abs(totalY) * 1.35;
+
+                if (vertical) {
+                  gestureMode.current = "scroll";
+                } else if (horizontal && Math.abs(totalX) >= 70) {
+                  gestureMode.current = "horizontal";
+                }
+              }
+
+              if (gestureMode.current === "scroll" && movement > 0.8) {
                 const formElement = document.getElementById("kiosk-order-form");
                 const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
                 const scrollTarget = step === 0 ? menuElement : formElement;
 
-                if (scrollTarget) {
-                  scrollTarget.scrollBy({ top: -smoothDy * 3.2, behavior: "auto" });
-                  scrollPoint.current = { x: sx, y: sy };
-                  setMsg(smoothDy < 0 ? "Scrolling down" : "Scrolling up");
-                }
-              } else if (horizontal && movement > 12 && now - swipeAt.current > 650) {
+                scrollTarget?.scrollBy({
+                  top: -moveY * 3.2,
+                  behavior: "auto"
+                });
+
+                setMsg(moveY < 0 ? "Scrolling down" : "Scrolling up");
+              } else if (
+                gestureMode.current === "horizontal" &&
+                totalMovement >= 70 &&
+                now - swipeAt.current > 650
+              ) {
                 swipeAt.current = now;
-                navigate(smoothDx < 0 ? "next" : "prev");
-                setMsg(smoothDx < 0 ? "Next step" : "Previous step");
+                navigate(totalX < 0 ? "next" : "prev");
+                setMsg(totalX < 0 ? "Next step" : "Previous step");
+                gestureOrigin.current = { x: sx, y: sy };
+                lastGesturePoint.current = { x: sx, y: sy };
               }
             }
 
@@ -492,7 +534,7 @@ export default function GestureOrdering() {
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
-                      <div className="mt-1 text-sm text-white/55">Point at a card · pinch and release to add</div>
+                      <div className="mt-1 text-sm text-white/55">Point at a card · bend your index finger to tap</div>
                     </div>
                     <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
                       <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
@@ -578,7 +620,7 @@ export default function GestureOrdering() {
             </footer>
 
             <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
-              ☝ Point · 👆 Tap = select · ↕ Swipe = scroll · ← → Step
+              ☝ Move finger = scroll · 👆 Bend finger = tap · ↔ Swipe = step
             </div>
           </div>
         </div>
