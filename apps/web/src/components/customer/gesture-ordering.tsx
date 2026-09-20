@@ -35,6 +35,7 @@ export default function GestureOrdering() {
   const touchStartedAt = useRef(0);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
+  const smoothedAngle = useRef<number | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const handMissingSince = useRef<number | null>(null);
   const touchDownAngle = 150;
@@ -272,6 +273,7 @@ export default function GestureOrdering() {
               swipeSamples.current = [];
               swiping.current = false;
               scrollVelocity.current = 0;
+              smoothedAngle.current = null;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -344,11 +346,22 @@ export default function GestureOrdering() {
             const v1Length = Math.hypot(v1.x, v1.y);
             const v2Length = Math.hypot(v2.x, v2.y);
             const dot = v1.x * v2.x + v1.y * v2.y;
-            const indexAngle = v1Length && v2Length
+            const rawIndexAngle = v1Length && v2Length
               ? Math.acos(
                   Math.max(-1, Math.min(1, dot / (v1Length * v2Length)))
                 ) * (180 / Math.PI)
               : 180;
+
+            // Unlike fingertip position, this angle was read straight from
+            // raw landmarks every tick with no smoothing - MediaPipe's
+            // per-frame landmark noise goes directly into it, so near the
+            // 150/165 threshold it could flicker across the line several
+            // times within a single intended tap, each flip resetting the
+            // touch timer/start-point and making taps feel twitchy or
+            // getting dropped outright. Smooth it the same way position is.
+            const previousAngle = smoothedAngle.current ?? rawIndexAngle;
+            const indexAngle = previousAngle + (rawIndexAngle - previousAngle) * 0.55;
+            smoothedAngle.current = indexAngle;
 
             const interactiveAtCursor = () =>
               document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
@@ -509,6 +522,7 @@ export default function GestureOrdering() {
       scrollVelocity.current = 0;
       scrollTargetEl.current = null;
       lastFrameTime.current = 0;
+      smoothedAngle.current = null;
       if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
       if (hovered.current) {
         hovered.current.style.outline = "";
