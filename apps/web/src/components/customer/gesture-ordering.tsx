@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Check, ChevronLeft, ChevronRight, Hand, Minus, Plus, ShoppingBag, Sparkles, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Hand, Minus, Plus, ShoppingBag, Sparkles, X } from "lucide-react";
 import { MENU_ITEMS } from "@/lib/menu";
 
 const MODEL = "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
@@ -32,6 +32,10 @@ export default function GestureOrdering() {
   const pinchAt = useRef(0);
   const swipeAt = useRef(0);
   const hovered = useRef<HTMLElement | null>(null);
+  const smoothPoint = useRef<Point | null>(null);
+  const lastSmoothPoint = useRef<Point | null>(null);
+  const pinchScrollPoint = useRef<Point | null>(null);
+  const hoverTimer = useRef<number | null>(null);
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -189,6 +193,8 @@ export default function GestureOrdering() {
 
             if (!hand) {
               target.current = null;
+              smoothPoint.current = null;
+              lastSmoothPoint.current = null;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -203,12 +209,16 @@ export default function GestureOrdering() {
               y: index.y * window.innerHeight
             };
 
-            const sx = target.current.x;
-            const sy = target.current.y;
+            const raw = target.current;
             const previous = lastPoint.current;
-            const dx = previous ? sx - previous.x : 0;
-            const dy = previous ? sy - previous.y : 0;
-            lastPoint.current = { x: sx, y: sy };
+            const dx = previous ? raw.x - previous.x : 0;
+            const dy = previous ? raw.y - previous.y : 0;
+            lastPoint.current = raw;
+
+            const currentSmooth = smoothPoint.current ?? raw;
+            const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.38;
+            const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.38;
+            smoothPoint.current = { x: sx, y: sy };
 
             const isPinching = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) < 0.055;
             const now = Date.now();
@@ -218,6 +228,7 @@ export default function GestureOrdering() {
               pinchStart.current = { x: sx, y: sy };
               pinchMoved.current = false;
               pinchAt.current = now;
+              pinchScrollPoint.current = { x: sx, y: sy };
             }
 
             if (isPinching && pinch.current && pinchStart.current) {
@@ -227,8 +238,11 @@ export default function GestureOrdering() {
 
               if (pinchMoved.current && Math.abs(moveY) > Math.abs(moveX) * 0.8) {
                 const formElement = document.getElementById("kiosk-order-form");
-                formElement?.scrollBy({ top: -dy * 1.7, behavior: "auto" });
-                setMsg("Dragging · release to stop");
+                const lastPinchPoint = pinchScrollPoint.current ?? { x: sx, y: sy };
+                const scrollDy = sy - lastPinchPoint.y;
+                pinchScrollPoint.current = { x: sx, y: sy };
+                formElement?.scrollBy({ top: -scrollDy * 1.9, behavior: "auto" });
+                setMsg("Scroll · release to stop");
               } else {
                 setMsg("Pinch held · release to select");
               }
@@ -238,6 +252,7 @@ export default function GestureOrdering() {
               const wasMoved = pinchMoved.current;
               pinch.current = false;
               pinchStart.current = null;
+              pinchScrollPoint.current = null;
               pinchMoved.current = false;
 
               if (!wasMoved && now - pinchAt.current > 90) {
@@ -273,18 +288,35 @@ export default function GestureOrdering() {
             }
           }
 
-          const wanted = target.current;
+          const wanted = smoothPoint.current;
           if (wanted) {
             const current = cursor.current ?? wanted;
             const next = {
-              x: current.x + (wanted.x - current.x) * 0.28,
-              y: current.y + (wanted.y - current.y) * 0.28
+              x: current.x + (wanted.x - current.x) * 0.5,
+              y: current.y + (wanted.y - current.y) * 0.5
             };
             cursor.current = next;
             const cursorElement = document.getElementById("eh-gesture-cursor");
             if (cursorElement) {
               cursorElement.style.transform = `translate3d(${next.x}px,${next.y}px,0)`;
               cursorElement.style.opacity = "1";
+            }
+
+            const hit = document.elementFromPoint(next.x, next.y) as HTMLElement | null;
+            const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label");
+            if (interactive !== hovered.current && !pinch.current) {
+              if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
+              hoverTimer.current = window.setTimeout(() => {
+                if (hovered.current) {
+                  hovered.current.style.outline = "";
+                  hovered.current.style.outlineOffset = "";
+                }
+                hovered.current = interactive;
+                if (interactive) {
+                  interactive.style.outline = "3px solid rgba(227,166,75,.95)";
+                  interactive.style.outlineOffset = "4px";
+                }
+              }, 45);
             }
           }
 
