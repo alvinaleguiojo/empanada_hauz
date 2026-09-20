@@ -350,7 +350,6 @@ export default function GestureOrdering() {
                   hovered.current.style.outlineOffset = "";
                 }
                 hovered.current = interactive;
-                hoverTarget.current = interactive;
                 hoverFocusAt.current = performance.now();
                 if (interactive) {
                   interactive.style.outline = "3px solid rgba(227,166,75,.95)";
@@ -395,7 +394,6 @@ export default function GestureOrdering() {
         hovered.current.style.outlineOffset = "";
         hovered.current = null;
       }
-      hoverTarget.current = null;
     };
   }, [on]);
 
