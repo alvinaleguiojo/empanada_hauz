@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { MENU_ITEMS } from "@/lib/menu";
+import GestureOrdering from "@/components/customer/gesture-ordering";
 
 const display = Baloo_2({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-display" });
 const script = Caveat({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-script" });
@@ -539,6 +540,8 @@ export default function CustomerKioskPage() {
           </aside>
         </div>
       ) : null}
+
+      <GestureOrdering />
 
       <style jsx global>{`.kiosk-board{background:radial-gradient(circle at 10% 0%,rgba(227,166,75,.08),transparent 28rem),radial-gradient(circle at 100% 55%,rgba(47,143,122,.06),transparent 26rem),linear-gradient(160deg,#17110b 0%,#1c150e 55%,#17110b 100%)} .jeepney-stripe{background:repeating-linear-gradient(45deg,#c0472b 0px,#c0472b 12px,#f0b429 12px,#f0b429 24px,#2f8f7a 24px,#2f8f7a 36px,#f2e8d5 36px,#f2e8d5 48px)} .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
     </main>
