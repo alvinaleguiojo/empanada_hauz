@@ -39,6 +39,7 @@ export default function GestureOrdering() {
   const hoverTarget = useRef<HTMLElement | null>(null);
   const tapActive = useRef(false);
   const tapCooldownAt = useRef(0);
+  const tapStartPoint = useRef<{ x: number; y: number } | null>(null);
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -229,21 +230,39 @@ export default function GestureOrdering() {
             const isPinching = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) < 0.055;
             const now = Date.now();
 
-            // Select with a simple air-tap: a short down/up movement of the
-            // index fingertip. Larger vertical movement is reserved for scrolling.
-            const tapDy = previousSmooth ? sy - previousSmooth.y : 0;
+            // Select with an index-finger "tap": briefly curl the index
+            // finger while keeping the fingertip over the target. This is much
+            // easier to perform than relying on MediaPipe's camera-depth (z).
+            const distance = (a: { x: number; y: number; z?: number }, b: { x: number; y: number; z?: number }) =>
+              Math.hypot(a.x - b.x, a.y - b.y);
+
+            const indexMcp = hand[5];
+            const indexPip = hand[6];
+            const indexTip = hand[8];
+            const v1 = { x: indexMcp.x - indexPip.x, y: indexMcp.y - indexPip.y };
+            const v2 = { x: indexTip.x - indexPip.x, y: indexTip.y - indexPip.y };
+            const v1Length = Math.hypot(v1.x, v1.y);
+            const v2Length = Math.hypot(v2.x, v2.y);
+            const dot = v1.x * v2.x + v1.y * v2.y;
+            const indexAngle = v1Length && v2Length
+              ? Math.acos(Math.max(-1, Math.min(1, dot / (v1Length * v2Length)))) * (180 / Math.PI)
+              : 180;
             const tapTarget = () =>
               document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
                 "button,a,input,textarea,select,label"
               ) ?? hovered.current;
 
             if (!isPinching && now - tapCooldownAt.current > 350) {
-              if (!tapActive.current && tapDy > 3) {
+              if (!tapActive.current && indexAngle < 125) {
                 tapActive.current = true;
-              } else if (tapActive.current && tapDy < -3) {
-                const tapTargetElement = tapTarget();
+                tapStartPoint.current = { x: sx, y: sy };
 
-                if (tapTargetElement) {
+                const tapTargetElement = tapTarget();
+                const tapMoved = tapStartPoint.current
+                  ? distance({ x: sx, y: sy }, tapStartPoint.current) > 55
+                  : false;
+
+                if (tapTargetElement && !tapMoved) {
                   tapTargetElement.click();
                   tapTargetElement.animate(
                     [{ transform: "scale(1)" }, { transform: "scale(.94)" }, { transform: "scale(1)" }],
@@ -253,10 +272,13 @@ export default function GestureOrdering() {
                   window.setTimeout(syncCart, 50);
                   tapCooldownAt.current = now;
                 }
+              } else if (tapActive.current && indexAngle > 145) {
                 tapActive.current = false;
+                tapStartPoint.current = null;
               }
             } else if (isPinching) {
               tapActive.current = false;
+              tapStartPoint.current = null;
             }
 
             if (isPinching && !pinch.current) {
