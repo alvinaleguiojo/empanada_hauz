@@ -26,14 +26,20 @@ export default function GestureOrdering() {
   const target = useRef<Point | null>(null);
   const cursor = useRef<Point | null>(null);
   const lastPoint = useRef<Point | null>(null);
+  type TouchMode = "hover" | "touching" | "dragging";
+  const touchMode = useRef<TouchMode>("hover");
+  const touchStart = useRef<Point | null>(null);
+  const touchLast = useRef<Point | null>(null);
+  const touchTarget = useRef<HTMLElement | null>(null);
+  const touchMoved = useRef(false);
+  const touchStartedAt = useRef(0);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const hoverFocusAt = useRef(0);
-  const dwellTarget = useRef<HTMLElement | null>(null);
-  const dwellStartedAt = useRef(0);
-  const dwellActivatedAt = useRef(0);
-  const dwellDuration = 720;
+  const touchDownAngle = 150;
+  const touchUpAngle = 165;
+  const touchSlop = 28;
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -193,8 +199,12 @@ export default function GestureOrdering() {
               target.current = null;
               smoothPoint.current = null;
               lastPoint.current = null;
-              dwellTarget.current = null;
-              dwellStartedAt.current = 0;
+              touchMode.current = "hover";
+              touchStart.current = null;
+              touchLast.current = null;
+              touchTarget.current = null;
+              touchMoved.current = false;
+              touchStartedAt.current = 0;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -221,6 +231,21 @@ export default function GestureOrdering() {
                 "button,a,input,textarea,select,label"
               ) ?? null;
 
+            const wasTouching =
+              touchMode.current === "touching" || touchMode.current === "dragging";
+            const isTouchDown = wasTouching
+              ? indexAngle < touchUpAngle
+              : indexAngle < touchDownAngle;
+
+            const resetTouch = () => {
+              touchMode.current = "hover";
+              touchStart.current = null;
+              touchLast.current = null;
+              touchTarget.current = null;
+              touchMoved.current = false;
+              touchStartedAt.current = 0;
+            };
+
             const interactive = interactiveAtCursor();
             const now = performance.now();
 
@@ -233,8 +258,6 @@ export default function GestureOrdering() {
                 }
                 hovered.current = interactive;
                 hoverFocusAt.current = performance.now();
-                dwellTarget.current = interactive;
-                dwellStartedAt.current = interactive ? performance.now() : 0;
                 if (interactive) {
                   interactive.style.outline = "3px solid rgba(227,166,75,.95)";
                   interactive.style.outlineOffset = "4px";
@@ -242,54 +265,92 @@ export default function GestureOrdering() {
               }, 35);
             }
 
-            if (interactive !== dwellTarget.current) {
-              dwellTarget.current = interactive;
-              dwellStartedAt.current = interactive ? now : 0;
-            }
-
-            if (previousPoint) {
-              const moveX = sx - previousPoint.x;
-              const moveY = sy - previousPoint.y;
+            // Touchscreen model:
+            // 1) bend index finger -> touch down
+            // 2) small movement is ignored as hand jitter
+            // 3) movement beyond the tap slop becomes a drag/scroll
+            // 4) release without crossing the slop becomes a tap
+            if (isTouchDown && touchMode.current === "hover") {
+              const point = { x: sx, y: sy };
+              touchMode.current = "touching";
+              touchStart.current = point;
+              touchLast.current = point;
+              touchTarget.current = interactive;
+              touchMoved.current = false;
+              touchStartedAt.current = now;
+              setMsg(interactive ? "Touch" : "Touch and move");
+            } else if (
+              isTouchDown &&
+              (touchMode.current === "touching" || touchMode.current === "dragging") &&
+              touchLast.current
+            ) {
+              const previous = touchLast.current;
+              const moveX = sx - previous.x;
+              const moveY = sy - previous.y;
+              const totalX = sx - (touchStart.current?.x ?? previous.x);
+              const totalY = sy - (touchStart.current?.y ?? previous.y);
+              const totalDistance = Math.hypot(totalX, totalY);
               const movement = Math.hypot(moveX, moveY);
-              const verticalMovement = Math.abs(moveY) >= Math.abs(moveX) * 0.8;
 
-              // Move the page directly under the fingertip. There is no press/hold
-              // gesture required for scrolling.
-              if (movement > 1.2 && verticalMovement) {
+              if (totalDistance >= touchSlop) {
+                touchMoved.current = true;
+                touchMode.current = "dragging";
+              }
+
+              if (touchMode.current === "dragging" && movement > 0.35) {
                 const formElement = document.getElementById("kiosk-order-form");
                 const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
                 const scrollTarget = step === 0 ? menuElement : formElement;
-                scrollTarget?.scrollBy({
-                  top: moveY * 1.25,
-                  behavior: "auto"
-                });
 
-                // Any real movement interrupts a dwell-to-select.
-                dwellStartedAt.current = interactive ? now : 0;
+                if (Math.abs(moveY) >= Math.abs(moveX) * 0.75) {
+                  scrollTarget?.scrollBy({
+                    top: moveY,
+                    behavior: "auto"
+                  });
+                  setMsg("Scrolling");
+                }
               }
-            }
 
-            if (
-              dwellTarget.current &&
-              dwellStartedAt.current > 0 &&
-              now - dwellStartedAt.current >= dwellDuration &&
-              now - dwellActivatedAt.current >= 800 &&
-              dwellTarget.current.isConnected
+              touchLast.current = { x: sx, y: sy };
+            } else if (
+              !isTouchDown &&
+              (touchMode.current === "touching" || touchMode.current === "dragging")
             ) {
-              const target = dwellTarget.current;
-              target.click();
-              target.animate(
-                [
-                  { transform: "scale(1)" },
-                  { transform: "scale(.95)" },
-                  { transform: "scale(1)" }
-                ],
-                { duration: 150, easing: "ease-out" }
-              );
-              dwellActivatedAt.current = now;
-              dwellStartedAt.current = now + 999999;
-              setMsg("Selected");
-              window.setTimeout(syncCart, 50);
+              const pressedTarget = touchTarget.current;
+              const startPoint = touchStart.current;
+              const distance = startPoint
+                ? Math.hypot(sx - startPoint.x, sy - startPoint.y)
+                : Infinity;
+              const heldFor = touchStartedAt.current
+                ? now - touchStartedAt.current
+                : Infinity;
+
+              // Only a deliberate touch-and-release selects.
+              // Once the finger travels beyond the slop, it is a drag and
+              // releasing must never click the original target.
+              if (
+                touchMode.current === "touching" &&
+                !touchMoved.current &&
+                distance <= touchSlop &&
+                heldFor <= 1200 &&
+                pressedTarget?.isConnected
+              ) {
+                pressedTarget.click();
+                pressedTarget.animate(
+                  [
+                    { transform: "scale(1)" },
+                    { transform: "scale(.95)" },
+                    { transform: "scale(1)" }
+                  ],
+                  { duration: 150, easing: "ease-out" }
+                );
+                setMsg("Selected");
+                window.setTimeout(syncCart, 50);
+              } else if (touchMode.current === "dragging") {
+                setMsg("Released");
+              }
+
+              resetTouch();
             }
 
             lastPoint.current = { x: sx, y: sy };
@@ -311,15 +372,13 @@ export default function GestureOrdering() {
 
             const focus = document.getElementById("eh-gesture-focus");
             if (focus) {
-              const isDwellActive =
-                Boolean(hovered.current) &&
-                hovered.current === dwellTarget.current &&
-                dwellStartedAt.current > 0;
-              const elapsed = isDwellActive ? performance.now() - dwellStartedAt.current : 0;
-              const progress = Math.min(1, Math.max(0, elapsed / dwellDuration));
-              focus.style.opacity = isDwellActive ? "1" : "0";
-              focus.style.transform =
-                "scale(" + (0.7 + progress * 0.3) + ") rotate(" + (progress * 360) + "deg)";
+              const touching =
+                (touchMode.current === "touching" || touchMode.current === "dragging") &&
+                Boolean(touchTarget.current);
+              focus.style.opacity = touching ? "1" : "0";
+              focus.style.transform = touching
+                ? "scale(1) rotate(0deg)"
+                : "scale(.7) rotate(0deg)";
             }
           }
 
@@ -351,8 +410,6 @@ export default function GestureOrdering() {
         hovered.current.style.outlineOffset = "";
         hovered.current = null;
       }
-      dwellTarget.current = null;
-      dwellStartedAt.current = 0;
     };
   }, [on]);
 
@@ -422,7 +479,7 @@ export default function GestureOrdering() {
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
-                      <div className="mt-1 text-sm text-white/55">Move to scroll · hold over an item to select</div>
+                      <div className="mt-1 text-sm text-white/55">Bend to touch · move to scroll · release to select</div>
                     </div>
                     <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
                       <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
@@ -508,7 +565,7 @@ export default function GestureOrdering() {
             </footer>
 
             <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
-              Point · move · hold
+              Point · touch · drag · release
             </div>
           </div>
         </div>
