@@ -61,7 +61,7 @@ export default function GestureOrdering(){
             const moveY=sy-pinchStart.current.y;
             if(Math.hypot(moveX,moveY)>14)pinchMoved.current=true;
             if(pinchMoved.current&&Math.abs(moveY)>Math.abs(moveX)*.8){
-              window.scrollBy({top:-(sy-(lastY.current===null?sy:lastY.current*innerHeight))*1.35,behavior:"auto"});
+              (orderForm ?? document.documentElement).scrollBy({top:-(sy-(lastY.current===null?sy:lastY.current*innerHeight))*1.35,behavior:"auto"});
             }
           } else if(!pinch&&pinchAt.current){
             const wasMoved=pinchMoved.current;
@@ -118,5 +118,35 @@ export default function GestureOrdering(){
     <div id="eh-gesture-cursor" className="absolute left-0 top-0 h-9 w-9 -ml-4.5 -mt-4.5 rounded-full border-2 border-[#E3A64B] bg-[#E3A64B]/30 shadow-[0_0_0_8px_rgba(227,166,75,.15)]"/>
     {keyboard&&<div className="pointer-events-auto absolute bottom-4 left-1/2 z-[75] w-[min(700px,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#17110b]/95 p-3 shadow-2xl"><div className="mb-2 flex justify-between text-xs text-white/50"><span>Point at a key and pinch</span><button type="button" onClick={()=>setKeyboard(false)} className="text-[#E3A64B]">Done</button></div><div className="grid grid-cols-10 gap-1">{[..."1234567890QWERTYUIOPASDFGHJKLZXCVBNM"].map(k=><button type="button" key={k} onClick={()=>typeKey(k)} className="min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">{k}</button>)}<button type="button" onClick={()=>typeKey(" ")} className="col-span-7 min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">SPACE</button><button type="button" onClick={()=>typeKey("⌫")} className="col-span-3 min-h-10 rounded-lg border border-[#E3A64B]/20 bg-[#E3A64B]/10 text-xs font-bold text-[#E3A64B]">DELETE</button></div></div>}
     <div className="absolute bottom-5 right-5 z-[68] rounded-xl border border-white/10 bg-[#17110b]/85 px-3 py-2 text-[11px] text-white/60">☝ Move · 🤏 pinch = click · 🤏 drag = scroll · ←/→ swipe = navigate</div>
-  </div>}</>;
+  </div>}
+  <style jsx global>{`
+    html.eh-gesture-active { overflow: hidden; }
+    form.eh-gesture-order-form {
+      position: fixed !important;
+      z-index: 65 !important;
+      top: 76px !important;
+      right: 18px !important;
+      bottom: 74px !important;
+      left: 18px !important;
+      width: auto !important;
+      max-width: none !important;
+      margin: 0 !important;
+      overflow: auto !important;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      background: transparent !important;
+    }
+    form.eh-gesture-order-form > section {
+      background: rgba(32,24,15,.78) !important;
+      backdrop-filter: blur(8px);
+    }
+    @media (max-width: 640px) {
+      form.eh-gesture-order-form {
+        top: 72px !important;
+        right: 10px !important;
+        bottom: 64px !important;
+        left: 10px !important;
+      }
+    }
+  `}</style></> ;
 }
