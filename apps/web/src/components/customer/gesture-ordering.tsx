@@ -7,8 +7,8 @@ const MODEL="https://storage.googleapis.com/mediapipe-models/gesture_recognizer/
 const WASM="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm";
 
 export default function GestureOrdering(){
-  const [on,setOn]=useState(false),[msg,setMsg]=useState("Move your index finger; pinch to click"),[keyboard,setKeyboard]=useState(false);
-  const video=useRef<HTMLVideoElement>(null), canvas=useRef<HTMLCanvasElement>(null), recognizer=useRef<any>(null), stream=useRef<MediaStream|null>(null), raf=useRef<number|null>(null), last=useRef(0), clickAt=useRef(0), lastX=useRef<number|null>(null), swipeAt=useRef(0);
+  const [on,setOn]=useState(false),[msg,setMsg]=useState("Move your finger naturally; pinch to select"),[keyboard,setKeyboard]=useState(false);
+  const video=useRef<HTMLVideoElement>(null), canvas=useRef<HTMLCanvasElement>(null), recognizer=useRef<any>(null), stream=useRef<MediaStream|null>(null), raf=useRef<number|null>(null), last=useRef(0), clickAt=useRef(0), lastX=useRef<number|null>(null), lastY=useRef<number|null>(null), swipeAt=useRef(0);
 
   useEffect(()=>{if(!on)return;let dead=false;
     (async()=>{
@@ -21,19 +21,33 @@ export default function GestureOrdering(){
         const el=video.current;if(!el)return;el.srcObject=s;await el.play();
         const loop=(t:number)=>{if(dead)return;raf.current=requestAnimationFrame(loop);if(!el.videoWidth||t-last.current<70)return;last.current=t;
           const res=r.recognizeForVideo(el,t),hand=res.landmarks?.[0];draw(hand||[]);
-          if(!hand){setMsg("Show your hand");return}
+          if(!hand){setMsg("Show your hand");lastX.current=null;lastY.current=null;return}
           const p=hand[8],x=(1-p.x)*innerWidth,y=p.y*innerHeight,cur=document.getElementById("eh-gesture-cursor");
-          if(cur)cur.style.transform=`translate3d(${x}px,${y}px,0)`;
+          if(cur){cur.style.transform=`translate3d(${x}px,${y}px,0)`;cur.style.opacity="1"}
           const pinch=Math.hypot(hand[4].x-hand[8].x,hand[4].y-hand[8].y)<.055;
           const g=res.gestures?.[0]?.[0]?.categoryName?.replaceAll("_"," ")||"Tracking";
           const now=Date.now();
-          setMsg(`${g} · ${pinch?"pinch = select":"move finger"}`);
-          if(lastX.current!==null&&Math.abs(p.x-lastX.current)>.22&&now-swipeAt.current>1200){
+          const dx=lastX.current===null?0:p.x-lastX.current;
+          const dy=lastY.current===null?0:p.y-lastY.current;
+          const verticalMove=Math.abs(dy)>.008&&Math.abs(dy)>Math.abs(dx)*1.15;
+          setMsg(`${g} · ${verticalMove?"scroll":"move finger"} · ${pinch?"pinch = select":""}`.replace(/ · $/,""));
+
+          // Natural touch-style scrolling: move the finger up to scroll down,
+          // move it down to scroll up. Only the dominant vertical movement scrolls,
+          // so moving toward a button does not constantly move the page.
+          if(lastY.current!==null&&verticalMove){
+            const scrollDelta=-dy*innerHeight*1.7;
+            if(Math.abs(scrollDelta)>1)window.scrollBy({top:scrollDelta,behavior:"auto"});
+          }
+
+          // Keep horizontal navigation separate from vertical scrolling.
+          if(lastX.current!==null&&Math.abs(dx)>.22&&Math.abs(dx)>Math.abs(dy)*1.25&&now-swipeAt.current>1200){
             swipeAt.current=now;
-            const selector=p.x-lastX.current<0?"[data-gesture-next]":"[data-gesture-prev]";
+            const selector=dx<0?"[data-gesture-next]":"[data-gesture-prev]";
             (document.querySelector(selector) as HTMLElement|null)?.click();
           }
           lastX.current=p.x;
+          lastY.current=p.y;
           if(pinch&&now-clickAt.current>850){clickAt.current=now;const target=document.elementFromPoint(x,y) as HTMLElement|null;
             const el2=target?.closest<HTMLElement>("button,a,input,textarea,select,label");if(el2){el2.click();if(el2 instanceof HTMLInputElement||el2 instanceof HTMLTextAreaElement){el2.focus();setKeyboard(true)}}}
         };raf.current=requestAnimationFrame(loop);
@@ -58,6 +72,6 @@ export default function GestureOrdering(){
     </div>
     <div id="eh-gesture-cursor" className="absolute left-0 top-0 h-7 w-7 -ml-3.5 -mt-3.5 rounded-full border-2 border-[#E3A64B] bg-[#E3A64B]/30 shadow-[0_0_0_7px_rgba(227,166,75,.15)]"/>
     {keyboard&&<div className="pointer-events-auto absolute bottom-4 left-1/2 w-[min(700px,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#17110b]/95 p-3 shadow-2xl"><div className="mb-2 flex justify-between text-xs text-white/50"><span>Point at a key and pinch</span><button type="button" onClick={()=>setKeyboard(false)} className="text-[#E3A64B]">Done</button></div><div className="grid grid-cols-10 gap-1">{[..."1234567890QWERTYUIOPASDFGHJKLZXCVBNM"].map(k=><button type="button" key={k} onClick={()=>typeKey(k)} className="min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">{k}</button>)}<button type="button" onClick={()=>typeKey(" ")} className="col-span-7 min-h-10 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white">SPACE</button><button type="button" onClick={()=>typeKey("⌫")} className="col-span-3 min-h-10 rounded-lg border border-[#E3A64B]/20 bg-[#E3A64B]/10 text-xs font-bold text-[#E3A64B]">DELETE</button></div></div>}
-    <div className="absolute bottom-5 right-5 rounded-xl border border-white/10 bg-[#17110b]/85 px-3 py-2 text-[11px] text-white/60">☝ Move · 🤏 pinch = select · ←/→ swipe = navigate</div>
+    <div className="absolute bottom-5 right-5 rounded-xl border border-white/10 bg-[#17110b]/85 px-3 py-2 text-[11px] text-white/60">☝ Move · ↕ drag = scroll · 🤏 pinch = select · ←/→ swipe = navigate</div>
   </div>}</>;
 }
