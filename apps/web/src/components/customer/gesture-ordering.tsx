@@ -26,18 +26,19 @@ export default function GestureOrdering() {
   const target = useRef<Point | null>(null);
   const cursor = useRef<Point | null>(null);
   const lastPoint = useRef<Point | null>(null);
-  type TouchMode = "hover" | "tapping";
+  type TouchMode = "hover" | "touching";
   const touchMode = useRef<TouchMode>("hover");
   const touchStart = useRef<Point | null>(null);
   const touchLast = useRef<Point | null>(null);
   const touchTarget = useRef<HTMLElement | null>(null);
   const touchMoved = useRef(false);
+  const touchStartedAt = useRef(0);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const hoverFocusAt = useRef(0);
-  const tapDownAngle = 115;
-  const tapUpAngle = 140;
+  const touchDownAngle = 145;
+  const touchUpAngle = 158;
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -202,6 +203,7 @@ export default function GestureOrdering() {
               touchLast.current = null;
               touchTarget.current = null;
               touchMoved.current = false;
+              touchStartedAt.current = 0;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -218,7 +220,7 @@ export default function GestureOrdering() {
 
             const raw = target.current;
             const currentSmooth = smoothPoint.current ?? raw;
-            const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.38;
+            const sx = currentSmooth.x + (raw.x - currentSmooth.x) * 0.68;
             const sy = currentSmooth.y + (raw.y - currentSmooth.y) * 0.38;
             const previousPoint = lastPoint.current;
             smoothPoint.current = { x: sx, y: sy };
@@ -234,72 +236,93 @@ export default function GestureOrdering() {
             const indexAngle = v1Length && v2Length
               ? Math.acos(Math.max(-1, Math.min(1, dot / (v1Length * v2Length)))) * (180 / Math.PI)
               : 180;
-            const wasTapping = touchMode.current === "tapping";
-            const isTapDown = wasTapping
-              ? indexAngle < tapUpAngle
-              : indexAngle < tapDownAngle;
+
+            const wasTouching = touchMode.current === "touching";
+            const isTouchDown = wasTouching
+              ? indexAngle < touchUpAngle
+              : indexAngle < touchDownAngle;
+
             const interactiveAtCursor = () =>
               document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
                 "button,a,input,textarea,select,label"
               ) ?? null;
-            const resetTap = () => {
+
+            const resetTouch = () => {
               touchMode.current = "hover";
               touchStart.current = null;
               touchLast.current = null;
               touchTarget.current = null;
               touchMoved.current = false;
+              touchStartedAt.current = 0;
             };
 
-            // Natural virtual touchscreen model:
-            // - keep the index extended to move the cursor
-            // - deliberate vertical movement scrolls the page
-            // - a short bend/release is an air-tap
-            if (isTapDown && touchMode.current === "hover") {
+            // Virtual touchscreen:
+            // finger up = move cursor, finger down = touch, movement while down = drag,
+            // release without movement = tap.
+            if (isTouchDown && touchMode.current === "hover") {
               const point = { x: sx, y: sy };
-              touchMode.current = "tapping";
+              touchMode.current = "touching";
               touchStart.current = point;
               touchLast.current = point;
               touchTarget.current = interactiveAtCursor();
               touchMoved.current = false;
-            } else if (isTapDown && touchMode.current === "tapping" && touchLast.current) {
-              const startPoint = touchStart.current ?? touchLast.current;
-              const distance = Math.hypot(sx - startPoint.x, sy - startPoint.y);
+              touchStartedAt.current = performance.now();
+              setMsg("Touch");
+            } else if (isTouchDown && touchMode.current === "touching" && touchLast.current) {
+              const previous = touchLast.current;
+              const moveX = sx - previous.x;
+              const moveY = sy - previous.y;
+              const totalDistance = touchStart.current
+                ? Math.hypot(sx - touchStart.current.x, sy - touchStart.current.y)
+                : 0;
 
-              if (distance > 28) touchMoved.current = true;
+              if (totalDistance > 24) touchMoved.current = true;
+
+              if (Math.abs(moveY) > 0.45 || Math.abs(moveX) > 0.45) {
+                const formElement = document.getElementById("kiosk-order-form");
+                const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
+                const scrollTarget = step === 0 ? menuElement : formElement;
+
+                if (Math.abs(moveY) >= Math.abs(moveX) * 0.75) {
+                  scrollTarget?.scrollBy({
+                    top: moveY,
+                    behavior: "auto"
+                  });
+                  setMsg("Dragging");
+                }
+              }
+
               touchLast.current = { x: sx, y: sy };
-            } else if (!isTapDown && touchMode.current === "tapping") {
+            } else if (!isTouchDown && touchMode.current === "touching") {
               const pressedTarget = touchTarget.current;
               const startPoint = touchStart.current;
               const distance = startPoint
                 ? Math.hypot(sx - startPoint.x, sy - startPoint.y)
                 : Infinity;
+              const heldFor = touchStartedAt.current
+                ? performance.now() - touchStartedAt.current
+                : Infinity;
 
-              if (!touchMoved.current && distance <= 30 && pressedTarget?.isConnected) {
+              // A short, mostly stationary touch behaves exactly like a tap.
+              if (
+                distance <= 24 &&
+                heldFor <= 900 &&
+                pressedTarget?.isConnected
+              ) {
                 pressedTarget.click();
                 pressedTarget.animate(
-                  [{ transform: "scale(1)" }, { transform: "scale(.95)" }, { transform: "scale(1)" }],
+                  [
+                    { transform: "scale(1)" },
+                    { transform: "scale(.95)" },
+                    { transform: "scale(1)" }
+                  ],
                   { duration: 150, easing: "ease-out" }
                 );
                 setMsg("Selected");
                 window.setTimeout(syncCart, 50);
               }
-              resetTap();
-            } else if (!isTapDown && previousPoint) {
-              const moveX = sx - previousPoint.x;
-              const moveY = sy - previousPoint.y;
-              const movement = Math.hypot(moveX, moveY);
-              const horizontal = Math.abs(moveX) > Math.abs(moveY) * 1.35;
-              const vertical = Math.abs(moveY) > Math.abs(moveX) * 1.1;
 
-              if (movement > 1.6 && vertical) {
-                const formElement = document.getElementById("kiosk-order-form");
-                const menuElement = document.querySelector<HTMLElement>(".eh-gesture-menu");
-                const scrollTarget = step === 0 ? menuElement : formElement;
-                scrollTarget?.scrollBy({ top: moveY * 2.2, behavior: "auto" });
-                setMsg("Scrolling");
-              } else if (movement > 3 && horizontal) {
-                setMsg("Move");
-              }
+              resetTouch();
             }
 
             lastPoint.current = { x: sx, y: sy };
@@ -309,7 +332,7 @@ export default function GestureOrdering() {
           if (wanted) {
             const current = cursor.current ?? wanted;
             const next = {
-              x: current.x + (wanted.x - current.x) * 0.5,
+              x: current.x + (wanted.x - current.x) * 0.88,
               y: current.y + (wanted.y - current.y) * 0.5
             };
             cursor.current = next;
@@ -442,7 +465,7 @@ export default function GestureOrdering() {
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
-                      <div className="mt-1 text-sm text-white/55">Move your finger to scroll · tap to select</div>
+                      <div className="mt-1 text-sm text-white/55">Touch · drag to scroll · release to select</div>
                     </div>
                     <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
                       <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
@@ -528,7 +551,7 @@ export default function GestureOrdering() {
             </footer>
 
             <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
-              Point · move · tap
+              Point · touch · drag · release
             </div>
           </div>
         </div>
