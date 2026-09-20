@@ -33,9 +33,10 @@ export default function GestureOrdering() {
   const swipeAt = useRef(0);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
-  const lastSmoothPoint = useRef<Point | null>(null);
   const pinchScrollPoint = useRef<Point | null>(null);
   const hoverTimer = useRef<number | null>(null);
+  const hoverFocusAt = useRef(0);
+  const hoverTarget = useRef<HTMLElement | null>(null);
 
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
@@ -194,7 +195,6 @@ export default function GestureOrdering() {
             if (!hand) {
               target.current = null;
               smoothPoint.current = null;
-              lastSmoothPoint.current = null;
               setMsg("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -229,6 +229,7 @@ export default function GestureOrdering() {
               pinchMoved.current = false;
               pinchAt.current = now;
               pinchScrollPoint.current = { x: sx, y: sy };
+              hoverTarget.current = hovered.current;
             }
 
             if (isPinching && pinch.current && pinchStart.current) {
@@ -254,10 +255,10 @@ export default function GestureOrdering() {
               pinchStart.current = null;
               pinchScrollPoint.current = null;
               pinchMoved.current = false;
+              hoverTarget.current = null;
 
               if (!wasMoved && now - pinchAt.current > 90) {
-                const hit = document.elementFromPoint(sx, sy) as HTMLElement | null;
-                const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label") ?? null;
+                const interactive = hoverTarget.current;
                 interactive?.click();
                 if (interactive) {
                   interactive.animate(
@@ -276,16 +277,6 @@ export default function GestureOrdering() {
               setMsg(dx < 0 ? "Next step" : "Previous step");
             }
 
-            const hit = document.elementFromPoint(sx, sy) as HTMLElement | null;
-            const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label");
-            if (interactive !== hovered.current) {
-              if (hovered.current) hovered.current.style.outline = "";
-              hovered.current = interactive;
-              if (interactive) {
-                interactive.style.outline = "2px solid rgba(227,166,75,.95)";
-                interactive.style.outlineOffset = "3px";
-              }
-            }
           }
 
           const wanted = smoothPoint.current;
@@ -312,11 +303,20 @@ export default function GestureOrdering() {
                   hovered.current.style.outlineOffset = "";
                 }
                 hovered.current = interactive;
+                hoverTarget.current = interactive;
+                hoverFocusAt.current = performance.now();
                 if (interactive) {
                   interactive.style.outline = "3px solid rgba(227,166,75,.95)";
                   interactive.style.outlineOffset = "4px";
                 }
               }, 45);
+            }
+            const focus = document.getElementById("eh-gesture-focus");
+            if (focus) {
+              const elapsed = hovered.current && !pinch.current ? performance.now() - hoverFocusAt.current : 0;
+              const progress = Math.min(1, elapsed / 520);
+              focus.style.opacity = hovered.current && !pinch.current ? "1" : "0";
+              focus.style.transform = "scale(" + (0.7 + progress * 0.3) + ") rotate(" + (progress * 360) + "deg)";
             }
           }
 
@@ -342,10 +342,13 @@ export default function GestureOrdering() {
       stream.current = null;
       form?.classList.remove("eh-gesture-order-form");
       document.documentElement.classList.remove("eh-gesture-active");
+      if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
       if (hovered.current) {
         hovered.current.style.outline = "";
+        hovered.current.style.outlineOffset = "";
         hovered.current = null;
       }
+      hoverTarget.current = null;
     };
   }, [on]);
 
@@ -475,6 +478,7 @@ export default function GestureOrdering() {
 
             <div id="eh-gesture-cursor" className="pointer-events-none absolute left-0 top-0 z-[95] h-8 w-8 -ml-4 -mt-4 rounded-full border-2 border-[#F6EFDD] bg-[#E3A64B]/35 shadow-[0_0_0_7px_rgba(227,166,75,.18),0_0_24px_rgba(227,166,75,.65)] opacity-0">
               <div id="eh-gesture-pulse" className="absolute inset-[-5px] rounded-full border border-[#E3A64B]/45" />
+              <div id="eh-gesture-focus" className="absolute inset-[-11px] rounded-full border-2 border-dashed border-[#E3A64B] opacity-0" />
               <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
             </div>
 
