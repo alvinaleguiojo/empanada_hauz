@@ -14,7 +14,7 @@ export default function GestureOrdering(){
     (async()=>{
       try{
         const v=await import("@mediapipe/tasks-vision"), files=await v.FilesetResolver.forVisionTasks(WASM);
-        const r=await v.GestureRecognizer.createFromOptions(files,{baseOptions:{modelAssetPath:MODEL},runningMode:v.RunningMode.VIDEO,numHands:1,minHandDetectionConfidence:.55,minHandPresenceConfidence:.55,minTrackingConfidence:.55});
+        const r=await v.GestureRecognizer.createFromOptions(files,{baseOptions:{modelAssetPath:MODEL},runningMode:"VIDEO",numHands:1,minHandDetectionConfidence:.55,minHandPresenceConfidence:.55,minTrackingConfidence:.55});
         if(dead){r.close();return} recognizer.current=r;
         const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:false});
         if(dead){s.getTracks().forEach(t=>t.stop());return} stream.current=s;
