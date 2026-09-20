@@ -255,10 +255,9 @@ export default function GestureOrdering() {
               pinchStart.current = null;
               pinchScrollPoint.current = null;
               pinchMoved.current = false;
-              hoverTarget.current = null;
+              const interactive = hoverTarget.current;
 
               if (!wasMoved && now - pinchAt.current > 90) {
-                const interactive = hoverTarget.current as HTMLElement | null;
                 interactive?.click();
                 if (interactive) {
                   interactive.animate(
@@ -269,6 +268,7 @@ export default function GestureOrdering() {
                   window.setTimeout(syncCart, 50);
                 }
               }
+              hoverTarget.current = null;
             }
 
             if (!isPinching && previous && Math.abs(dx) > 120 && Math.abs(dx) > Math.abs(dy) * 1.35 && now - swipeAt.current > 1000) {
@@ -294,7 +294,7 @@ export default function GestureOrdering() {
             }
 
             const hit = document.elementFromPoint(next.x, next.y) as HTMLElement | null;
-            const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label");
+            const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label") ?? null;
             if (interactive !== hovered.current && !pinch.current) {
               if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
               hoverTimer.current = window.setTimeout(() => {
