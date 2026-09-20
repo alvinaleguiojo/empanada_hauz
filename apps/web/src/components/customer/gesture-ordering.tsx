@@ -23,11 +23,11 @@ export default function GestureOrdering(){
           const res=r.recognizeForVideo(el,t),hand=res.landmarks?.[0];draw(hand||[]);
           if(!hand){setMsg("Show your hand");return}
           const p=hand[8],x=(1-p.x)*innerWidth,y=p.y*innerHeight,cur=document.getElementById("eh-gesture-cursor");
-          if(cur)cur.style.transform=\`translate3d(\${x}px,\${y}px,0)\`;
+          if(cur)cur.style.transform=`translate3d(${x}px,${y}px,0)`;
           const pinch=Math.hypot(hand[4].x-hand[8].x,hand[4].y-hand[8].y)<.055;
           const g=res.gestures?.[0]?.[0]?.categoryName?.replaceAll("_"," ")||"Tracking";
           const now=Date.now();
-          setMsg(\`\${g} · \${pinch?"pinch = select":"move finger"}\`);
+          setMsg(`${g} · ${pinch?"pinch = select":"move finger"}`);
           if(lastX.current!==null&&Math.abs(p.x-lastX.current)>.22&&now-swipeAt.current>1200){
             swipeAt.current=now;
             const selector=p.x-lastX.current<0?"[data-gesture-next]":"[data-gesture-prev]";
