@@ -26,7 +26,7 @@ export default function GestureOrdering() {
   const target = useRef<Point | null>(null);
   const cursor = useRef<Point | null>(null);
   const lastPoint = useRef<Point | null>(null);
-  type TouchMode = "hover" | "touching";
+  type TouchMode = "hover" | "touching" | "dragging";
   const touchMode = useRef<TouchMode>("hover");
   const touchStart = useRef<Point | null>(null);
   const touchLast = useRef<Point | null>(null);
