@@ -289,9 +289,9 @@ export default function GestureOrdering() {
                   const scrollTarget = step === 0 ? menuElement : formElement;
 
                   if (scrollTarget) {
-                    const scrollDelta = smoothDy * 2.35;
+                    const scrollDelta = -smoothDy * 2.35;
                     scrollTarget.scrollTop += scrollDelta;
-                    setMsg(smoothDy > 0 ? "Scrolling down" : "Scrolling up");
+                    setMsg(smoothDy < 0 ? "Scrolling down" : "Scrolling up");
                   }
                 } else if (horizontal) {
                   swipeAt.current = now;
