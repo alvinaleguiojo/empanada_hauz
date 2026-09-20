@@ -242,7 +242,7 @@ export default function GestureOrdering() {
 
               if (!wasMoved && now - pinchAt.current > 90) {
                 const hit = document.elementFromPoint(sx, sy) as HTMLElement | null;
-                const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label");
+                const interactive = hit?.closest<HTMLElement>("button,a,input,textarea,select,label") ?? null;
                 interactive?.click();
                 if (interactive) {
                   interactive.animate(
