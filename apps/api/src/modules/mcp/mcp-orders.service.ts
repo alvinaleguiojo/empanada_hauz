@@ -41,8 +41,7 @@ export class McpOrdersService {
     if (!Number.isFinite(quantity) || quantity < 1) throw new BadRequestException("Order quantity must be a positive number.");
     const unitPrice = items.length > 0 ? items.reduce((sum, item) => sum + item.subtotal, 0) / quantity : params.unitPrice ?? 0;
     // MCP-created orders do not include a delivery fee.
-    const deliveryFee = 0;
-    const order = await this.ordersService.createManual({ customerName: params.customerName, phoneNumber: params.phoneNumber, quantity, unitPrice, deliveryFee, deliveryMethod: params.deliveryMethod ?? "pickup", paymentMethod: params.paymentMethod ?? "cod", location: params.location, address: params.address, preferredSchedule: params.preferredSchedule, status: params.status, items: items.length > 0 ? items : undefined, notes: params.notes }, { calculateDeliveryFee: false });
+    const order = await this.ordersService.createManual({ customerName: params.customerName, phoneNumber: params.phoneNumber, quantity, unitPrice, deliveryMethod: params.deliveryMethod ?? "pickup", paymentMethod: params.paymentMethod ?? "cod", location: params.location, address: params.address, preferredSchedule: params.preferredSchedule, status: params.status, items: items.length > 0 ? items : undefined, notes: params.notes }, { calculateDeliveryFee: false });
     return this.serializeOrder(order, { includeDeliveryFee: false });
   }
 
