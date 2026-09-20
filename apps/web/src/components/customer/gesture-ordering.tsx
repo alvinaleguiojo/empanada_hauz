@@ -225,6 +225,26 @@ export default function GestureOrdering() {
             const previousPoint = lastPoint.current;
             smoothPoint.current = { x: sx, y: sy };
 
+            const indexMcp = hand[5];
+            const indexPip = hand[6];
+            const indexTip = hand[8];
+            const v1 = {
+              x: indexMcp.x - indexPip.x,
+              y: indexMcp.y - indexPip.y
+            };
+            const v2 = {
+              x: indexTip.x - indexPip.x,
+              y: indexTip.y - indexPip.y
+            };
+            const v1Length = Math.hypot(v1.x, v1.y);
+            const v2Length = Math.hypot(v2.x, v2.y);
+            const dot = v1.x * v2.x + v1.y * v2.y;
+            const indexAngle = v1Length && v2Length
+              ? Math.acos(
+                  Math.max(-1, Math.min(1, dot / (v1Length * v2Length)))
+                ) * (180 / Math.PI)
+              : 180;
+
             const interactiveAtCursor = () =>
               document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
                 "button,a,input,textarea,select,label"
