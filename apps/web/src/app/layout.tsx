@@ -4,6 +4,7 @@ import { ThemeScript } from "@/components/layout/theme-script";
 import CustomerGooglePlacesAutocomplete from "@/components/CustomerGooglePlacesAutocomplete";
 import { NetworkStatusToast } from "@/components/network-status-toast";
 import { ProductCatalogProvider } from "@/components/products/product-catalog-provider";
+import { AdsenseScript } from "@/components/adsense-script";
 
 const siteUrl = "https://empanadahauz.com";
 
@@ -64,6 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeScript />
         <CustomerGooglePlacesAutocomplete />
         <NetworkStatusToast />
+        <AdsenseScript />
         <ProductCatalogProvider>{children}</ProductCatalogProvider>
       </body>
     </html>
