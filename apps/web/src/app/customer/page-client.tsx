@@ -78,6 +78,16 @@ const steps = [
   { title: "Review", subtitle: "Confirm your order" }
 ];
 
+function productRatingKey(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function formatProductTag(tag: string) {
   return tag
     .replace(/[-_]+/g, " ")
@@ -482,11 +492,11 @@ export default function CustomerKioskPage() {
                                 {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#F2E8D5]/45">{option.description}</p> : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
                                   <div className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
-                                  {productRatings[option.value] ? (
+                                  {productRatings[productRatingKey(option.value)] ? (
                                     <div className="inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/20 bg-[#E3A64B]/8 px-2 py-1 text-[10px] font-bold text-[#E3A64B]">
                                       <Star size={11} fill="currentColor" />
-                                      <span>{productRatings[option.value].ratingValue.toFixed(1)}</span>
-                                      <span className="font-normal text-[#F2E8D5]/45">({productRatings[option.value].reviewCount})</span>
+                                      <span>{productRatings[productRatingKey(option.value)].ratingValue.toFixed(1)}</span>
+                                      <span className="font-normal text-[#F2E8D5]/45">({productRatings[productRatingKey(option.value)].reviewCount})</span>
                                     </div>
                                   ) : null}
                                 </div>
