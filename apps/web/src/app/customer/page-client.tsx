@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Baloo_2, Caveat, IBM_Plex_Mono } from "next/font/google";
 import {
   ArrowLeft,
