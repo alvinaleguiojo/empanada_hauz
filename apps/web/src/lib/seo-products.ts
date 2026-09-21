@@ -41,7 +41,7 @@ export function resolveProductImage(url?: string | null) {
   return `${API_URL}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
-export async function getSeoProducts(): Promise<SeoProduct[]> {
+export type ProductRatingSummary = {\n  productKey: string;\n  ratingValue: number;\n  reviewCount: number;\n};\n\nexport async function getProductRatingSummaries(): Promise<ProductRatingSummary[]> {\n  try {\n    const response = await fetch(`${API_URL}/products/reviews/summary`, { cache: "no-store" });\n    if (!response.ok) return [];\n    return (await response.json()) as ProductRatingSummary[];\n  } catch {\n    return [];\n  }\n}\n\nexport async function getSeoProducts(): Promise<SeoProduct[]> {
   try {
     const response = await fetch(`${API_URL}/products`, {
       next: { revalidate: 300 },
