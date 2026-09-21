@@ -45,7 +45,7 @@ export function ProductCatalogProvider({ children }: { children: React.ReactNode
       try {
         const [products, ratings] = await Promise.all([
           apiFetch<Product[]>("/products"),
-          apiFetch<ProductRatingSummary[]>("/products/reviews/summary").catch(() => []),
+          apiFetch<ProductRatingSummary[]>("/products/reviews/summary"),
         ]);
 
         if (cancelled) return;
