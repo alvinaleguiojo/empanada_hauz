@@ -109,10 +109,17 @@ export class ProductReviewsService implements OnModuleInit {
       reviewedById: null
     };
 
-    await this.prisma.$runCommandRaw({
-      insert: COLLECTION,
-      documents: [review]
-    });
+    try {
+      await this.prisma.$runCommandRaw({
+        insert: COLLECTION,
+        documents: [review]
+      });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw new BadRequestException("You have already reviewed this product for this order.");
+      }
+      throw error;
+    }
 
     return {
       ok: true,
@@ -134,12 +141,23 @@ export class ProductReviewsService implements OnModuleInit {
       limit: 100
     })) as unknown as FindResult<StoredReview>;
 
+    const aggregate = (await this.prisma.$runCommandRaw({
+      aggregate: COLLECTION,
+      pipeline: [
+        { $match: { productKey: normalizedKey, status: "approved" } },
+        { $group: { _id: null, reviewCount: { $sum: 1 }, ratingValue: { $avg: "$rating" } } }
+      ],
+      cursor: {}
+    })) as unknown as {
+      cursor?: { firstBatch?: Array<{ reviewCount: number; ratingValue: number }> };
+    };
+
     const records = result.cursor?.firstBatch ?? [];
-    const total = records.reduce((sum, review) => sum + Number(review.rating), 0);
-    const reviewCount = records.length;
+    const aggregateRecord = aggregate.cursor?.firstBatch?.[0];
+    const reviewCount = Number(aggregateRecord?.reviewCount ?? 0);
 
     return {
-      ratingValue: reviewCount > 0 ? Number((total / reviewCount).toFixed(1)) : null,
+      ratingValue: reviewCount > 0 ? Number(Number(aggregateRecord?.ratingValue ?? 0).toFixed(1)) : null,
       reviewCount,
       reviews: records.slice(0, 20).map((review) => ({
         id: review._id,
@@ -250,4 +268,14 @@ function formatReviewerName(value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   if (parts.length <= 1) return parts[0] || "Verified customer";
   return `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.`;
+}
+
+
+function isDuplicateKeyError(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === 11000
+  );
 }
