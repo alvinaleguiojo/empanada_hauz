@@ -89,9 +89,7 @@ export default function CustomerGooglePlacesAutocomplete() {
             const latitude = location?.lat();
             const longitude = location?.lng();
             const selectedValue =
-              config.field === "landmark"
-                ? place.name ?? place.formatted_address ?? ""
-                : place.formatted_address ?? place.name ?? "";
+              place.name ?? place.formatted_address ?? "";
 
             if (!selectedValue) return;
 
