@@ -3,6 +3,7 @@ import { CheckCircle2, Clock3, ExternalLink, MapPin, PackageCheck, ReceiptText, 
 import { API_URL } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { TrackingRiderMap } from "@/components/tracking-rider-map";
+import OrderReviewForm from "@/components/order-review-form";
 
 type TrackingDeliveryJob = {
   id: string;
@@ -237,6 +238,13 @@ export default async function TrackOrderPage({ params }: PageProps) {
             )}
           </div>
         </section>
+
+        {order.status === "completed" && lineItems.length > 0 ? (
+          <OrderReviewForm
+            orderId={order.id}
+            items={lineItems.map((item) => ({ name: item.name, quantity: item.quantity }))}
+          />
+        ) : null}
 
         {showsMaximTracking ? <MaximTrackingPanel order={order} /> : null}
       </div>
