@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Speech from "expo-speech";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -227,7 +227,7 @@ export function MapScreen({
     ]
   );
 
-  const calculateRoute = async (force = false) => {
+  const calculateRoute = useCallback(async (force = false) => {
     if (!token || !riderLocation || !destination) return;
 
     const now = Date.now();
@@ -264,7 +264,7 @@ export function MapScreen({
     } finally {
       setLoading(false);
     }
-  };
+  }, [destination, riderLocation, token]);
 
   useEffect(() => {
     void calculateRoute(true);
