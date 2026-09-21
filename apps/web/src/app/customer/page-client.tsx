@@ -469,7 +469,7 @@ export default function CustomerKioskPage() {
                   {visibleFlavorOptions.length > 0 ? visibleFlavorOptions.map((option) => {
                     const selected = selectedFlavors.find((item) => item.value === option.value);
                     const soldOut = option.available === false;
-                    const rating = rating;
+                    const rating = getProductRating(option.value);
                     return (
                       <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-[#E3A64B]/70 bg-[#2a2014] shadow-[0_12px_35px_-22px_rgba(227,166,75,0.9)]" : "border-[#F2E8D5]/8 bg-[#261d13] hover:-translate-y-0.5 hover:border-[#F2E8D5]/15"} ${soldOut ? "opacity-55" : ""}`}>
                         <ProductBadges option={option} />
