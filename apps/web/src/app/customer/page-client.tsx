@@ -180,28 +180,6 @@ export default function CustomerKioskPage() {
       setReferralCode(window.localStorage.getItem("empanada-referral-code") ?? "");
     }
   }, []);
-  if (catalogStatus === "loading") {
-    return (
-      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
-        <div className="rounded-2xl border border-[#F2E8D5]/10 bg-[#241c13] px-6 py-5 text-center shadow-xl">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#F2E8D5]/20 border-t-[#E3A64B]" />
-          <p className="mt-3 text-sm font-semibold">Loading today’s flavors and ratings…</p>
-        </div>
-      </main>
-    );
-  }
-
-  if (catalogStatus === "error") {
-    return (
-      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
-        <div className="max-w-sm rounded-2xl border border-[#C0472B]/30 bg-[#241c13] px-6 py-5 text-center shadow-xl">
-          <p className="text-sm font-semibold">We couldn’t load the menu right now.</p>
-          <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#C0472B] px-4 py-2 text-sm font-bold text-white">Try again</button>
-        </div>
-      </main>
-    );
-  }
-
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
     if (key === "address" || key === "landmark") setDeliveryQuote(null);
@@ -356,6 +334,28 @@ export default function CustomerKioskPage() {
 
   const remaining = Math.max(0, 10 - summary.totalQuantity);
   const handleStartNewOrder = () => { setSuccess(null); setError(null); };
+
+  if (catalogStatus === "loading") {
+    return (
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
+        <div className="rounded-2xl border border-[#F2E8D5]/10 bg-[#241c13] px-6 py-5 text-center shadow-xl">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#F2E8D5]/20 border-t-[#E3A64B]" />
+          <p className="mt-3 text-sm font-semibold">Loading today’s flavors and ratings…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (catalogStatus === "error") {
+    return (
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
+        <div className="max-w-sm rounded-2xl border border-[#C0472B]/30 bg-[#241c13] px-6 py-5 text-center shadow-xl">
+          <p className="text-sm font-semibold">We couldn’t load the menu right now.</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#C0472B] px-4 py-2 text-sm font-bold text-white">Try again</button>
+        </div>
+      </main>
+    );
+  }
 
   if (success) {
     return (
