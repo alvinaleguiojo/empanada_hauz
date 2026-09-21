@@ -410,6 +410,7 @@ export default function CustomerKioskPage() {
               <div className="inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/30 bg-[#E3A64B]/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-[#E3A64B]">Made to order <span className="h-1 w-1 rounded-full bg-[#E3A64B]/60" /> 10 pcs minimum</div>
               <h1 className="mt-4 max-w-3xl font-[family-name:var(--font-display)] text-4xl font-extrabold leading-[1.02] tracking-tight text-[#F6EFDD] sm:text-5xl lg:text-6xl">Build your box.<br /><span className="text-[#E3A64B]">We'll handle the rest.</span></h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-[#F2E8D5]/60 sm:text-base">Choose your favorite flavors, set your quantities, then tell us where to send your freshly made empanadas.</p>
+              <Link href="/delivery-fee" className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-[#E3A64B] underline underline-offset-4">Check delivery fee first →</Link>
               <div className="mt-6 hidden lg:block" />
             </div>
             <div className="hidden lg:flex lg:items-end lg:justify-end">
