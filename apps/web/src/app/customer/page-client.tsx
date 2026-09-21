@@ -84,6 +84,100 @@ function formatProductTag(tag: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function CustomerKioskLoading({ stage }: { stage: "splash" | "skeleton" }) {
+  if (stage === "splash") {
+    return (
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
+        <div className="flex flex-col items-center text-center">
+          <div className="grid h-28 w-28 place-items-center overflow-hidden rounded-[30px] border border-[#E3A64B]/25 bg-[#241c13] shadow-[0_20px_60px_-25px_rgba(227,166,75,0.9)]">
+            <img
+              src="/empanada hauz logo.jpg"
+              alt="Empanada Hauz"
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="mt-5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-[#F6EFDD]">
+            Empanada Hauz
+          </div>
+          <div className="mt-1 font-[family-name:var(--font-script)] text-lg text-[#F2E8D5]/55">
+            Freshly made, your way.
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="kiosk-board min-h-screen px-3 pb-8 pt-3 text-[#F2E8D5] sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl animate-pulse">
+        <header className="sticky top-0 z-40 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-[#E3A64B]/15" />
+              <div>
+                <div className="h-4 w-32 rounded bg-[#F2E8D5]/10" />
+                <div className="mt-2 h-3 w-24 rounded bg-[#F2E8D5]/5" />
+              </div>
+            </div>
+            <div className="h-9 w-24 rounded-full bg-[#F2E8D5]/8" />
+          </div>
+        </header>
+
+        <div className="sticky top-[67px] z-30 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/90 px-3 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="mx-auto flex max-w-7xl gap-2.5 py-2.5">
+            {[1, 2, 3].map((item) => (
+              <div key={item} className="h-10 w-24 rounded-full bg-[#F2E8D5]/7" />
+            ))}
+          </div>
+        </div>
+
+        <section className="mt-0 overflow-hidden rounded-b-[30px] border-x border-b border-[#F2E8D5]/10 bg-[#241c13]">
+          <div className="h-1.5 w-full bg-[#E3A64B]/15" />
+          <div className="grid gap-8 px-5 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.75fr] lg:px-10 lg:py-10">
+            <div>
+              <div className="h-7 w-48 rounded-full bg-[#E3A64B]/10" />
+              <div className="mt-5 h-12 w-full max-w-2xl rounded-xl bg-[#F2E8D5]/8 sm:h-16" />
+              <div className="mt-3 h-5 w-5/6 max-w-2xl rounded bg-[#F2E8D5]/6" />
+              <div className="mt-2 h-5 w-3/5 max-w-xl rounded bg-[#F2E8D5]/6" />
+            </div>
+            <div className="hidden lg:flex lg:items-end lg:justify-end">
+              <div className="h-28 w-72 rounded-2xl bg-[#F2E8D5]/5" />
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-5 rounded-[26px] border border-[#F2E8D5]/10 bg-[#20180f] p-4 sm:p-6">
+          <div className="flex items-end justify-between gap-4 border-b border-[#F2E8D5]/10 pb-5">
+            <div>
+              <div className="h-3 w-20 rounded bg-[#E3A64B]/10" />
+              <div className="mt-2 h-8 w-56 rounded bg-[#F2E8D5]/8" />
+              <div className="mt-2 h-4 w-72 max-w-full rounded bg-[#F2E8D5]/5" />
+            </div>
+            <div className="hidden h-11 w-56 rounded-xl bg-[#F2E8D5]/7 sm:block" />
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((item) => (
+              <div key={item} className="overflow-hidden rounded-2xl border border-[#F2E8D5]/8 bg-[#261d13]">
+                <div className="aspect-[16/9] bg-[#F2E8D5]/7" />
+                <div className="p-4">
+                  <div className="h-5 w-3/4 rounded bg-[#F2E8D5]/8" />
+                  <div className="mt-2 h-3 w-full rounded bg-[#F2E8D5]/5" />
+                  <div className="mt-2 h-3 w-2/3 rounded bg-[#F2E8D5]/5" />
+                  <div className="mt-4 flex items-center gap-2">
+                    <div className="h-7 w-16 rounded bg-[#E3A64B]/8" />
+                    <div className="h-7 w-20 rounded-full bg-[#E3A64B]/8" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 function ProductBadges({ option }: { option: (typeof MENU_ITEMS)[number] }) {
   const tags = Array.isArray(option.tags) ? option.tags.filter(Boolean) : [];
   const bestSeller = tags.some((tag) => {
@@ -137,7 +231,13 @@ export default function CustomerKioskPage() {
   const [quotingDelivery, setQuotingDelivery] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<"splash" | "skeleton">("splash");
   const { status: catalogStatus } = useProductCatalog();
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLoadingStage("skeleton"), 750);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -336,14 +436,7 @@ export default function CustomerKioskPage() {
   const handleStartNewOrder = () => { setSuccess(null); setError(null); };
 
   if (catalogStatus === "loading") {
-    return (
-      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
-        <div className="rounded-2xl border border-[#F2E8D5]/10 bg-[#241c13] px-6 py-5 text-center shadow-xl">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#F2E8D5]/20 border-t-[#E3A64B]" />
-          <p className="mt-3 text-sm font-semibold">Loading today’s flavors and ratings…</p>
-        </div>
-      </main>
-    );
+    return <CustomerKioskLoading stage={loadingStage} />;
   }
 
   if (catalogStatus === "error") {
