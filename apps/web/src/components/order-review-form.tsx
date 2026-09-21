@@ -51,7 +51,7 @@ export default function OrderReviewForm({
 
       setSubmitted((current) => [...current, selectedProduct]);
       setComment("");
-      setMessage("Thanks! Your review was submitted and will appear after approval.");
+      setMessage("Thanks! Your review is now published. 😊");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "We couldn't submit your review.");
     } finally {
@@ -66,7 +66,7 @@ export default function OrderReviewForm({
       <p className="text-xs uppercase tracking-[0.18em] text-foreground/35">Your feedback</p>
       <h2 className="mt-2 text-xl font-semibold">How was your empanada?</h2>
       <p className="mt-2 text-sm leading-6 text-foreground/55">
-        Your review is tied to this completed order and will be checked before it is published.
+        Your review is tied to this completed order and is published immediately.
       </p>
 
       <div className="mt-5">
@@ -139,7 +139,7 @@ export default function OrderReviewForm({
       </button>
 
       <p className="mt-3 text-xs leading-5 text-foreground/38">
-        Only completed-order reviews can be submitted. Reviews are moderated before publication.
+        Only customers with completed orders can submit reviews.
       </p>
     </section>
   );
