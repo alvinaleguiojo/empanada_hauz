@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { IsIn, IsNumber, IsOptional, IsString, Max, Min } from "class-validator";
 import type { Request } from "express";
 import { AdminGuard } from "../ai-instructions/admin.guard";
@@ -30,6 +30,7 @@ export class ProductReviewsController {
   constructor(private readonly service: ProductReviewsService) {}
 
   @Get("products/:productKey/reviews")
+  @Header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
   async listApproved(@Param("productKey") productKey: string) {
     return this.service.listApproved(productKey);
   }
