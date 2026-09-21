@@ -293,8 +293,7 @@ export default function CustomerKioskPage() {
     ];
 
     try {
-      await navigator.clipboard.writeText(lines.join("
-"));
+      await navigator.clipboard.writeText(lines.join("\n"));
       setSummaryCopied(true);
       window.setTimeout(() => setSummaryCopied(false), 1800);
     } catch {
