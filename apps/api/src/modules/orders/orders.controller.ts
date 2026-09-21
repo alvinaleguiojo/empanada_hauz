@@ -5,6 +5,7 @@ import { PrismaService } from "../../database/prisma.service";
 import { FraudOrderInterceptor } from "../fraud/fraud-order.interceptor";
 import { GoogleWorkspaceService } from "../google-workspace/google-workspace.service";
 import { AddOrderNoteDto, CreateOrderDto, ExportOrdersToDriveDto, ManualOrderEntryDto, PublicOrderEntryDto, UpdateOrderDto, UpdateOrderStatusDto } from "./dto";
+import { RateLimit } from "../../common/rate-limit/rate-limit.decorator";
 import { GoogleCalendarOrderSyncService } from "./google-calendar-order-sync.service";
 import { OrdersService } from "./orders.service";
 
@@ -43,6 +44,7 @@ export class OrdersController {
 
   @Get("track/:id") track(@Param("id") id: string) { return this.ordersService.track(id); }
 
+  @RateLimit({ limit: 30, windowSeconds: 60, key: "ip" })
   @Get("delivery-quote")
   async deliveryQuote(@Query("address") address?: string, @Query("landmark") landmark?: string, @Query("latitude") latitude?: string, @Query("longitude") longitude?: string) {
     const trimmedAddress = (address ?? "").trim().slice(0, 300);
@@ -70,6 +72,7 @@ export class OrdersController {
     return order;
   }
 
+  @RateLimit({ limit: 12, windowSeconds: 10 * 60, key: "ip" })
   @Post("public")
   async createPublic(@Body() dto: PublicOrderEntryDto) {
     const result = await this.ordersService.createPublic(dto);
