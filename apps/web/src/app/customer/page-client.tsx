@@ -24,7 +24,8 @@ import {
   X
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { MENU_ITEMS } from "@/lib/menu";
+import { getProductRating, MENU_ITEMS } from "@/lib/menu";
+import { useProductCatalog } from "@/components/products/product-catalog-provider";
 import dynamic from "next/dynamic";
 
 const display = Baloo_2({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-display" });
@@ -59,8 +60,6 @@ type FormState = {
 };
 type PublicOrderResponse = { order: { id: string; orderNumber?: string }; trackingPath?: string };
 type SuccessState = { orderNumber?: string; trackingPath: string; trackingUrl: string };
-type ProductRatingSummary = { productKey: string; ratingValue: number; reviewCount: number };
-
 const initialState: FormState = {
   deliveryDate: "",
   customerName: "",
@@ -148,7 +147,7 @@ export default function CustomerKioskPage() {
   const [quotingDelivery, setQuotingDelivery] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
-  const [productRatings, setProductRatings] = useState<Record<string, ProductRatingSummary>>({});
+  const { status: catalogStatus } = useProductCatalog();
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -191,22 +190,27 @@ export default function CustomerKioskPage() {
       setReferralCode(window.localStorage.getItem("empanada-referral-code") ?? "");
     }
   }, []);
-  useEffect(() => {
-    let cancelled = false;
-    void apiFetch<ProductRatingSummary[]>("/products/reviews/summary")
-      .then((summaries) => {
-        if (cancelled) return;
-        setProductRatings(
-          Object.fromEntries(summaries.map((summary) => [summary.productKey, summary]))
-        );
-      })
-      .catch(() => undefined);
+  if (catalogStatus === "loading") {
+    return (
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
+        <div className="rounded-2xl border border-[#F2E8D5]/10 bg-[#241c13] px-6 py-5 text-center shadow-xl">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#F2E8D5]/20 border-t-[#E3A64B]" />
+          <p className="mt-3 text-sm font-semibold">Loading today’s flavors and ratings…</p>
+        </div>
+      </main>
+    );
+  }
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  if (catalogStatus === "error") {
+    return (
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
+        <div className="max-w-sm rounded-2xl border border-[#C0472B]/30 bg-[#241c13] px-6 py-5 text-center shadow-xl">
+          <p className="text-sm font-semibold">We couldn’t load the menu right now.</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#C0472B] px-4 py-2 text-sm font-bold text-white">Try again</button>
+        </div>
+      </main>
+    );
+  }
 
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -481,9 +485,9 @@ export default function CustomerKioskPage() {
                         <div className="relative aspect-[16/9] overflow-hidden bg-[#17110b]">
                           {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgba(227,166,75,.18),transparent_60%)]"><span className="font-[family-name:var(--font-script)] text-4xl text-[#E3A64B]/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[#17110b] via-transparent to-transparent" />
-                          {productRatings[productRatingKey(option.value)] ? (
+                          {getProductRating(option.value) ? (
                             <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/35 bg-[#1a140d]/90 px-2.5 py-1 text-xs font-bold text-[#E3A64B] shadow-sm backdrop-blur">
-                              <Star size={12} fill="currentColor" /> {productRatings[productRatingKey(option.value)].ratingValue.toFixed(1)} ({productRatings[productRatingKey(option.value)].reviewCount})
+                              <Star size={12} fill="currentColor" /> {getProductRating(option.value).ratingValue.toFixed(1)} ({getProductRating(option.value).reviewCount})
                             </span>
                           ) : null}
                           {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-[#17110b]/85 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.16em] text-[#F2E8D5]/65">Sold out</span> : null}
@@ -497,11 +501,11 @@ export default function CustomerKioskPage() {
                                 {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#F2E8D5]/45">{option.description}</p> : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
                                   <div className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
-                                  {productRatings[productRatingKey(option.value)] ? (
+                                  {getProductRating(option.value) ? (
                                     <div className="inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/20 bg-[#E3A64B]/8 px-2 py-1 text-[10px] font-bold text-[#E3A64B]">
                                       <Star size={11} fill="currentColor" />
-                                      <span>{productRatings[productRatingKey(option.value)].ratingValue.toFixed(1)}</span>
-                                      <span className="font-normal text-[#F2E8D5]/45">({productRatings[productRatingKey(option.value)].reviewCount})</span>
+                                      <span>{getProductRating(option.value).ratingValue.toFixed(1)}</span>
+                                      <span className="font-normal text-[#F2E8D5]/45">({getProductRating(option.value).reviewCount})</span>
                                     </div>
                                   ) : null}
                                 </div>
