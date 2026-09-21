@@ -78,6 +78,22 @@ export default function GestureOrdering() {
   const scrollTargetEl = useRef<HTMLElement | null>(null);
   const lastFrameTime = useRef(0);
 
+  // Dwell-to-select: point at something and hold roughly still for a
+  // moment, no finger-bending required at all. Bending the index finger
+  // precisely enough for MediaPipe to read reliably, while also holding
+  // the cursor steady, is a hard combination to pull off via webcam
+  // tracking regardless of how well the angle thresholds are tuned - this
+  // sidesteps that entirely by only depending on position stability,
+  // which is the one thing that's been reliable throughout. Runs
+  // alongside the existing bend-and-release tap, not instead of it.
+  const dwellTarget = useRef<HTMLElement | null>(null);
+  const dwellStartedAt = useRef(0);
+  const dwellStartPoint = useRef<Point | null>(null);
+  const dwellFired = useRef(false);
+  const dwellProgress = useRef(0); // 0..1, read every rendered frame for the visual ring
+  const dwellDurationMs = 750;
+  const dwellSlop = 45;
+
   const activeItems = useMemo(
     () => MENU_ITEMS.filter((item) => item.available !== false),
     []
@@ -304,6 +320,11 @@ export default function GestureOrdering() {
               pendingRawTouchDown.current = null;
               pendingTouchDownStreak.current = 0;
               acceptedIsTouchDown.current = false;
+              dwellTarget.current = null;
+              dwellStartedAt.current = 0;
+              dwellStartPoint.current = null;
+              dwellFired.current = false;
+              dwellProgress.current = 0;
               setGestureMessage("Show your hand to start");
               if (hovered.current) {
                 hovered.current.style.outline = "";
@@ -436,6 +457,54 @@ export default function GestureOrdering() {
               }, 35);
             }
 
+            // Dwell-to-select: independent of the bend gesture below. Point
+            // at something and hold roughly still; drifting past dwellSlop
+            // restarts the hold instead of cancelling it outright, so small
+            // natural hand tremor doesn't keep resetting progress to zero.
+            if (interactive) {
+              if (dwellTarget.current !== interactive) {
+                dwellTarget.current = interactive;
+                dwellStartedAt.current = now;
+                dwellStartPoint.current = { x: sx, y: sy };
+                dwellFired.current = false;
+              } else if (dwellStartPoint.current) {
+                const drift = Math.hypot(sx - dwellStartPoint.current.x, sy - dwellStartPoint.current.y);
+                if (drift > dwellSlop) {
+                  dwellStartedAt.current = now;
+                  dwellStartPoint.current = { x: sx, y: sy };
+                  dwellFired.current = false;
+                }
+              }
+
+              const dwellElapsed = now - dwellStartedAt.current;
+              dwellProgress.current = Math.min(1, dwellElapsed / dwellDurationMs);
+
+              if (!dwellFired.current && dwellElapsed >= dwellDurationMs && dwellTarget.current.isConnected) {
+                dwellFired.current = true;
+                const target = dwellTarget.current;
+                target.click();
+                target.animate(
+                  [
+                    { transform: "scale(1)" },
+                    { transform: "scale(.95)" },
+                    { transform: "scale(1)" }
+                  ],
+                  { duration: 150, easing: "ease-out" }
+                );
+                setGestureMessage("Selected");
+                window.setTimeout(syncCart, 50);
+                // Cancel any concurrent bend-gesture touch so it can't also
+                // fire a second click on the same target right after this.
+                resetTouch();
+              }
+            } else {
+              dwellTarget.current = null;
+              dwellStartedAt.current = 0;
+              dwellStartPoint.current = null;
+              dwellFired.current = false;
+              dwellProgress.current = 0;
+            }
+
             // Touch model (scrolling is handled separately, above, by swipe
             // velocity - this only decides tap vs. no-op):
             // 1) bend index finger -> touch down
@@ -497,6 +566,11 @@ export default function GestureOrdering() {
                 );
                 setGestureMessage("Selected");
                 window.setTimeout(syncCart, 50);
+                // Cancel any concurrent dwell progress on the same target so
+                // it can't also fire a second click shortly after this one.
+                dwellTarget.current = null;
+                dwellFired.current = false;
+                dwellProgress.current = 0;
               } else if (touchMoved.current) {
                 setGestureMessage("Released");
               }
@@ -528,6 +602,13 @@ export default function GestureOrdering() {
               focus.style.transform = touching
                 ? "scale(1) rotate(0deg)"
                 : "scale(.7) rotate(0deg)";
+            }
+
+            const dwellRing = document.getElementById("eh-gesture-dwell");
+            if (dwellRing) {
+              const progress = dwellProgress.current;
+              dwellRing.style.opacity = progress > 0.02 ? "1" : "0";
+              dwellRing.style.transform = `scale(${0.55 + progress * 0.45})`;
             }
           }
 
@@ -561,6 +642,11 @@ export default function GestureOrdering() {
       pendingRawTouchDown.current = null;
       pendingTouchDownStreak.current = 0;
       acceptedIsTouchDown.current = false;
+      dwellTarget.current = null;
+      dwellStartedAt.current = 0;
+      dwellStartPoint.current = null;
+      dwellFired.current = false;
+      dwellProgress.current = 0;
       statusRef.current = "";
       if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
       if (hovered.current) {
@@ -637,7 +723,7 @@ export default function GestureOrdering() {
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
-                      <div className="mt-1 text-sm text-white/55">Swipe up/down to scroll · bend & release to select</div>
+                      <div className="mt-1 text-sm text-white/55">Swipe up/down to scroll · hold still or bend & release to select</div>
                     </div>
                     <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
                       <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
@@ -698,6 +784,7 @@ export default function GestureOrdering() {
             <div id="eh-gesture-cursor" className="pointer-events-none absolute left-0 top-0 z-[95] h-8 w-8 -ml-4 -mt-4 rounded-full border-2 border-[#F6EFDD] bg-[#E3A64B]/35 shadow-[0_0_0_7px_rgba(227,166,75,.18),0_0_24px_rgba(227,166,75,.65)] opacity-0">
               <div id="eh-gesture-pulse" className="absolute inset-[-5px] rounded-full border border-[#E3A64B]/45" />
               <div id="eh-gesture-focus" className="absolute inset-[-11px] rounded-full border-2 border-dashed border-[#E3A64B] opacity-0" />
+              <div id="eh-gesture-dwell" className="absolute inset-[-15px] rounded-full border-[3px] border-[#8FE3A6] opacity-0 transition-opacity duration-100" />
               <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
             </div>
 
@@ -723,7 +810,7 @@ export default function GestureOrdering() {
             </footer>
 
             <div className="pointer-events-none absolute bottom-20 left-1/2 z-[82] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[10px] font-semibold text-white/55 backdrop-blur-xl">
-              Point · swipe to scroll · bend & release to select
+              Point & hold to select · swipe to scroll
             </div>
           </div>
         </div>
