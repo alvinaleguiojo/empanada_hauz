@@ -6,8 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { RiderMap, RiderMapHandle } from "../components/RiderMap";
 import { getRiderRoute } from "../api";
 import { RiderSession } from "../hooks/useRiderSession";
-import { colors, radius, shadow, spacing } from "../theme";
-import { Coordinate, JOB_NEXT_STATUS, jobActionLabel, shortJobCode } from "../types";
+import { Coordinate, JOB_NEXT_STATUS, jobActionLabel } from "../types";
 
 const CEBU_CENTER = { latitude: 10.3157, longitude: 123.8854, latitudeDelta: 0.08, longitudeDelta: 0.08 };
 const ARRIVAL_RADIUS_METERS = 50;
