@@ -476,11 +476,6 @@ export default function CustomerKioskPage() {
                         <div className="relative aspect-[16/9] overflow-hidden bg-[#17110b]">
                           {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgba(227,166,75,.18),transparent_60%)]"><span className="font-[family-name:var(--font-script)] text-4xl text-[#E3A64B]/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[#17110b] via-transparent to-transparent" />
-                          {rating ? (
-                            <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/35 bg-[#1a140d]/90 px-2.5 py-1 text-xs font-bold text-[#E3A64B] shadow-sm backdrop-blur">
-                              <Star size={12} fill="currentColor" /> {rating.ratingValue.toFixed(1)} ({rating.reviewCount})
-                            </span>
-                          ) : null}
                           {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-[#17110b]/85 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.16em] text-[#F2E8D5]/65">Sold out</span> : null}
                           {selected ? <span className="absolute bottom-3 right-3 grid h-8 w-8 place-items-center rounded-full bg-[#E3A64B] text-[#20160d] shadow-lg"><Check size={16} /></span> : null}
                         </div>
