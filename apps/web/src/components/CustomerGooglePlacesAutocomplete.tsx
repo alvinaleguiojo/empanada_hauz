@@ -86,17 +86,20 @@ export default function CustomerGooglePlacesAutocomplete() {
           autocomplete.addListener("place_changed", () => {
             const place = autocomplete.getPlace();
             const location = place.geometry?.location;
-            const value = place.formatted_address ?? place.name ?? "";
-            if (!value) return;
-
             const latitude = location?.lat();
             const longitude = location?.lng();
+            const selectedValue =
+              config.field === "landmark"
+                ? place.name ?? place.formatted_address ?? ""
+                : place.formatted_address ?? place.name ?? "";
+
+            if (!selectedValue) return;
 
             const setter = Object.getOwnPropertyDescriptor(
               HTMLInputElement.prototype,
               "value"
             )?.set;
-            setter?.call(input, value);
+            setter?.call(input, selectedValue);
 
             if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
               input.dataset.latitude = String(latitude);
