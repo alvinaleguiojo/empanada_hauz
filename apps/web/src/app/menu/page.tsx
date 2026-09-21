@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { Route } from "next";
 import {
+  getProductRatingSummaries,
   getSeoProducts,
   productSlug,
   resolveProductImage,
