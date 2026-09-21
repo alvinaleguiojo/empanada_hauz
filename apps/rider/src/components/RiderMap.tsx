@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { Coordinate } from "../types";
 import { colors } from "../theme";
@@ -83,26 +83,12 @@ export const RiderMap = forwardRef<RiderMapHandle, Props>(function RiderMap(
           <Polyline coordinates={routePoints} strokeColor="#4285F4" strokeWidth={6} />
         ) : null}
       </MapView>
-
-      <Pressable
-        style={[styles.recenter, follow && styles.recenterActive]}
-        onPress={() => {
-          onUserGesture?.();
-          animateToCurrent();
-        }}
-      >
-        <Text style={[styles.recenterText, follow && styles.recenterTextActive]}>◎</Text>
-      </Pressable>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: "#E8EDF2", overflow: "hidden" },
-  recenter: { position: "absolute", right: 12, top: 12, width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 5, shadowColor: "#000", shadowOpacity: 0.14, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
-  recenterActive: { borderWidth: 2, borderColor: "#4285F4" },
-  recenterText: { fontSize: 20, color: colors.ink },
-  recenterTextActive: { color: "#4285F4" },
   riderMarker: { minWidth: 46, height: 46, borderRadius: 23, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#4285F4", elevation: 5 },
   motorcycle: { fontSize: 22 },
   pickupMarker: { width: 36, height: 36, borderRadius: 11, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: colors.orange },
