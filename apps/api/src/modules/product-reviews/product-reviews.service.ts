@@ -169,6 +169,38 @@ export class ProductReviewsService implements OnModuleInit {
     };
   }
 
+
+  async listApprovedSummaries() {
+    const aggregate = (await this.prisma.$runCommandRaw({
+      aggregate: COLLECTION,
+      pipeline: [
+        { $match: { status: "approved" } },
+        {
+          $group: {
+            _id: "$productKey",
+            reviewCount: { $sum: 1 },
+            ratingValue: { $avg: "$rating" }
+          }
+        }
+      ],
+      cursor: {}
+    })) as unknown as {
+      cursor?: {
+        firstBatch?: Array<{
+          _id: string;
+          reviewCount: number;
+          ratingValue: number;
+        }>;
+      };
+    };
+
+    return (aggregate.cursor?.firstBatch ?? []).map((record) => ({
+      productKey: record._id,
+      ratingValue: Number(Number(record.ratingValue ?? 0).toFixed(1)),
+      reviewCount: Number(record.reviewCount ?? 0)
+    }));
+  }
+
   async listForAdmin(status?: ReviewStatus) {
     const filter = status ? { status } : {};
     const result = (await this.prisma.$runCommandRaw({
