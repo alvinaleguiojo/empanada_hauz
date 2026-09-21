@@ -174,7 +174,12 @@ export default function GestureOrdering() {
         const vision = await import("@mediapipe/tasks-vision");
         const files = await vision.FilesetResolver.forVisionTasks(WASM);
         const r = await vision.GestureRecognizer.createFromOptions(files, {
-          baseOptions: { modelAssetPath: MODEL },
+          // Explicitly request GPU acceleration rather than leaving it to
+          // the library default - real-time per-frame inference is the
+          // main cost in this whole pipeline, and MediaPipe's own guidance
+          // is that GPU delegate is meaningfully faster than CPU/WASM for
+          // video workloads where it's available.
+          baseOptions: { modelAssetPath: MODEL, delegate: "GPU" },
           runningMode: "VIDEO",
           numHands: 1,
           minHandDetectionConfidence: 0.55,
@@ -262,7 +267,10 @@ export default function GestureOrdering() {
           }
 
           const t = performance.now();
-          if (el.videoWidth && t - inferAt.current >= 40) {
+          // An unrelated rerender-reduction pass quietly widened this from
+          // 33ms (~30fps) to 40ms (~25fps) - a straightforward, avoidable
+          // regression against smoothness that nothing since reverted.
+          if (el.videoWidth && t - inferAt.current >= 33) {
             inferAt.current = t;
             const result = r.recognizeForVideo(el, t);
             const hand = result.landmarks?.[0];
