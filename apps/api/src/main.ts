@@ -20,6 +20,12 @@ async function bootstrap() {
     }
   });
 
+  const httpAdapter = app.getHttpAdapter().getInstance();
+  const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? "1");
+  if (Number.isFinite(trustProxyHops) && trustProxyHops >= 0) {
+    httpAdapter.set("trust proxy", trustProxyHops);
+  }
+
   app.setGlobalPrefix("api", {
     exclude: [
       { path: ".well-known/oauth-protected-resource", method: RequestMethod.GET },
