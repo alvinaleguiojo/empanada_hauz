@@ -101,7 +101,7 @@ export default function CustomerGooglePlacesAutocomplete() {
             if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
               input.dataset.latitude = String(latitude);
               input.dataset.longitude = String(longitude);
-              input.dataset.placeValue = value;
+              input.dataset.placeValue = selectedValue;
             } else {
               delete input.dataset.latitude;
               delete input.dataset.longitude;
@@ -115,7 +115,7 @@ export default function CustomerGooglePlacesAutocomplete() {
               new CustomEvent<CustomerPlaceSelectedDetail>("customer-place-selected", {
                 detail: {
                   field: config.field,
-                  value,
+                  value: selectedValue,
                   formattedAddress: place.formatted_address,
                   name: place.name,
                   latitude,
