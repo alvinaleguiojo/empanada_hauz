@@ -761,10 +761,16 @@ export default function GestureOrdering() {
                             </div>
                           </button>
                           {quantity > 0 ? (
-                            <div className="absolute right-3 top-3 z-20 flex min-h-16 items-center overflow-hidden rounded-[20px] border-2 border-[#E3A64B]/45 bg-black/75 p-1 shadow-2xl backdrop-blur-xl">
-                              <button type="button" aria-label={`Decrease ${item.value}`} onClick={() => changeQuantity(item.value, -1)} className="grid h-14 w-14 place-items-center rounded-[16px] text-white/90 transition active:scale-95 hover:bg-white/10"><Minus size={22} /></button>
-                              <span className="w-12 text-center font-[family-name:var(--font-mono)] text-lg font-extrabold text-white">{quantity}</span>
-                              <button type="button" aria-label={`Increase ${item.value}`} onClick={() => changeQuantity(item.value, 1)} className="grid h-14 w-14 place-items-center rounded-[16px] text-[#E3A64B] transition active:scale-95 hover:bg-[#E3A64B]/15"><Plus size={24} /></button>
+                            // gap-2 matters for gesture mode specifically: with
+                            // no gap, Decrease/number/Increase sat edge-to-edge,
+                            // so any cursor imprecision right at a boundary was
+                            // a coin-flip between the wrong button or nothing.
+                            // A visible buffer zone between adjacent targets
+                            // gives imprecise pointing somewhere safe to land.
+                            <div className="absolute right-3 top-3 z-20 flex min-h-16 items-center gap-2 overflow-hidden rounded-[20px] border-2 border-[#E3A64B]/45 bg-black/75 p-1.5 shadow-2xl backdrop-blur-xl">
+                              <button type="button" aria-label={`Decrease ${item.value}`} onClick={() => changeQuantity(item.value, -1)} className="grid h-16 w-16 shrink-0 place-items-center rounded-[16px] text-white/90 transition active:scale-95 hover:bg-white/10"><Minus size={22} /></button>
+                              <span className="w-12 shrink-0 text-center font-[family-name:var(--font-mono)] text-lg font-extrabold text-white">{quantity}</span>
+                              <button type="button" aria-label={`Increase ${item.value}`} onClick={() => changeQuantity(item.value, 1)} className="grid h-16 w-16 shrink-0 place-items-center rounded-[16px] text-[#E3A64B] transition active:scale-95 hover:bg-[#E3A64B]/15"><Plus size={24} /></button>
                             </div>
                           ) : null}
                         </div>
