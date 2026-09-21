@@ -18,7 +18,11 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function MenuPage() {
-  const [products, ratings] = await Promise.all([\n    getSeoProducts(),\n    getProductRatingSummaries(),\n  ]);\n  const ratingByProduct = new Map(ratings.map((rating) => [rating.productKey, rating]));
+  const [products, ratings] = await Promise.all([
+    getSeoProducts(),
+    getProductRatingSummaries(),
+  ]);
+  const ratingByProduct = new Map(ratings.map((rating) => [rating.productKey, rating]));
 
   const menuJsonLd = {
     "@context": "https://schema.org",
@@ -77,7 +81,8 @@ export default async function MenuPage() {
               const image = resolveProductImage(
                 product.imageUrl || product.imageUrls?.[0],
               );
-              const soldOut = product.available === false;\n              const rating = ratingByProduct.get(productSlug(product.name));
+              const soldOut = product.available === false;
+              const rating = ratingByProduct.get(productSlug(product.name));
 
               return (
                 <article
