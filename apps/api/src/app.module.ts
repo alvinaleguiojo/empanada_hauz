@@ -30,6 +30,7 @@ import { TranscriptionModule } from "./modules/transcription/transcription.modul
 import { CacheModule } from "./common/cache/cache.module";
 import { FraudModule } from "./modules/fraud/fraud.module";
 import { GoogleWorkspaceModule } from "./modules/google-workspace/google-workspace.module";
+import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 
 @Module({
   imports: [
@@ -63,7 +64,8 @@ import { GoogleWorkspaceModule } from "./modules/google-workspace/google-workspa
     GoogleMapsModule,
     TranscriptionModule,
     FraudModule,
-    GoogleWorkspaceModule
+    GoogleWorkspaceModule,
+    RateLimitModule
   ]
 })
 export class AppModule {}
