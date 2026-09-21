@@ -1,8 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { Coordinate } from "../types";
-import { colors } from "../theme";
 
 export type RiderMapHandle = { recenter: () => void };
 
@@ -35,9 +34,13 @@ export const RiderMap = forwardRef<RiderMapHandle, Props>(function RiderMap(
     mapRef.current?.animateCamera(camera, { duration });
   };
 
-  useImperativeHandle(ref, () => ({
-    recenter: () => animateToCurrent()
-  }), [camera.center.latitude, camera.center.longitude, camera.zoom, camera.pitch, camera.heading]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      recenter: () => animateToCurrent()
+    }),
+    [camera.center.latitude, camera.center.longitude, camera.zoom, camera.pitch, camera.heading]
+  );
 
   useEffect(() => {
     if (!follow || !riderLocation) return;
@@ -56,11 +59,16 @@ export const RiderMap = forwardRef<RiderMapHandle, Props>(function RiderMap(
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
+        provider={PROVIDER_GOOGLE}
         initialRegion={region}
-        onPanDrag={() => onUserGesture?.()}
+        mapType="standard"
         showsUserLocation={false}
+        showsMyLocationButton={false}
+        showsCompass={false}
         rotateEnabled
         pitchEnabled
+        toolbarEnabled={false}
+        onPanDrag={() => onUserGesture?.()}
       >
         {riderLocation ? (
           <Marker coordinate={riderLocation} title="You" anchor={{ x: 0.5, y: 0.5 }}>
@@ -69,18 +77,27 @@ export const RiderMap = forwardRef<RiderMapHandle, Props>(function RiderMap(
             </View>
           </Marker>
         ) : null}
+
         {pickup ? (
           <Marker coordinate={pickup} title="Pickup">
             <View style={styles.pickupMarker}><Text>🏪</Text></View>
           </Marker>
         ) : null}
+
         {dropoff ? (
           <Marker coordinate={dropoff} title="Drop-off">
             <View style={styles.dropoffMarker}><Text>🏠</Text></View>
           </Marker>
         ) : null}
+
         {routePoints.length > 1 ? (
-          <Polyline coordinates={routePoints} strokeColor="#4285F4" strokeWidth={6} />
+          <Polyline
+            coordinates={routePoints}
+            strokeColor="#4285F4"
+            strokeWidth={6}
+            lineCap="round"
+            lineJoin="round"
+          />
         ) : null}
       </MapView>
     </View>
@@ -88,9 +105,41 @@ export const RiderMap = forwardRef<RiderMapHandle, Props>(function RiderMap(
 });
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: "#E8EDF2", overflow: "hidden" },
-  riderMarker: { minWidth: 46, height: 46, borderRadius: 23, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#4285F4", elevation: 5 },
+  wrap: { flex: 1, backgroundColor: "#E9E6DF" },
+  riderMarker: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#4285F4",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 }
+  },
   motorcycle: { fontSize: 22 },
-  pickupMarker: { width: 36, height: 36, borderRadius: 11, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: colors.orange },
-  dropoffMarker: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: colors.red }
+  pickupMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#F45B25"
+  },
+  dropoffMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#D92D20"
+  }
 });
