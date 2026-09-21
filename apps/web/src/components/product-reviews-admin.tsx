@@ -17,7 +17,7 @@ type Review = {
 
 export default function ProductReviewsAdmin() {
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [filter, setFilter] = useState<"pending" | "approved" | "rejected">("pending");
+  const [filter, setFilter] = useState<"pending" | "approved" | "rejected">("approved");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -60,7 +60,7 @@ export default function ProductReviewsAdmin() {
           <p className="text-xs uppercase tracking-[0.2em] text-foreground/35">Empanada Hauz</p>
           <h1 className="mt-2 text-3xl font-bold">Product Reviews</h1>
           <p className="mt-2 text-sm text-foreground/55">
-            Approve genuine completed-order reviews before they appear publicly and in Product structured data.
+            View published customer reviews. Reviews submitted from completed orders are published automatically.
           </p>
         </header>
 
