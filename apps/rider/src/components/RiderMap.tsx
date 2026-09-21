@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker, Polyline } from "react-native-maps";
 import { Coordinate } from "../types";
 
 export type RiderMapHandle = { recenter: () => void };
@@ -59,7 +59,6 @@ export const RiderMap = forwardRef<RiderMapHandle, Props>(function RiderMap(
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
-        provider={PROVIDER_GOOGLE}
         initialRegion={region}
         mapType="standard"
         showsUserLocation={false}
