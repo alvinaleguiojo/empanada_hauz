@@ -1,9 +1,10 @@
 "use client";
 
-import Script from "next/script";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
 const ADSENSE_CLIENT = "ca-pub-2210175902805612";
+const ADSENSE_SCRIPT_ID = "google-adsense";
 
 /**
  * AdSense is intentionally restricted to public, indexable/content pages.
@@ -25,15 +26,19 @@ function shouldLoadAds(pathname: string) {
 export function AdsenseScript() {
   const pathname = usePathname();
 
-  if (!shouldLoadAds(pathname)) return null;
+  useEffect(() => {
+    if (!shouldLoadAds(pathname)) return;
+    if (document.getElementById(ADSENSE_SCRIPT_ID)) return;
 
-  return (
-    <Script
-      id="google-adsense"
-      async
-      strategy="afterInteractive"
-      src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
-      crossOrigin="anonymous"
-    />
-  );
+    const script = document.createElement("script");
+    script.id = ADSENSE_SCRIPT_ID;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.src =
+      `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`;
+
+    document.head.appendChild(script);
+  }, [pathname]);
+
+  return null;
 }
