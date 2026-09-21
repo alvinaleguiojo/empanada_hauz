@@ -47,6 +47,7 @@ export default function HomePage() {
           <Link href="/empanada-cebu">Empanada in Cebu</Link>
           <Link href="/empanada-delivery-cebu">Empanada Delivery Cebu</Link>
           <Link href="/empanada-talisay">Empanada Talisay</Link>
+          <Link href="/delivery-fee">Check Delivery Fee</Link>
           <Link href="/order">Order Empanadas Online</Link>
         </nav>
       </div>
