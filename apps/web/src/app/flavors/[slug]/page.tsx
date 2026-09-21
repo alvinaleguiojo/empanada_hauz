@@ -10,7 +10,7 @@ import {
   safeJsonLd,
 } from "@/lib/seo-products";
 
-export const revalidate = 300;
+export const revalidate = 60;
 
 type FlavorPageProps = {
   params: Promise<{ slug: string }>;
@@ -203,7 +203,7 @@ async function getProductReviews(productKey: string) {
   try {
     const response = await fetch(
       `${API_URL}/products/${encodeURIComponent(productKey)}/reviews`,
-      { next: { revalidate: 60 } }
+      { cache: "no-store" }
     );
 
     if (!response.ok) {
