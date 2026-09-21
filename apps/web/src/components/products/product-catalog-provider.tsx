@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { replaceMenuItems } from "@/lib/menu";
+import {
+  replaceMenuItems,
+  replaceProductRatings,
+  type ProductRatingSummary,
+} from "@/lib/menu";
 
 type Product = {
   name: string;
@@ -17,25 +21,61 @@ type Product = {
   sortOrder?: number;
 };
 
+type CatalogStatus = "loading" | "ready" | "error";
+
+type ProductCatalogContextValue = {
+  status: CatalogStatus;
+};
+
+const ProductCatalogContext = createContext<ProductCatalogContextValue>({
+  status: "loading",
+});
+
+export function useProductCatalog() {
+  return useContext(ProductCatalogContext);
+}
+
 export function ProductCatalogProvider({ children }: { children: React.ReactNode }) {
-  const [version, setVersion] = useState(0);
+  const [status, setStatus] = useState<CatalogStatus>("loading");
 
   useEffect(() => {
     let cancelled = false;
-    void apiFetch<Product[]>("/products")
-      .then((products) => {
-        if (cancelled || !products.length) return;
+
+    const loadCatalog = async () => {
+      try {
+        const [products, ratings] = await Promise.all([
+          apiFetch<Product[]>("/products"),
+          apiFetch<ProductRatingSummary[]>("/products/reviews/summary").catch(() => []),
+        ]);
+
+        if (cancelled) return;
+        if (!products.length) {
+          setStatus("error");
+          return;
+        }
+
         replaceMenuItems(products);
-        setVersion((current) => current + 1);
-      })
-      .catch(() => undefined);
+        replaceProductRatings(ratings);
+        setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    };
+
+    void loadCatalog();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return <>{version === 0 ? children : <RuntimeChildren version={version}>{children}</RuntimeChildren>}</>;
+  const value = useMemo(() => ({ status }), [status]);
+
+  return (
+    <ProductCatalogContext.Provider value={value}>
+      {children}
+    </ProductCatalogContext.Provider>
+  );
 }
 
 function RuntimeChildren({ version, children }: { version: number; children: React.ReactNode }) {
