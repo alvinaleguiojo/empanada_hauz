@@ -22,6 +22,7 @@ export function useRiderSession() {
   const [rider, setRider] = useState<RiderProfile | null>(null);
   const [jobs, setJobs] = useState<DeliveryJob[]>([]);
   const [liveLocation, setLiveLocation] = useState<Coordinate | null>(null);
+  const [liveHeading, setLiveHeading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const socketRef = useRef<Socket | null>(null);
@@ -75,6 +76,9 @@ export function useRiderSession() {
         (position) => {
           const coords = { latitude: position.coords.latitude, longitude: position.coords.longitude };
           setLiveLocation(coords);
+          if (position.coords.heading != null && position.coords.heading >= 0) {
+            setLiveHeading(position.coords.heading);
+          }
           void updateRiderLocation(token, {
             ...coords,
             heading: position.coords.heading ?? undefined,
@@ -197,6 +201,7 @@ export function useRiderSession() {
     currentJob,
     todayEarnings,
     liveLocation,
+    liveHeading,
     error,
     setError,
     busy,
