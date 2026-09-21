@@ -35,7 +35,7 @@ export default function GestureOrdering() {
   const touchStartedAt = useRef(0);
   const hovered = useRef<HTMLElement | null>(null);
   const smoothPoint = useRef<Point | null>(null);
-  // Debounce (not smooth) the touch-down/up angle crossing: smoothing
+  // Debounce (not smooth) the touch-down/up pinch crossing: smoothing
   // dampens brief peaks, which could make a normal quick "straighten to
   // release" motion never actually cross the release threshold - stuck
   // mid-tap. A same-value-for-N-consecutive-ticks debounce filters single-
@@ -45,11 +45,15 @@ export default function GestureOrdering() {
   const acceptedIsTouchDown = useRef(false);
   const statusRef = useRef("");
   const cartSnapshot = useRef("");
-  const angleDebounceFrames = 2;
+  const pinchDebounceFrames = 2;
   const hoverTimer = useRef<number | null>(null);
   const handMissingSince = useRef<number | null>(null);
-  const touchDownAngle = 150;
-  const touchUpAngle = 165;
+  // Pinch-ratio thresholds (pinch distance / hand span, scale-invariant).
+  // Hysteresis: has to pinch further closed to register than it has to
+  // open back up to release, so noise right at one boundary can't flicker
+  // the state - same purpose the old 150/165 angle gap served.
+  const pinchDownRatio = 0.38;
+  const pinchUpRatio = 0.55;
   const touchSlop = 40;
   const touchSettleMs = 100;
   const handGraceMs = 220;
@@ -79,13 +83,9 @@ export default function GestureOrdering() {
   const lastFrameTime = useRef(0);
 
   // Dwell-to-select: point at something and hold roughly still for a
-  // moment, no finger-bending required at all. Bending the index finger
-  // precisely enough for MediaPipe to read reliably, while also holding
-  // the cursor steady, is a hard combination to pull off via webcam
-  // tracking regardless of how well the angle thresholds are tuned - this
-  // sidesteps that entirely by only depending on position stability,
-  // which is the one thing that's been reliable throughout. Runs
-  // alongside the existing bend-and-release tap, not instead of it.
+  // moment, no pinch required at all - useful when a hand is angled such
+  // that the thumb isn't clearly visible/tracked. Runs alongside the
+  // pinch-to-select gesture below, not instead of it.
   const dwellTarget = useRef<HTMLElement | null>(null);
   const dwellStartedAt = useRef(0);
   const dwellStartPoint = useRef<Point | null>(null);
@@ -383,25 +383,23 @@ export default function GestureOrdering() {
               swipeSamples.current = [{ t, y: sy }];
             }
 
-            const indexMcp = hand[5];
-            const indexPip = hand[6];
+            // Pinch (thumb tip to index tip distance) instead of index-
+            // finger curl angle: a much bigger, more binary, more
+            // deliberate signal - thumb and index go from clearly apart to
+            // touching, rather than a subtle partial bend that's easy to
+            // under/over-do and sensitive to landmark noise. This is the
+            // same gesture every major hand-tracking platform (Vision Pro,
+            // Quest, HoloLens) converged on for "select", for this reason.
+            // Distance is normalized against the hand's own wrist-to-
+            // middle-knuckle span so the threshold works the same whether
+            // the hand is close to or far from the camera.
+            const thumbTip = hand[4];
             const indexTip = hand[8];
-            const v1 = {
-              x: indexMcp.x - indexPip.x,
-              y: indexMcp.y - indexPip.y
-            };
-            const v2 = {
-              x: indexTip.x - indexPip.x,
-              y: indexTip.y - indexPip.y
-            };
-            const v1Length = Math.hypot(v1.x, v1.y);
-            const v2Length = Math.hypot(v2.x, v2.y);
-            const dot = v1.x * v2.x + v1.y * v2.y;
-            const indexAngle = v1Length && v2Length
-              ? Math.acos(
-                  Math.max(-1, Math.min(1, dot / (v1Length * v2Length)))
-                ) * (180 / Math.PI)
-              : 180;
+            const wrist = hand[0];
+            const middleMcp = hand[9];
+            const handSpan = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 1;
+            const pinchDistance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+            const pinchRatio = pinchDistance / handSpan;
 
             const interactiveAtCursor = () =>
               document.elementFromPoint(sx, sy)?.closest<HTMLElement>(
@@ -410,22 +408,22 @@ export default function GestureOrdering() {
 
             const wasTouching = touchMode.current === "touching";
             const rawIsTouchDown = wasTouching
-              ? indexAngle < touchUpAngle
-              : indexAngle < touchDownAngle;
+              ? pinchRatio < pinchUpRatio
+              : pinchRatio < pinchDownRatio;
 
-            // Debounce the crossing rather than smoothing the angle itself:
+            // Debounce the crossing rather than smoothing the ratio itself:
             // require the same raw reading for a couple of consecutive
             // ticks before accepting it, so single-frame landmark noise
-            // can't flip state mid-tap, but a genuine, brief "straighten to
-            // release" motion still registers at full strength instead of
-            // being flattened by a low-pass filter.
+            // can't flip state mid-tap, but a genuine, brief pinch-release
+            // motion still registers at full strength instead of being
+            // flattened by a low-pass filter.
             if (rawIsTouchDown === pendingRawTouchDown.current) {
               pendingTouchDownStreak.current += 1;
             } else {
               pendingRawTouchDown.current = rawIsTouchDown;
               pendingTouchDownStreak.current = 1;
             }
-            if (pendingTouchDownStreak.current >= angleDebounceFrames) {
+            if (pendingTouchDownStreak.current >= pinchDebounceFrames) {
               acceptedIsTouchDown.current = rawIsTouchDown;
             }
             const isTouchDown = acceptedIsTouchDown.current;
@@ -457,7 +455,7 @@ export default function GestureOrdering() {
               }, 35);
             }
 
-            // Dwell-to-select: independent of the bend gesture below. Point
+            // Dwell-to-select: independent of the pinch gesture below. Point
             // at something and hold roughly still; drifting past dwellSlop
             // restarts the hold instead of cancelling it outright, so small
             // natural hand tremor doesn't keep resetting progress to zero.
@@ -493,7 +491,7 @@ export default function GestureOrdering() {
                 );
                 setGestureMessage("Selected");
                 window.setTimeout(syncCart, 50);
-                // Cancel any concurrent bend-gesture touch so it can't also
+                // Cancel any concurrent pinch-gesture touch so it can't also
                 // fire a second click on the same target right after this.
                 resetTouch();
               }
@@ -507,10 +505,10 @@ export default function GestureOrdering() {
 
             // Touch model (scrolling is handled separately, above, by swipe
             // velocity - this only decides tap vs. no-op):
-            // 1) bend index finger -> touch down
+            // 1) pinch thumb + index together -> touch down
             // 2) small movement right after touch-down is ignored (settling)
-            // 3) if the finger drifts past the slop, it no longer counts as
-            //    a tap, but scrolling still happens independently via swipe
+            // 3) if the fingertip drifts past the slop, it no longer counts
+            //    as a tap, but scrolling still happens independently via swipe
             // 4) release without drifting past the slop -> tap
             if (isTouchDown && touchMode.current === "hover") {
               const point = { x: sx, y: sy };
@@ -723,7 +721,7 @@ export default function GestureOrdering() {
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-white sm:text-5xl">Pick your flavors</div>
-                      <div className="mt-1 text-sm text-white/55">Swipe up/down to scroll · hold still or bend & release to select</div>
+                      <div className="mt-1 text-sm text-white/55">Swipe up/down to scroll · hold still or pinch to select</div>
                     </div>
                     <div className="hidden rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right backdrop-blur-xl sm:block">
                       <div className="text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Minimum</div>
