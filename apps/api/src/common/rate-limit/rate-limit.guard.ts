@@ -1,7 +1,8 @@
 import {
   ExecutionContext,
-  Injectable,
-  TooManyRequestsException
+  HttpException,
+  HttpStatus,
+  Injectable
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { Request, Response } from "express";
@@ -64,8 +65,9 @@ export class RateLimitGuard {
 
     if (!result.allowed) {
       response.setHeader("Retry-After", String(result.retryAfterSeconds));
-      throw new TooManyRequestsException(
-        "Too many requests. Please wait a moment and try again."
+      throw new HttpException(
+        "Too many requests. Please wait a moment and try again.",
+        HttpStatus.TOO_MANY_REQUESTS
       );
     }
 
