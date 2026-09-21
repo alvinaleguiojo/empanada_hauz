@@ -17,6 +17,7 @@ import {
   Plus,
   Search,
   ShoppingBag,
+  Star,
   Ticket,
   Truck,
   Wallet,
@@ -58,6 +59,7 @@ type FormState = {
 };
 type PublicOrderResponse = { order: { id: string; orderNumber?: string }; trackingPath?: string };
 type SuccessState = { orderNumber?: string; trackingPath: string; trackingUrl: string };
+type ProductRatingSummary = { productKey: string; ratingValue: number; reviewCount: number };
 
 const initialState: FormState = {
   deliveryDate: "",
@@ -136,6 +138,7 @@ export default function CustomerKioskPage() {
   const [quotingDelivery, setQuotingDelivery] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
+  const [productRatings, setProductRatings] = useState<Record<string, ProductRatingSummary>>({});
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -178,6 +181,22 @@ export default function CustomerKioskPage() {
       setReferralCode(window.localStorage.getItem("empanada-referral-code") ?? "");
     }
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch<ProductRatingSummary[]>("/products/reviews/summary")
+      .then((summaries) => {
+        if (cancelled) return;
+        setProductRatings(
+          Object.fromEntries(summaries.map((summary) => [summary.productKey, summary]))
+        );
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
 
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -461,7 +480,16 @@ export default function CustomerKioskPage() {
                               <div className="min-w-0">
                                 <h3 className="truncate font-[family-name:var(--font-display)] text-lg font-extrabold text-[#F6EFDD]">{option.value}</h3>
                                 {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#F2E8D5]/45">{option.description}</p> : null}
-                                <div className="mt-2 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <div className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
+                                  {productRatings[option.value] ? (
+                                    <div className="inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/20 bg-[#E3A64B]/8 px-2 py-1 text-[10px] font-bold text-[#E3A64B]">
+                                      <Star size={11} fill="currentColor" />
+                                      <span>{productRatings[option.value].ratingValue.toFixed(1)}</span>
+                                      <span className="font-normal text-[#F2E8D5]/45">({productRatings[option.value].reviewCount})</span>
+                                    </div>
+                                  ) : null}
+                                </div>
                               </div>
                             </div>
                           </button>
