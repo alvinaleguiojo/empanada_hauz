@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Speech from "expo-speech";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import { RiderMap, RiderMapHandle } from "../components/RiderMap";
 import { getRiderRoute } from "../api";
 import { RiderSession } from "../hooks/useRiderSession";
@@ -408,9 +409,12 @@ export function MapScreen({
     }
   };
 
+  const insets = useSafeAreaInsets();
+
   if (!currentJob) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <>
+        <StatusBar style="dark" />
         <View style={styles.emptyScreen}>
           <Text style={styles.emptyIcon}>🧭</Text>
           <Text style={styles.emptyTitle}>No active delivery</Text>
@@ -418,37 +422,14 @@ export function MapScreen({
             <Text style={styles.actionText}>Back to Rider Home</Text>
           </Pressable>
         </View>
-      </SafeAreaView>
+      </>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <View style={styles.topBar}>
-        <Pressable onPress={onBack} hitSlop={12} style={styles.back}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
-        <View style={styles.brandBlock}>
-          <Text style={styles.brand}>Empanada</Text>
-          <Text style={styles.brandAccent}>Hauz</Text>
-        </View>
-        <Text style={styles.status}>
-          {rider?.status === "online" || rider?.status === "busy"
-            ? "Online"
-            : "Offline"}
-        </Text>
-      </View>
-
-      <View style={styles.statsRow}>
-        <Stat value={String(activeJobs.length)} label="Active Orders" />
-        <Stat value={`₱${session.todayEarnings.toFixed(0)}`} label="Today's Earnings" />
-        <Stat
-          value={`${rider?.rating?.toFixed(1) ?? "5.0"} ⭐`}
-          label="Rider Rating"
-        />
-      </View>
-
-      <View style={styles.mapWrap}>
+    <>
+      <StatusBar style="light" />
+      <View style={styles.screen}>
         <RiderMap
           ref={mapRef}
           region={region}
@@ -462,313 +443,434 @@ export function MapScreen({
           onUserGesture={handleUserGesture}
         />
 
-        <View style={styles.navigationCard}>
-          <View style={styles.instructionIcon}>
-            <Text style={styles.instructionIconText}>↑</Text>
-          </View>
-          <View style={styles.navigationCopy}>
-            <Text style={styles.nextDistance}>
-              {route ? distanceText(nextDistance) : "—"}
-            </Text>
-            <Text style={styles.instruction} numberOfLines={2}>
-              {instruction}
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => setVoice((value) => !value)}
-            style={styles.voiceButton}
-          >
-            <Text style={styles.voiceIcon}>{voice ? "🔊" : "🔇"}</Text>
+        <View style={[styles.topOverlay, { paddingTop: insets.top + 10 }]}>
+          <Pressable onPress={onBack} hitSlop={10} style={styles.backButton}>
+            <Text style={styles.backText}>‹</Text>
           </Pressable>
+
+          <View style={styles.navigationCard}>
+            <View style={styles.instructionIcon}>
+              <Text style={styles.instructionIconText}>↑</Text>
+            </View>
+            <View style={styles.navigationCopy}>
+              <Text style={styles.nextDistance}>
+                {route ? distanceText(nextDistance) : "—"}
+              </Text>
+              <Text style={styles.instruction} numberOfLines={2}>
+                {instruction}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setVoice((value) => !value)}
+              style={styles.voiceButton}
+              accessibilityLabel={voice ? "Turn voice guidance off" : "Turn voice guidance on"}
+            >
+              <Text style={styles.voiceIcon}>{voice ? "🔊" : "🔇"}</Text>
+            </Pressable>
+          </View>
         </View>
 
-        <View style={styles.mapActions}>
+        <View style={[styles.mapActions, { top: insets.top + 78 }]}>
           <Pressable
             onPress={handleRecenter}
             style={[styles.circleButton, follow && styles.circleButtonActive]}
+            accessibilityLabel="Recenter map"
           >
-            <Text style={[styles.circleIcon, follow && styles.circleIconActive]}>
-              ◎
-            </Text>
+            <Text style={[styles.circleIcon, follow && styles.circleIconActive]}>◎</Text>
           </Pressable>
           <Pressable
             onPress={() => void calculateRoute(true)}
             style={styles.circleButton}
+            accessibilityLabel="Refresh route"
           >
-            <Text style={[styles.circleIcon, loading && styles.spinIcon]}>
-              ↻
-            </Text>
+            <Text style={[styles.circleIcon, loading && styles.spinIcon]}>↻</Text>
           </Pressable>
         </View>
-      </View>
 
-      <View
-        style={[
-          styles.drawer,
-          shadow.float,
-          !drawerOpen && styles.drawerCollapsed
-        ]}
-      >
-        <Pressable
-          onPress={() => setDrawerOpen((open) => !open)}
-          style={styles.drawerHandle}
-        >
-          <View style={styles.handle} />
-          <Text style={styles.swipeHint}>
-            {drawerOpen ? "Tap to hide delivery" : "Tap to show delivery"}
-          </Text>
-        </Pressable>
+        <View style={[styles.drawer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <Pressable
+            onPress={() => setDrawerOpen((open) => !open)}
+            style={styles.drawerHandle}
+            accessibilityRole="button"
+            accessibilityLabel={drawerOpen ? "Hide delivery details" : "Show delivery details"}
+          >
+            <View style={styles.handle} />
+          </Pressable>
 
-        <View style={drawerOpen ? undefined : styles.collapsedContent}>
-          <View style={styles.drawerRow}>
-            <View style={styles.food}>
-              <Text style={styles.foodText}>🥟</Text>
-            </View>
-            <View style={styles.info}>
-              <Text style={styles.orderNo}>
-                {returningToEmpanadaHauz
-                  ? "Return to Empanada Hauz"
-                  : `Order #${currentJob.order?.orderNumber ?? shortJobCode(currentJob.id)}`}
-              </Text>
-              <Text style={styles.customer}>
-                {returningToEmpanadaHauz
-                  ? "Back to pickup location"
-                  : currentJob.order?.customer?.name ?? "Customer"}
-              </Text>
-              <Text style={styles.address}>
-                📍 {destinationText}
-              </Text>
-              <View style={styles.routeMeta}>
-                <Text style={styles.routeMetaText}>
-                  {route ? distanceText(remaining) : "Calculating route…"}
-                </Text>
-                <Text style={styles.routeDot}>•</Text>
-                <Text style={styles.routeMetaText}>
-                  {route ? timeText(etaSeconds) : "—"}
-                </Text>
-                <Text style={styles.routeDot}>•</Text>
-                <Text style={styles.routeMetaText}>
-                  ETA {arriveTime}
-                </Text>
+          {drawerOpen ? (
+            <>
+              <View style={styles.destinationRow}>
+                <View style={styles.info}>
+                  <Text style={styles.destinationLabel}>
+                    {returningToEmpanadaHauz
+                      ? "Return to"
+                      : goingToDropoff
+                        ? "Deliver to"
+                        : "Pickup at"}
+                  </Text>
+                  <Text style={styles.destinationText}>{destinationText}</Text>
+                  {!returningToEmpanadaHauz ? (
+                    <Text style={styles.customer}>
+                      {currentJob.order?.customer?.name ?? "Customer"}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.address}>📍 {destinationText}</Text>
+                  <View style={styles.routeMeta}>
+                    <Text style={styles.routeMetaText}>
+                      {route ? distanceText(remaining) : "Calculating route…"}
+                    </Text>
+                    <Text style={styles.routeDot}>•</Text>
+                    <Text style={styles.routeMetaText}>
+                      {route ? timeText(etaSeconds) : "—"}
+                    </Text>
+                    <Text style={styles.routeDot}>•</Text>
+                    <Text style={styles.routeMetaText}>ETA {arriveTime}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.destinationIcon}>
+                  <Text style={styles.destinationIconText}>➤</Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.badges}>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>
-                  {returningToEmpanadaHauz
-                    ? "Return"
-                    : goingToDropoff
-                      ? "Drop-off"
-                      : "Pickup"}
+
+              {error ? (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              ) : null}
+
+              {offRoute ? (
+                <View style={styles.warningBox}>
+                  <Text style={styles.warningText}>You are off route. Recalculating…</Text>
+                </View>
+              ) : null}
+
+              {returningToEmpanadaHauz ? (
+                <Text style={styles.returnHint}>
+                  The map is routing you from your current location back to Empanada Hauz.
                 </Text>
-              </View>
-              {currentJob.distanceKm != null && !returningToEmpanadaHauz ? (
-                <Text style={styles.distance}>
-                  {currentJob.distanceKm.toFixed(1)} km
+              ) : (
+                <>
+                  <View style={styles.feeCard}>
+                    <View style={styles.feeLine}>
+                      <Text style={styles.feeLabel}>COD Amount</Text>
+                      <Text style={styles.feeValue}>{money(codAmount)}</Text>
+                    </View>
+                    <View style={styles.feeLine}>
+                      <Text style={styles.feeLabel}>Delivery Fee</Text>
+                      <Text style={styles.feeValue}>{money(deliveryFee)}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Total</Text>
+                    <Text style={styles.totalValue}>{money(total)}</Text>
+                  </View>
+                </>
+              )}
+
+              {currentJob.status === "delivering" && !arrived ? (
+                <Text style={styles.arrivalText}>
+                  Complete Delivery will unlock when you arrive at the destination.
                 </Text>
               ) : null}
-            </View>
-          </View>
 
-          {error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
+              <View style={styles.actionRow}>
+                <Pressable
+                  disabled={
+                    busy ||
+                    !JOB_NEXT_STATUS[currentJob.status] ||
+                    (currentJob.status === "delivering" && !canComplete)
+                  }
+                  style={[
+                    styles.actionButton,
+                    (busy ||
+                      !JOB_NEXT_STATUS[currentJob.status] ||
+                      (currentJob.status === "delivering" && !canComplete)) &&
+                      styles.disabled
+                  ]}
+                  onPress={() => void handleAdvance()}
+                >
+                  <Text style={styles.actionButtonText}>
+                    {currentJob.status === "delivering" && !canComplete
+                      ? "Complete Delivery"
+                      : jobActionLabel(currentJob.status)}
+                  </Text>
+                </Pressable>
 
-          {offRoute ? (
-            <View style={styles.warningBox}>
-              <Text style={styles.warningText}>
-                You are off route. Recalculating…
-              </Text>
-            </View>
-          ) : null}
-
-          {returningToEmpanadaHauz ? (
-            <Text style={styles.returnHint}>
-              The map is routing you from your current location back to Empanada
-              Hauz.
-            </Text>
-          ) : (
-            <>
-              <View style={styles.feeCard}>
-                <View style={styles.feeLine}>
-                  <Text style={styles.feeLabel}>COD Amount</Text>
-                  <Text style={styles.feeValue}>{money(codAmount)}</Text>
-                </View>
-                <View style={styles.feeLine}>
-                  <Text style={styles.feeLabel}>Delivery Fee</Text>
-                  <Text style={styles.feeValue}>{money(deliveryFee)}</Text>
-                </View>
-              </View>
-
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>{money(total)}</Text>
+                {currentJob.order?.customer?.phoneNumber ? (
+                  <Pressable
+                    style={styles.callButton}
+                    onPress={() => void callCustomer()}
+                    accessibilityLabel="Call customer"
+                  >
+                    <Text style={styles.callIcon}>☎</Text>
+                  </Pressable>
+                ) : null}
               </View>
             </>
-          )}
-
-          {currentJob.status === "delivering" && !arrived ? (
-            <Text style={styles.arrivalText}>
-              Complete Delivery will unlock when you arrive at the destination.
-            </Text>
           ) : null}
-
-          <View style={styles.actionRow}>
-            <Pressable
-              disabled={
-                busy ||
-                !JOB_NEXT_STATUS[currentJob.status] ||
-                (currentJob.status === "delivering" && !canComplete)
-              }
-              style={[
-                styles.action,
-                (busy ||
-                  !JOB_NEXT_STATUS[currentJob.status] ||
-                  (currentJob.status === "delivering" && !canComplete)) &&
-                  styles.disabled
-              ]}
-              onPress={() => void handleAdvance()}
-            >
-              <Text style={styles.actionText}>
-                {currentJob.status === "delivering" && !canComplete
-                  ? "Complete Delivery"
-                  : jobActionLabel(currentJob.status)}
-              </Text>
-            </Pressable>
-
-            {currentJob.order?.customer?.phoneNumber ? (
-              <Pressable
-                style={styles.callButton}
-                onPress={() => void callCustomer()}
-                accessibilityLabel="Call customer"
-              >
-                <Text style={styles.callIcon}>☎</Text>
-              </Pressable>
-            ) : null}
-          </View>
         </View>
       </View>
-    </SafeAreaView>
-  );
-}
-
-function Stat({ value, label }: { value: string; label: string }) {
-  return (
-    <View style={styles.statItem}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.cream },
-  topBar: {
-    height: 58,
-    backgroundColor: colors.orange,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg
-  },
-  back: { width: 38, height: 38, justifyContent: "center" },
-  backText: { color: "#fff", fontSize: 38, fontWeight: "300" },
-  brandBlock: { alignItems: "center" },
-  brand: { color: "#fff", fontSize: 14, fontWeight: "800", fontStyle: "italic" },
-  brandAccent: { color: colors.maroon, fontSize: 16, fontWeight: "900", fontStyle: "italic", marginTop: -2 },
-  status: { color: "#fff", fontSize: 11, fontWeight: "900" },
-  statsRow: {
-    flexDirection: "row",
-    backgroundColor: colors.surface,
-    marginHorizontal: spacing.lg,
-    marginTop: -spacing.sm,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.sm,
-    elevation: 3
-  },
-  statItem: { flex: 1, alignItems: "center" },
-  statValue: { fontSize: 15, fontWeight: "900", color: colors.ink },
-  statLabel: { fontSize: 9, color: colors.muted, marginTop: 2, textAlign: "center" },
-  mapWrap: { flex: 1, marginHorizontal: spacing.lg, marginTop: spacing.sm, marginBottom: spacing.sm, borderRadius: radius.lg, overflow: "hidden", minHeight: 300 },
-  navigationCard: {
+  screen: { flex: 1, backgroundColor: "#E9E6DF", overflow: "hidden" },
+  topOverlay: {
     position: "absolute",
-    left: 10,
-    right: 58,
-    top: 10,
+    top: 0,
+    left: 12,
+    right: 12,
     flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    zIndex: 20
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
     alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: "#111827",
-    borderRadius: 20,
-    padding: spacing.sm,
+    justifyContent: "center",
     elevation: 8,
     shadowColor: "#000",
     shadowOpacity: 0.2,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 }
   },
-  instructionIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+  backText: { color: "#111827", fontSize: 34, fontWeight: "300", marginTop: -3 },
+  navigationCard: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#111827",
+    borderRadius: 20,
+    padding: 8,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 }
+  },
+  instructionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center"
+  },
   instructionIconText: { color: "#111827", fontSize: 28, fontWeight: "900" },
   navigationCopy: { flex: 1, minWidth: 0 },
-  nextDistance: { color: "#fff", fontSize: 21, fontWeight: "900" },
-  instruction: { color: "rgba(255,255,255,.74)", fontSize: 12, fontWeight: "700", marginTop: 1 },
-  voiceButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  voiceIcon: { fontSize: 18 },
-  mapActions: { position: "absolute", top: 66, right: 10, gap: 8 },
-  circleButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", elevation: 5 },
-  circleButtonActive: { borderWidth: 2, borderColor: "#4285F4" },
-  circleIcon: { fontSize: 20, color: colors.ink },
-  circleIconActive: { color: "#4285F4" },
-  spinIcon: { color: colors.orange },
-  drawer: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    maxHeight: 330
+  nextDistance: { color: "#fff", fontSize: 22, fontWeight: "900" },
+  instruction: { color: "rgba(255,255,255,.75)", fontSize: 13, fontWeight: "700", marginTop: 1 },
+  voiceButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center"
   },
-  drawerCollapsed: { maxHeight: 62 },
-  drawerHandle: { alignItems: "center", paddingBottom: spacing.sm },
-  handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: colors.line },
-  swipeHint: { fontSize: 9, color: colors.muted, marginTop: 3 },
-  collapsedContent: { display: "none" },
-  drawerRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-  food: { width: 46, height: 46, borderRadius: radius.md, backgroundColor: colors.orangeSoft, alignItems: "center", justifyContent: "center" },
-  foodText: { fontSize: 22 },
+  voiceIcon: { fontSize: 18 },
+  mapActions: {
+    position: "absolute",
+    right: 12,
+    gap: 8,
+    zIndex: 15
+  },
+  circleButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 }
+  },
+  circleButtonActive: { borderWidth: 2, borderColor: "#4285F4" },
+  circleIcon: { fontSize: 20, color: "#555" },
+  circleIconActive: { color: "#4285F4" },
+  spinIcon: { color: "#4285F4" },
+  drawer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    elevation: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -8 },
+    zIndex: 25,
+    maxHeight: "58%"
+  },
+  drawerHandle: {
+    alignItems: "center",
+    paddingVertical: 8
+  },
+  handle: {
+    width: 48,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#E5E7EB"
+  },
+  destinationRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingBottom: 2
+  },
   info: { flex: 1, minWidth: 0 },
-  orderNo: { fontSize: 14, fontWeight: "900", color: colors.ink },
-  customer: { fontSize: 12, fontWeight: "700", color: colors.body, marginTop: 1 },
-  address: { fontSize: 11, color: colors.muted, marginTop: 2, lineHeight: 16 },
-  routeMeta: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 5 },
-  routeMetaText: { fontSize: 10, color: colors.muted, fontWeight: "700" },
-  routeDot: { fontSize: 9, color: colors.muted },
-  badges: { alignItems: "flex-end", flexShrink: 0 },
-  badge: { backgroundColor: colors.orangeSoft, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { color: colors.orangeDark, fontSize: 10, fontWeight: "800" },
-  distance: { fontSize: 10, color: colors.muted, marginTop: 4 },
-  feeCard: { marginTop: spacing.md, backgroundColor: "#F7F2EC", borderRadius: radius.md, padding: spacing.md },
-  feeLine: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  feeLabel: { fontSize: 11, color: colors.muted, fontWeight: "800" },
-  feeValue: { fontSize: 17, color: colors.ink, fontWeight: "900" },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
-  totalLabel: { fontSize: 11, color: colors.ink, fontWeight: "900", textTransform: "uppercase" },
-  totalValue: { fontSize: 19, color: colors.ink, fontWeight: "900" },
-  errorBox: { marginTop: spacing.sm, backgroundColor: "#FEF2F2", borderRadius: radius.md, padding: spacing.sm },
-  errorText: { fontSize: 11, lineHeight: 16, color: "#B42318", fontWeight: "700" },
-  warningBox: { marginTop: spacing.sm, backgroundColor: "#FFFAEB", borderRadius: radius.md, padding: spacing.sm },
-  warningText: { fontSize: 11, lineHeight: 16, color: "#B54708", fontWeight: "700" },
-  returnHint: { marginTop: spacing.md, fontSize: 11, color: colors.muted, lineHeight: 16 },
-  arrivalText: { fontSize: 11, color: colors.muted, marginTop: spacing.sm, textAlign: "center" },
-  actionRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
-  action: { flex: 1, backgroundColor: colors.orange, borderRadius: radius.md, paddingVertical: 13, alignItems: "center" },
-  actionText: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  callButton: { width: 50, height: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, alignItems: "center", justifyContent: "center" },
-  callIcon: { fontSize: 19, color: colors.ink },
-  disabled: { backgroundColor: colors.line },
-  emptyScreen: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  destinationLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    color: "#888"
+  },
+  destinationText: {
+    marginTop: 3,
+    fontSize: 19,
+    lineHeight: 23,
+    fontWeight: "900",
+    color: "#111827"
+  },
+  customer: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#555"
+  },
+  address: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#666"
+  },
+  routeMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6
+  },
+  routeMetaText: { fontSize: 11, color: "#666", fontWeight: "700" },
+  routeDot: { fontSize: 10, color: "#999" },
+  destinationIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: "#F7F2EC",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  destinationIconText: { color: "#111827", fontSize: 22, fontWeight: "900" },
+  feeCard: {
+    marginTop: 14,
+    backgroundColor: "#F7F2EC",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  feeLine: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center"
+  },
+  feeLineLast: {},
+  feeLabel: { fontSize: 13, color: "#756D66", fontWeight: "700" },
+  feeValue: { fontSize: 18, color: "#111827", fontWeight: "900" },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB"
+  },
+  totalLabel: { fontSize: 13, color: "#111827", fontWeight: "900" },
+  totalValue: { fontSize: 20, color: "#111827", fontWeight: "900" },
+  errorBox: {
+    marginTop: 10,
+    backgroundColor: "#FEF2F2",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  errorText: { fontSize: 12, lineHeight: 17, color: "#B42318", fontWeight: "700" },
+  warningBox: {
+    marginTop: 10,
+    backgroundColor: "#FFFAEB",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  warningText: { fontSize: 12, lineHeight: 17, color: "#B54708", fontWeight: "700" },
+  returnHint: {
+    marginTop: 12,
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#666"
+  },
+  arrivalText: {
+    marginTop: 8,
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#666",
+    textAlign: "center"
+  },
+  actionRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  actionButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: "#111827",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16
+  },
+  actionButtonText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  callButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  callIcon: { fontSize: 19, color: "#111827" },
+  disabled: { opacity: 0.5 },
+  emptyScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "#F7F2EC"
+  },
   emptyIcon: { fontSize: 44 },
-  emptyTitle: { marginTop: spacing.md, fontSize: 22, fontWeight: "900", color: colors.ink }
+  emptyTitle: { marginTop: 16, fontSize: 22, fontWeight: "900", color: "#111827" },
+  action: {
+    marginTop: 18,
+    borderRadius: 14,
+    backgroundColor: "#F45B25",
+    paddingHorizontal: 18,
+    paddingVertical: 13
+  },
+  actionText: { color: "#fff", fontSize: 14, fontWeight: "900" }
 });
