@@ -27,6 +27,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException("Staff account not found");
     }
 
-    return user;
+    // Keep the JWT subject available to controllers that use request.user.sub
+    // while preserving the full user id for consumers that use request.user.id.
+    return {
+      ...user,
+      sub: user.id
+    };
   }
 }
