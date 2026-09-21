@@ -102,7 +102,7 @@ export class ProductReviewsService implements OnModuleInit {
       reviewerName: order.customer.name,
       rating,
       comment,
-      status: "pending",
+      status: "approved",
       createdAt: now,
       updatedAt: now,
       reviewedAt: null,
@@ -123,8 +123,8 @@ export class ProductReviewsService implements OnModuleInit {
 
     return {
       ok: true,
-      status: "pending",
-      message: "Thanks! Your review was submitted and is waiting for approval."
+      status: "approved",
+      message: "Thanks! Your review is now published. 😊"
     };
   }
 
