@@ -41,6 +41,12 @@ export class ProductReviewsController {
     return this.service.createForOrder(id, dto);
   }
 
+  @Get("products/reviews/summary")
+  @Header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+  listApprovedSummaries() {
+    return this.service.listApprovedSummaries();
+  }
+
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Get("admin/product-reviews")
   listForAdmin(@Query("status") status?: "pending" | "approved" | "rejected") {
