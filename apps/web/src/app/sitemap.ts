@@ -12,6 +12,7 @@ const staticRoutes = [
   "/empanada-delivery-cebu",
   "/empanada-talisay",
   "/menu",
+  "/delivery-fee",
   "/privacy",
 ];
 
