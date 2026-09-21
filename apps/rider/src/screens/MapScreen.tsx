@@ -166,7 +166,7 @@ export function MapScreen({
   jobId?: string | null;
   onBack: () => void;
 }) {
-  const { rider, activeJobs, liveLocation, busy, advanceJob, token } = session;
+  const { rider, activeJobs, liveLocation, liveHeading, busy, advanceJob, token } = session;
   const mapRef = useRef<RiderMapHandle>(null);
   const lastRouteAt = useRef(0);
   const lastSpokenInstruction = useRef("");
@@ -457,7 +457,7 @@ export function MapScreen({
           dropoff={dropoff}
           destination={destination}
           route={route?.points}
-          heading={0}
+          heading={liveHeading}
           follow={follow}
           onUserGesture={handleUserGesture}
         />
