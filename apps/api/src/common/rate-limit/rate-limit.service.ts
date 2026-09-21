@@ -20,6 +20,7 @@ export class RateLimitService implements OnModuleDestroy {
   private readonly prefix = process.env.RATE_LIMIT_PREFIX?.trim() || "eh:rate:v1";
   private readonly redis?: Redis;
   private readonly memory = new Map<string, MemoryBucket>();
+  private readonly maxMemoryBuckets = 10_000;
   private redisWarningLogged = false;
 
   constructor() {
@@ -97,9 +98,15 @@ return {current, ttl}`,
     windowMs: number
   ): RateLimitResult {
     const now = Date.now();
+    this.pruneMemoryBuckets(now);
     const current = this.memory.get(key);
 
     if (!current || current.expiresAt <= now) {
+      if (this.memory.size >= this.maxMemoryBuckets) {
+        const firstKey = this.memory.keys().next().value as string | undefined;
+        if (firstKey) this.memory.delete(firstKey);
+      }
+
       const expiresAt = now + windowMs;
       this.memory.set(key, { count: 1, expiresAt });
 
@@ -122,6 +129,13 @@ return {current, ttl}`,
       resetAt: current.expiresAt,
       retryAfterSeconds: current.count <= limit ? 0 : retryAfterSeconds
     };
+  }
+
+  private pruneMemoryBuckets(now: number) {
+    if (this.memory.size < this.maxMemoryBuckets / 2) return;
+    for (const [key, bucket] of this.memory) {
+      if (bucket.expiresAt <= now) this.memory.delete(key);
+    }
   }
 
   async onModuleDestroy() {
