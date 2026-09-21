@@ -469,15 +469,16 @@ export default function CustomerKioskPage() {
                   {visibleFlavorOptions.length > 0 ? visibleFlavorOptions.map((option) => {
                     const selected = selectedFlavors.find((item) => item.value === option.value);
                     const soldOut = option.available === false;
+                    const rating = rating;
                     return (
                       <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-[#E3A64B]/70 bg-[#2a2014] shadow-[0_12px_35px_-22px_rgba(227,166,75,0.9)]" : "border-[#F2E8D5]/8 bg-[#261d13] hover:-translate-y-0.5 hover:border-[#F2E8D5]/15"} ${soldOut ? "opacity-55" : ""}`}>
                         <ProductBadges option={option} />
                         <div className="relative aspect-[16/9] overflow-hidden bg-[#17110b]">
                           {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgba(227,166,75,.18),transparent_60%)]"><span className="font-[family-name:var(--font-script)] text-4xl text-[#E3A64B]/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[#17110b] via-transparent to-transparent" />
-                          {getProductRating(option.value) ? (
+                          {rating ? (
                             <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/35 bg-[#1a140d]/90 px-2.5 py-1 text-xs font-bold text-[#E3A64B] shadow-sm backdrop-blur">
-                              <Star size={12} fill="currentColor" /> {getProductRating(option.value).ratingValue.toFixed(1)} ({getProductRating(option.value).reviewCount})
+                              <Star size={12} fill="currentColor" /> {rating.ratingValue.toFixed(1)} ({rating.reviewCount})
                             </span>
                           ) : null}
                           {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-[#17110b]/85 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.16em] text-[#F2E8D5]/65">Sold out</span> : null}
@@ -491,11 +492,11 @@ export default function CustomerKioskPage() {
                                 {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#F2E8D5]/45">{option.description}</p> : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
                                   <div className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
-                                  {getProductRating(option.value) ? (
+                                  {rating ? (
                                     <div className="inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/20 bg-[#E3A64B]/8 px-2 py-1 text-[10px] font-bold text-[#E3A64B]">
                                       <Star size={11} fill="currentColor" />
-                                      <span>{getProductRating(option.value).ratingValue.toFixed(1)}</span>
-                                      <span className="font-normal text-[#F2E8D5]/45">({getProductRating(option.value).reviewCount})</span>
+                                      <span>{rating.ratingValue.toFixed(1)}</span>
+                                      <span className="font-normal text-[#F2E8D5]/45">({rating.reviewCount})</span>
                                     </div>
                                   ) : null}
                                 </div>
