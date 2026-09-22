@@ -196,6 +196,7 @@ model Customer {
 
   @@index([name])
   @@index([phoneNumber])
+  @@index([messengerPsid])
 }
 
 model Conversation {

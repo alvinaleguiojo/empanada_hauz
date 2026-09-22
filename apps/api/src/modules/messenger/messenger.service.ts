@@ -282,7 +282,7 @@ export class MessengerService {
     });
 
     await tx.conversation.updateMany({
-      where: { customerId: sourceCustomerId, channel: "messenger" },
+      where: { customerId: sourceCustomerId },
       data: { customerId: targetCustomerId }
     });
 
