@@ -450,27 +450,14 @@ export class MessengerService {
             });
           }
 
-          try {
-            await tx.messengerContact.create({
-              data: {
-                psid: normalizedPsid,
-                customerId: customer.id,
-                conversationId: conversation.id,
-                ...(metaConversationId ? { metaConversationId } : {})
-              }
-            });
-          } catch (error) {
-            if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
-              throw error;
+          await tx.messengerContact.create({
+            data: {
+              psid: normalizedPsid,
+              customerId: customer.id,
+              conversationId: conversation.id,
+              ...(metaConversationId ? { metaConversationId } : {})
             }
-            const raced = await tx.messengerContact.findUnique({
-              where: { psid: normalizedPsid }
-            });
-            if (!raced) throw error;
-            const racedCustomer = await tx.customer.findUniqueOrThrow({ where: { id: raced.customerId } });
-            const racedConversation = await tx.conversation.findUniqueOrThrow({ where: { id: raced.conversationId } });
-            return { customer: racedCustomer, conversation: racedConversation };
-          }
+          });
 
           return { customer, conversation };
         });
