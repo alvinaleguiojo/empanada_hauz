@@ -237,8 +237,8 @@ model Message {
 model MessengerContact {
   id                  String       @id @default(auto()) @map("_id") @db.ObjectId
   psid                String       @unique
-  customerId          String       @db.ObjectId
-  conversationId      String       @db.ObjectId
+  customerId          String       @unique @db.ObjectId
+  conversationId      String       @unique @db.ObjectId
   metaConversationId  String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
