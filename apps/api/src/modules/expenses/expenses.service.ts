@@ -121,6 +121,72 @@ export class ExpensesService {
       }
     });
   }
+
+  async update(id: string, dto: UpdateExpenseDto) {
+    const existing = await this.prisma.expense.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      throw new NotFoundException("Expense not found");
+    }
+
+    const data: Prisma.ExpenseUpdateInput = {};
+
+    if (dto.category !== undefined) {
+      const category = dto.category.trim();
+      if (!category) {
+        throw new BadRequestException("Expense category cannot be empty");
+      }
+      data.category = category;
+    }
+
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (!name) {
+        throw new BadRequestException("Expense name cannot be empty");
+      }
+      data.description = name;
+    }
+
+    if (dto.amount !== undefined) {
+      if (!Number.isFinite(dto.amount) || dto.amount <= 0) {
+        throw new BadRequestException("Expense amount must be greater than 0");
+      }
+      data.amount = dto.amount;
+    }
+
+    if (dto.expenseDate !== undefined) {
+      const expenseDate = new Date(dto.expenseDate + "T00:00:00+08:00");
+      if (Number.isNaN(expenseDate.getTime())) {
+        throw new BadRequestException("Invalid expense date");
+      }
+      data.expenseDate = expenseDate;
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException("At least one expense field must be provided");
+    }
+
+    return this.prisma.expense.update({
+      where: { id },
+      data
+    });
+  }
+
+  async delete(id: string) {
+    const existing = await this.prisma.expense.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      throw new NotFoundException("Expense not found");
+    }
+
+    return this.prisma.expense.delete({
+      where: { id }
+    });
+  }
 }
 
 function getExpenseRange(query: ListExpensesDto) {
