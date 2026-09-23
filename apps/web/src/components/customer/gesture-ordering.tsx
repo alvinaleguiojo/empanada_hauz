@@ -16,6 +16,13 @@ export default function GestureOrdering() {
   const [cartCount, setCartCount] = useState(0);
   const [cartTotal, setCartTotal] = useState(0);
   const [selected, setSelected] = useState<Record<string, number>>({});
+  // Read the real form's actual [data-gesture-next] button rather than
+  // re-approximating its enable/disable rules here - the two had already
+  // drifted apart once (this overlay's own check didn't know about the
+  // "agree to policy" checkbox gating the final submit), so mirror the
+  // real DOM state directly instead of maintaining a second copy of the
+  // validation logic that can silently go stale again.
+  const [canAdvance, setCanAdvance] = useState(true);
 
   const video = useRef<HTMLVideoElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -121,6 +128,12 @@ export default function GestureOrdering() {
       count += quantity;
       total += quantity * item.price;
     });
+
+    // Checked every call (not gated by the cart-snapshot guard below) since
+    // this can change for reasons unrelated to cart contents - e.g. the
+    // "agree to policy" checkbox on the final step.
+    const nextButton = document.querySelector<HTMLButtonElement>("[data-gesture-next]");
+    setCanAdvance(Boolean(nextButton) && !nextButton?.disabled);
 
     const snapshot = JSON.stringify([next, count, total]);
     if (cartSnapshot.current === snapshot) return;
@@ -807,7 +820,7 @@ export default function GestureOrdering() {
                 <button type="button" onClick={() => navigate("prev")} className="grid h-12 w-12 place-items-center rounded-2xl border border-white/12 bg-white/5 text-white/70 backdrop-blur-xl">
                   <ChevronLeft size={19} />
                 </button>
-                <button type="button" onClick={() => navigate("next")} disabled={step === 0 && cartCount < 10} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[#E3A64B] px-5 font-extrabold text-[#20160d] shadow-lg disabled:cursor-not-allowed disabled:opacity-35">
+                <button type="button" onClick={() => navigate("next")} disabled={!canAdvance} className="inline-flex h-12 items-center gap-2 rounded-2xl bg-[#E3A64B] px-5 font-extrabold text-[#20160d] shadow-lg disabled:cursor-not-allowed disabled:opacity-35">
                   {step === 2 ? "Place order" : "Continue"} <ChevronRight size={18} />
                 </button>
               </div>
