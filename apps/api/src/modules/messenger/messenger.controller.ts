@@ -24,7 +24,18 @@ export class MessengerController {
     if (!this.verifySignature(rawBody, signature)) { this.logger.warn(`Rejected Messenger webhook: invalid signature`); return { received: false }; }
     const pageId = this.metaAuthService.getConfiguredPageId();
     if (entries.some((entry: any) => pageId && entry?.id && entry.id !== pageId)) this.logger.warn(`Ignoring Messenger events for unexpected Page ID`);
-    setImmediate(() => { void this.processWebhookEntries(entries.filter((entry: any) => !pageId || !entry?.id || entry.id === pageId)); });
+    const filteredEntries = entries.filter((entry: any) => !pageId || !entry?.id || entry.id === pageId);
+    this.logger.log(
+      `Queueing Messenger webhook processing: entries=${filteredEntries.length} pageFilter=${pageId ? "enabled" : "disabled"}`
+    );
+    setImmediate(() => {
+      void this.processWebhookEntries(filteredEntries).catch((err) => {
+        this.logger.error(
+          `Messenger webhook processing failed: ${err instanceof Error ? err.message : String(err)}`,
+          err instanceof Error ? err.stack : undefined
+        );
+      });
+    });
     return { received: true };
   }
   private async processWebhookEntries(entries: any[]) { for (const entry of entries) { await this.processEvents(entry.messaging ?? [], "messaging"); await this.processEvents(entry.standby ?? [], "standby"); for (const handover of entry.messaging_handovers ?? []) this.logger.log(`Messenger handover event: sender=${handover.sender?.id ?? "unknown"}`); } }
