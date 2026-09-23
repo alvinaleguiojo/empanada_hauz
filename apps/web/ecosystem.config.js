@@ -5,17 +5,29 @@
 //   pm2 start apps/web/ecosystem.config.js
 //   pm2 save
 //
-// The frontend is intentionally a single Next.js instance because Cloudflare
-// Tunnel handles the public ingress and no local load-balancing is needed.
+// Use Next's Node entrypoint directly instead of npm.cmd. PM2 on Windows can
+// fail with spawn EINVAL when npm.cmd is used with interpreter=none.
+
+const path = require("node:path");
+
+const repoRoot = path.resolve(__dirname, "../..");
+const nextEntrypoint = path.join(
+  repoRoot,
+  "node_modules",
+  "next",
+  "dist",
+  "bin",
+  "next"
+);
 
 module.exports = {
   apps: [
     {
       name: "empanada-hauz-web",
       cwd: __dirname,
-      script: "npm.cmd",
-      args: "start -- --port 3000",
-      interpreter: "none",
+      script: nextEntrypoint,
+      args: "start --port 3000",
+      interpreter: "node",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
