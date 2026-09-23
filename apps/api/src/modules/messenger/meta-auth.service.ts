@@ -99,7 +99,12 @@ export class MetaAuthService implements OnModuleInit {
     const appAccessToken = this.appAccessToken();
     const callbackUrl = this.webhookCallbackUrl();
     const verifyToken = this.config.get<string>("META_VERIFY_TOKEN")?.trim();
-    if (!appId || !appAccessToken || !verifyToken) return;
+    if (!appId || !appAccessToken || !verifyToken) {
+      console.warn(
+        `[Messenger] App webhook subscription reconciliation skipped (${source}): appId=${Boolean(appId)} appSecret=${Boolean(this.appSecret())} verifyToken=${Boolean(verifyToken)} callbackUrl=${Boolean(callbackUrl)}`
+      );
+      return;
+    }
 
     try {
       const currentResult = await this.graphGet<{ data?: MetaWebhookSubscription[] }>(
