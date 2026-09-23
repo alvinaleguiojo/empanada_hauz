@@ -362,41 +362,80 @@ export class MessengerService {
     const normalizedPsid = psid.trim();
     if (!normalizedPsid) throw new Error("Messenger PSID is required.");
 
+    // Fast path for established Messenger contacts. Incoming messages should not
+    // enter a long transaction just to resolve an already-known PSID.
+    const existing = await this.prisma.messengerContact.findUnique({
+      where: { psid: normalizedPsid }
+    });
+
+    if (existing) {
+      const [customer, conversation] = await Promise.all([
+        this.prisma.customer.findUniqueOrThrow({
+          where: { id: existing.customerId }
+        }),
+        this.prisma.conversation.findUnique({
+          where: { id: existing.conversationId }
+        })
+      ]);
+
+      if (!conversation) {
+        throw new Error(`Messenger contact ${normalizedPsid} points to a missing conversation.`);
+      }
+
+      const realName = name?.trim();
+      let resolvedCustomer = customer;
+
+      if (
+        realName &&
+        !this.isPlaceholderCustomerName(realName) &&
+        this.isPlaceholderCustomerName(customer.name)
+      ) {
+        resolvedCustomer = await this.prisma.customer.update({
+          where: { id: customer.id },
+          data: { name: realName }
+        });
+      }
+
+      if (metaConversationId && existing.metaConversationId !== metaConversationId) {
+        await this.prisma.messengerContact.update({
+          where: { id: existing.id },
+          data: { metaConversationId }
+        });
+      }
+
+      return {
+        customer: resolvedCustomer,
+        conversation
+      };
+    }
+
+    // Only brand-new/legacy Messenger contacts need the transaction because the
+    // customer/conversation/contact records may have to be created or merged.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-          const existing = await tx.messengerContact.findUnique({
-            where: { psid: normalizedPsid },
-            include: { customer: true, conversation: true }
+          const racedExisting = await tx.messengerContact.findUnique({
+            where: { psid: normalizedPsid }
           });
 
-          if (existing) {
-            const realName = name?.trim();
-            const updatedCustomer = realName && !this.isPlaceholderCustomerName(realName) && this.isPlaceholderCustomerName(existing.customer.name)
-              ? await tx.customer.update({
-                  where: { id: existing.customer.id },
-                  data: { name: realName }
-                })
-              : existing.customer;
+          if (racedExisting) {
+            const [customer, conversation] = await Promise.all([
+              tx.customer.findUniqueOrThrow({ where: { id: racedExisting.customerId } }),
+              tx.conversation.findUnique({ where: { id: racedExisting.conversationId } })
+            ]);
 
-            const updatedContact = metaConversationId && existing.metaConversationId !== metaConversationId
-              ? await tx.messengerContact.update({
-                  where: { id: existing.id },
-                  data: { metaConversationId }
-                })
-              : existing;
-
-            const refreshedConversation = await tx.conversation.findUnique({
-              where: { id: updatedContact.conversationId }
-            });
-            if (!refreshedConversation) {
+            if (!conversation) {
               throw new Error(`Messenger contact ${normalizedPsid} points to a missing conversation.`);
             }
 
-            return {
-              customer: updatedCustomer,
-              conversation: refreshedConversation
-            };
+            if (metaConversationId && racedExisting.metaConversationId !== metaConversationId) {
+              await tx.messengerContact.update({
+                where: { id: racedExisting.id },
+                data: { metaConversationId }
+              });
+            }
+
+            return { customer, conversation };
           }
 
           const legacyCustomers = await tx.customer.findMany({
@@ -415,7 +454,11 @@ export class MessengerService {
             });
           } else {
             const realName = name?.trim();
-            if (realName && !this.isPlaceholderCustomerName(realName) && this.isPlaceholderCustomerName(customer.name)) {
+            if (
+              realName &&
+              !this.isPlaceholderCustomerName(realName) &&
+              this.isPlaceholderCustomerName(customer.name)
+            ) {
               customer = await tx.customer.update({
                 where: { id: customer.id },
                 data: { name: realName }
@@ -443,7 +486,10 @@ export class MessengerService {
                 ...(metaConversationId ? { metaConversationId } : {})
               }
             });
-          } else if (metaConversationId && conversation.metaConversationId !== metaConversationId) {
+          } else if (
+            metaConversationId &&
+            conversation.metaConversationId !== metaConversationId
+          ) {
             conversation = await tx.conversation.update({
               where: { id: conversation.id },
               data: { metaConversationId }
@@ -462,7 +508,8 @@ export class MessengerService {
           return { customer, conversation };
         });
       } catch (error) {
-        const retryable = error instanceof Prisma.PrismaClientKnownRequestError &&
+        const retryable =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
           (error.code === "P2002" || error.code === "P2034");
 
         if (!retryable) throw error;
@@ -470,11 +517,17 @@ export class MessengerService {
         const raced = await this.prisma.messengerContact.findUnique({
           where: { psid: normalizedPsid }
         });
+
         if (raced) {
           const [customer, conversation] = await Promise.all([
-            this.prisma.customer.findUniqueOrThrow({ where: { id: raced.customerId } }),
-            this.prisma.conversation.findUniqueOrThrow({ where: { id: raced.conversationId } })
+            this.prisma.customer.findUniqueOrThrow({
+              where: { id: raced.customerId }
+            }),
+            this.prisma.conversation.findUniqueOrThrow({
+              where: { id: raced.conversationId }
+            })
           ]);
+
           return { customer, conversation };
         }
 
@@ -482,7 +535,9 @@ export class MessengerService {
       }
     }
 
-    throw new ServiceUnavailableException("Messenger conversation is being initialized. Please retry.");
+    throw new ServiceUnavailableException(
+      "Messenger conversation is being initialized. Please retry."
+    );
   }
 
   private async emitRealtimeMessage(conversationId: string, messageId: string, type: "messenger.message_received" | "messenger.message_sent") {
@@ -520,7 +575,14 @@ export class MessengerService {
     // Do not block message persistence/realtime delivery on the Meta profile lookup.
     // The profile endpoint can take up to 10 seconds to timeout and should never
     // delay the operator Inbox from receiving the actual message.
+    const contactStartedAt = Date.now();
     const ensured = await this.ensureMessengerContact(payload.senderId);
+    const contactDurationMs = Date.now() - contactStartedAt;
+    if (contactDurationMs >= 500) {
+      this.logger.warn(
+        `Messenger contact resolution slow: psid=${payload.senderId} durationMs=${contactDurationMs}`
+      );
+    }
 
     const message = await this.prisma.message.create({
       data: {
