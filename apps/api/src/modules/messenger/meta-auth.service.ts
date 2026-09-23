@@ -6,11 +6,16 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEq
 interface MetaTokenDebug { data?: { type?: string; profile_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number; scopes?: string[] } }
 interface MetaPageAccount { id: string; name?: string; access_token?: string }
 interface MetaSubscribedApp { id?: string; name?: string; subscribed_fields?: string[] }
+interface MetaWebhookField {
+  name?: string;
+  version?: string;
+}
+
 interface MetaWebhookSubscription {
   object?: string;
   callback_url?: string;
   active?: boolean;
-  fields?: string[];
+  fields?: Array<string | MetaWebhookField>;
 }
 
 @Injectable()
@@ -112,9 +117,11 @@ export class MetaAuthService implements OnModuleInit {
         appAccessToken
       );
       const current = (currentResult.data ?? []).find((item) => item.object === "page");
-      const hasMessages = current?.fields?.includes("messages") ?? false;
-      const matchesCallback = current?.callback_url === callbackUrl;
-      const active = current?.active !== false;
+      let hasMessages = current?.fields?.some((field) =>
+        typeof field === "string" ? field === "messages" : field?.name === "messages"
+      ) ?? false;
+      let matchesCallback = current?.callback_url === callbackUrl;
+      let active = current?.active !== false;
 
       if (!hasMessages || !matchesCallback || !active) {
         await this.graphPost(
@@ -127,6 +134,13 @@ export class MetaAuthService implements OnModuleInit {
             fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers"
           }
         );
+        // Meta may return subscription fields as objects ({ name, version })
+        // rather than bare strings. The successful POST above is the source of
+        // truth for the repaired state; avoid immediately treating the object
+        // shape as an unsubscribed state and posting on every status check.
+        hasMessages = true;
+        matchesCallback = true;
+        active = true;
       }
 
       console.log(
