@@ -532,7 +532,14 @@ export class McpController {
           content: [
             {
               type: "text",
-              text: JSON.stringify(await this.expenses.updateExpense(updateArgs), null, 2)
+              text: JSON.stringify(
+                await this.expenses.updateExpense({
+                  ...updateArgs,
+                  id: updateArgs.id
+                }),
+                null,
+                2
+              )
             }
           ]
         };
