@@ -487,6 +487,95 @@ export class McpController {
     );
 
     registerTool(
+      "edit_expense",
+      {
+        title: "Edit expense",
+        description:
+          "Edit an existing Empanada Hauz expense by database ID. Only provided fields are changed.",
+        inputSchema: {
+          id: z.string().min(1),
+          category: z.string().optional(),
+          name: z.string().optional(),
+          amount: z.number().min(0.01).optional(),
+          expenseDate: z.string().optional()
+        },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      async (args) => {
+        const updateArgs = this.toUpdateExpenseArgs(args);
+        if (!updateArgs.id) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "id is required." }]
+          };
+        }
+
+        if (
+          updateArgs.category === undefined &&
+          updateArgs.name === undefined &&
+          updateArgs.amount === undefined &&
+          updateArgs.expenseDate === undefined
+        ) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Provide at least one expense field to edit." }]
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(await this.expenses.updateExpense(updateArgs), null, 2)
+            }
+          ]
+        };
+      }
+    );
+
+    registerTool(
+      "delete_expense",
+      {
+        title: "Delete expense",
+        description: "Delete an Empanada Hauz expense by database ID.",
+        inputSchema: {
+          id: z.string().min(1)
+        },
+        securitySchemes: [{ type: "oauth2", scopes: ["mcp"] }],
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      async (args) => {
+        const id = this.toOptionalString(args.id);
+        if (!id) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "id is required." }]
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(await this.expenses.deleteExpense({ id }), null, 2)
+            }
+          ]
+        };
+      }
+    );
+
+    registerTool(
       "list_messenger_conversations",
       {
         title: "List Messenger conversations",
@@ -697,6 +786,16 @@ export class McpController {
       name: this.toOptionalString(args.name),
       amount: typeof args.amount === "number" ? args.amount : undefined,
       expenseDate: this.toOptionalString(args.expenseDate)
+    };
+  }
+
+  private toUpdateExpenseArgs(args: Record<string, unknown>) {
+    return {
+      id: this.toOptionalString(args.id),
+      category: args.category === undefined ? undefined : this.toOptionalString(args.category),
+      name: args.name === undefined ? undefined : this.toOptionalString(args.name),
+      amount: typeof args.amount === "number" ? args.amount : undefined,
+      expenseDate: args.expenseDate === undefined ? undefined : this.toOptionalString(args.expenseDate)
     };
   }
 

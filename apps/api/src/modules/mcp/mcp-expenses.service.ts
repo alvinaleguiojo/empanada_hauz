@@ -95,6 +95,28 @@ export class McpExpensesService {
     return this.serializeExpense(expense);
   }
 
+  async updateExpense(params: {
+    id: string;
+    category?: string;
+    name?: string;
+    amount?: number;
+    expenseDate?: string;
+  }) {
+    const expense = await this.expensesService.update(params.id, {
+      category: params.category,
+      name: params.name,
+      amount: params.amount,
+      expenseDate: params.expenseDate
+    });
+
+    return this.serializeExpense(expense);
+  }
+
+  async deleteExpense(params: { id: string }) {
+    const expense = await this.expensesService.delete(params.id);
+    return this.serializeExpense(expense);
+  }
+
   private buildWhere(
     params: { category?: string },
     range: { start: Date; end: Date }

@@ -26,3 +26,23 @@ export class CreateExpenseDto {
   @IsDateString()
   expenseDate!: string;
 }
+
+export class UpdateExpenseDto {
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  amount?: number;
+
+  @IsOptional()
+  @IsDateString()
+  expenseDate?: string;
+}
