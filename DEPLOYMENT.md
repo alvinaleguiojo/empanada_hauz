@@ -71,7 +71,7 @@ pm2 save
 pm2 logs empanada-hauz-web
 ```
 
-Before starting the tunnel, make sure the local services are healthy:
+To validate the ingress configuration with the installed cloudflared CLI, put the global `--config` flag before `ingress validate`:\n\n```powershell\ncloudflared tunnel --config "$env:USERPROFILE\\.cloudflared\\config.yml" ingress validate\n```\n\nBefore starting the tunnel, make sure the local services are healthy:
 
 ```powershell
 curl http://127.0.0.1:3000
