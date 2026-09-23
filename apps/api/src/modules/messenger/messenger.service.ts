@@ -517,8 +517,10 @@ export class MessengerService {
       if (existing) return existing;
     }
 
-    const profileName = await this.getMessengerProfileName(payload.senderId);
-    const ensured = await this.ensureMessengerContact(payload.senderId, profileName);
+    // Do not block message persistence/realtime delivery on the Meta profile lookup.
+    // The profile endpoint can take up to 10 seconds to timeout and should never
+    // delay the operator Inbox from receiving the actual message.
+    const ensured = await this.ensureMessengerContact(payload.senderId);
 
     const message = await this.prisma.message.create({
       data: {
@@ -541,6 +543,20 @@ export class MessengerService {
     );
 
     await this.emitRealtimeMessage(ensured.conversation.id, message.id, "messenger.message_received");
+
+    // Resolve the display name after the message is already visible in Inbox.
+    // This is best-effort and must never delay or fail inbound message delivery.
+    void this.getMessengerProfileName(payload.senderId)
+      .then((profileName) => {
+        if (!profileName) return;
+        return this.ensureMessengerContact(payload.senderId, profileName);
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `Messenger profile enrichment failed for ${payload.senderId}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      });
+
     return message;
   }
 
