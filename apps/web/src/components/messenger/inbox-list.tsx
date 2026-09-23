@@ -270,10 +270,24 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   useEffect(() => {
     if (!selectedId) return;
     void loadMessages(selectedId);
+    const timer = window.setInterval(() => void loadMessages(selectedId, true), 3000);
+    return () => window.clearInterval(timer);
   }, [selectedId]);
 
-  // Messenger realtime is event-driven through the shared Socket.IO /ops channel.
-  // REST is used only for initial/history synchronization and after a realtime event.
+  // Polling restored as a fallback: the API here shows clear serverless
+  // cold-start behavior (a fresh process on effectively every request, seen
+  // repeatedly across production logs), which is a genuinely hostile
+  // environment for a persistent Socket.IO connection to stay alive in.
+  // A prior change trusted the socket as the sole sync mechanism and removed
+  // this polling entirely - if the socket is the unreliable part, that
+  // makes delays worse, not better. Socket events still make updates feel
+  // instant when the connection happens to be up; polling guarantees a
+  // worst-case few-second staleness regardless of the socket's state.
+  useEffect(() => {
+    const timer = window.setInterval(() => void loadConversations(true), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     const handleNotification = (payload: unknown) => {
       if (!isMessengerNotification(payload)) return;
