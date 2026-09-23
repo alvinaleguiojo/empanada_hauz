@@ -490,7 +490,17 @@ export class MessengerService {
       this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { customer: true } }),
       this.prisma.message.findUnique({ where: { id: messageId } })
     ]);
-    if (!conversation || !messageRecord) return;
+    if (!conversation || !messageRecord) {
+      this.logger.warn(
+        `Messenger realtime skipped: missing record conversation=${conversationId} message=${messageId}`
+      );
+      return;
+    }
+
+    this.logger.log(
+      `Messenger realtime emit: type=${type} conversation=${conversationId} message=${messageId}`
+    );
+
     this.notificationsService.notify(type, {
       conversationId,
       conversation,
@@ -526,6 +536,10 @@ export class MessengerService {
       data: { lastMessage: payload.text, updatedAt: new Date() }
     });
 
+    this.logger.log(
+      `Messenger inbound persisted: conversation=${ensured.conversation.id} message=${message.id}`
+    );
+
     await this.emitRealtimeMessage(ensured.conversation.id, message.id, "messenger.message_received");
     return message;
   }
@@ -553,6 +567,9 @@ export class MessengerService {
         where: { id: ensured.conversation.id },
         data: { lastMessage: text, updatedAt: new Date() }
       });
+      this.logger.log(
+        `Messenger outbound persisted: conversation=${ensured.conversation.id} message=${message.id}`
+      );
       await this.emitRealtimeMessage(ensured.conversation.id, message.id, "messenger.message_sent");
       return metaResult;
     } finally { clearTimeout(timeout); }
