@@ -6,6 +6,12 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEq
 interface MetaTokenDebug { data?: { type?: string; profile_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number; scopes?: string[] } }
 interface MetaPageAccount { id: string; name?: string; access_token?: string }
 interface MetaSubscribedApp { id?: string; name?: string; subscribed_fields?: string[] }
+interface MetaWebhookSubscription {
+  object?: string;
+  callback_url?: string;
+  active?: boolean;
+  fields?: string[];
+}
 
 @Injectable()
 export class MetaAuthService implements OnModuleInit {
@@ -15,6 +21,18 @@ export class MetaAuthService implements OnModuleInit {
   getConfiguredPageId() { return this.pageId(); }
   private appId() { return this.config.get<string>("META_APP_ID") ?? ""; }
   private appSecret() { return this.config.get<string>("META_APP_SECRET") ?? ""; }
+  private appAccessToken() {
+    const appId = this.appId();
+    const appSecret = this.appSecret();
+    return appId && appSecret ? `${appId}|${appSecret}` : "";
+  }
+  private webhookCallbackUrl() {
+    const configured = this.config.get<string>("META_WEBHOOK_CALLBACK_URL")?.trim().replace(/\/+$/, "");
+    if (configured) return configured;
+    const appUrl = this.config.get<string>("APP_URL")?.trim().replace(/\/+$/, "");
+    if (appUrl) return `${appUrl}/api/messenger/webhook`;
+    return "https://api.empanadahauz.com/api/messenger/webhook";
+  }
   private redirectUri() { return this.config.get<string>("META_OAUTH_REDIRECT_URI") ?? "http://localhost:3000/messenger/auth/callback"; }
   private encryptionKey() {
     const value = this.config.get<string>("META_TOKEN_ENCRYPTION_KEY");
@@ -68,7 +86,52 @@ export class MetaAuthService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    setTimeout(() => { void this.reconcilePageSubscription("startup"); }, 2000);
+    setTimeout(() => { void this.reconcileWebhookSubscriptions("startup"); }, 2000);
+  }
+
+  private async reconcileWebhookSubscriptions(source: string) {
+    await this.reconcileAppWebhookSubscription(source);
+    await this.reconcilePageSubscription(source);
+  }
+
+  private async reconcileAppWebhookSubscription(source: string) {
+    const appId = this.appId();
+    const appAccessToken = this.appAccessToken();
+    const callbackUrl = this.webhookCallbackUrl();
+    const verifyToken = this.config.get<string>("META_VERIFY_TOKEN")?.trim();
+    if (!appId || !appAccessToken || !verifyToken) return;
+
+    try {
+      const currentResult = await this.graphGet<{ data?: MetaWebhookSubscription[] }>(
+        `/${encodeURIComponent(appId)}/subscriptions`,
+        appAccessToken
+      );
+      const current = (currentResult.data ?? []).find((item) => item.object === "page");
+      const hasMessages = current?.fields?.includes("messages") ?? false;
+      const matchesCallback = current?.callback_url === callbackUrl;
+      const active = current?.active !== false;
+
+      if (!hasMessages || !matchesCallback || !active) {
+        await this.graphPost(
+          `/${encodeURIComponent(appId)}/subscriptions`,
+          appAccessToken,
+          {
+            object: "page",
+            callback_url: callbackUrl,
+            verify_token: verifyToken,
+            fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers"
+          }
+        );
+      }
+
+      console.log(
+        `[Messenger] App webhook subscription reconciled (${source}): object=page active=${active} messages=${hasMessages} callback=${matchesCallback} callbackUrl=${callbackUrl}`
+      );
+    } catch (err) {
+      console.warn(
+        `[Messenger] App webhook subscription reconciliation failed (${source}): ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
   }
 
   private async reconcilePageSubscription(source: string) {
@@ -153,7 +216,7 @@ export class MetaAuthService implements OnModuleInit {
     try {
       const debug = await this.graphGet<MetaTokenDebug>(`/debug_token?input_token=${encodeURIComponent(token)}`, token); const data = debug.data;
       const authenticated = Boolean(data?.is_valid && data.type === "PAGE" && data.profile_id === this.pageId());
-      if (authenticated) await this.reconcilePageSubscription("status");
+      if (authenticated) await this.reconcileWebhookSubscriptions("status");
       return { authenticated, status: authenticated ? "authenticated" : "invalid", pageId: this.pageId(), tokenType: data?.type ?? null, expiresAt: data?.expires_at ? new Date(data.expires_at * 1000) : null, dataAccessExpiresAt: data?.data_access_expires_at ? new Date(data.data_access_expires_at * 1000) : null, scopes: data?.scopes ?? [] };
     } catch { return { authenticated: false, status: "invalid" }; }
   }
