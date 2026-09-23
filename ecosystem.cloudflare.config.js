@@ -27,9 +27,6 @@ module.exports = {
       restart_delay: 5000,
       watch: false,
       time: true,
-      env: {
-        TUNNEL_ORIGIN_CERT: ""
-      },
       out_file: "./logs/cloudflared-out.log",
       error_file: "./logs/cloudflared-error.log"
     }
