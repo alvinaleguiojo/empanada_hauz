@@ -8,7 +8,7 @@ import {
   WebSocketGateway,
   WebSocketServer
 } from "@nestjs/websockets";
-import { Server, Socket } from "socket.io";
+import { Namespace, Socket } from "socket.io";
 import { resolveCorsOrigin } from "./cors";
 import { ChatService } from "../modules/chat/chat.service";
 
@@ -21,7 +21,7 @@ import { ChatService } from "../modules/chat/chat.service";
 })
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server!: Server;
+  server!: Namespace;
 
   private readonly logger = new Logger(RealtimeGateway.name);
   private readonly voiceClients = new Map<string, string>();
@@ -31,7 +31,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   handleConnection(client: Socket) {
     this.logger.log(
-      `Socket.IO client connected: id=${client.id} clients=${this.server?.sockets?.sockets?.size ?? 0} origin=${client.handshake.headers.origin ?? "unknown"}`
+      `Socket.IO client connected: id=${client.id} clients=${this.server?.sockets?.size ?? 0} origin=${client.handshake.headers.origin ?? "unknown"}`
     );
   }
 
@@ -49,12 +49,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     this.logger.log(
-      `Socket.IO client disconnected: id=${client.id} clients=${this.server?.sockets?.sockets?.size ?? 0}`
+      `Socket.IO client disconnected: id=${client.id} clients=${this.server?.sockets?.size ?? 0}`
     );
   }
 
   emit(event: string, payload: unknown) {
-    const clients = this.server?.sockets?.sockets?.size ?? 0;
+    const clients = this.server?.sockets?.size ?? 0;
     this.logger.log(`Socket.IO emit: event=${event} clients=${clients}`);
     this.server.emit(event, payload);
   }
