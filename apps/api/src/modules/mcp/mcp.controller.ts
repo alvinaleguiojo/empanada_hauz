@@ -509,7 +509,8 @@ export class McpController {
       },
       async (args) => {
         const updateArgs = this.toUpdateExpenseArgs(args);
-        if (!updateArgs.id) {
+        const id = updateArgs.id;
+        if (!id) {
           return {
             isError: true,
             content: [{ type: "text", text: "id is required." }]
@@ -535,7 +536,7 @@ export class McpController {
               text: JSON.stringify(
                 await this.expenses.updateExpense({
                   ...updateArgs,
-                  id: updateArgs.id
+                  id
                 }),
                 null,
                 2
