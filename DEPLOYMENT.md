@@ -27,7 +27,7 @@
 - Tune own-delivery pricing with `DELIVERY_BASE_FARE`, `DELIVERY_PER_KM_RATE`, `DELIVERY_SERVICE_FEE`, `DELIVERY_DISTANCE_MULTIPLIER`, and `DELIVERY_AVG_SPEED_KMPH`.
 - Set `CORS_ORIGIN` to the deployed frontend URL.
 - Set `NEXT_PUBLIC_API_URL=https://api.empanadahauz.com/api` for the web app.
-- Set `NEXT_PUBLIC_SOCKET_URL=https://api.empanadahauz.com/ops` for the web app.
+- Socket.IO is derived automatically from `NEXT_PUBLIC_API_URL` and uses the `/ops` namespace; no separate socket URL is required.
 - Documents and videos are stored outside MongoDB. For Docker Compose, the API mounts the persistent `documents-data` volume at `/data/documents` and sets `DOCUMENTS_STORAGE_PATH=/data/documents`.
 - If deploying without Docker, set `DOCUMENTS_STORAGE_PATH` to a persistent writable directory. Do not point it at an ephemeral container filesystem.
 
