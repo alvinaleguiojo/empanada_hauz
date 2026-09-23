@@ -41,7 +41,19 @@ export class MessengerController {
   private async processWebhookEntries(entries: any[]) { for (const entry of entries) { await this.processEvents(entry.messaging ?? [], "messaging"); await this.processEvents(entry.standby ?? [], "standby"); for (const handover of entry.messaging_handovers ?? []) this.logger.log(`Messenger handover event: sender=${handover.sender?.id ?? "unknown"}`); } }
   private async processEvents(events: any[], channel: "messaging" | "standby") {
     for (const event of events) {
-      const text = typeof event.message?.text === "string" ? event.message.text : undefined;
+      // Meta normally sends inbound text as message.text. Some Messenger
+      // surfaces/legacy message types can arrive as message.admin_text instead;
+      // treat that string as text so valid inbound messages are not discarded.
+      const text = typeof event.message?.text === "string"
+        ? event.message.text
+        : typeof event.message?.admin_text === "string"
+          ? event.message.admin_text
+          : undefined;
+      const textSource = typeof event.message?.text === "string"
+        ? "text"
+        : typeof event.message?.admin_text === "string"
+          ? "admin_text"
+          : "none";
       const attachments = event.message?.attachments;
       const hasAttachments = Array.isArray(attachments?.data)
         ? attachments.data.length > 0
@@ -54,7 +66,7 @@ export class MessengerController {
       const isEcho = event.message?.is_echo === true;
 
       this.logger.log(
-        `Messenger webhook event: channel=${channel} sender=${senderId ?? "missing"} recipient=${recipientId ?? "missing"} messageId=${messageId ?? "missing"} text=${Boolean(text)} attachments=${hasAttachments} echo=${isEcho} keys=${Object.keys(event ?? {}).join(",") || "none"} messageKeys=${Object.keys(event.message ?? {}).join(",") || "none"}`
+        `Messenger webhook event: channel=${channel} sender=${senderId ?? "missing"} recipient=${recipientId ?? "missing"} messageId=${messageId ?? "missing"} text=${Boolean(text)} textSource=${textSource} attachments=${hasAttachments} echo=${isEcho} keys=${Object.keys(event ?? {}).join(",") || "none"} messageKeys=${Object.keys(event.message ?? {}).join(",") || "none"}`
       );
 
       if (!senderId) {
