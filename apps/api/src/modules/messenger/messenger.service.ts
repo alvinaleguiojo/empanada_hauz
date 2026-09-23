@@ -1,7 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
-import { CustomersService } from "../customers/customers.service";
 import { AiControlService } from "../ai/ai-control.service";
 import { AiRuntimeService } from "../ai/ai-runtime.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -20,7 +20,6 @@ export class MessengerService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly customersService: CustomersService,
     private readonly aiControl: AiControlService,
     private readonly aiRuntime: AiRuntimeService,
     private readonly notificationsService: NotificationsService,
@@ -138,10 +137,19 @@ export class MessengerService {
         conversationsSeen += 1;
         const participant = this.findCustomerParticipant(metaConversation.participants?.data ?? [], pageId);
         if (!participant?.id) continue;
-        const customer = await this.customersService.findOrCreateByMessenger(participant.id, participant.name || "Messenger Customer");
-        let conversation = await this.prisma.conversation.findFirst({ where: { metaConversationId: metaConversation.id } });
-        if (!conversation) conversation = await this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", metaConversationId: metaConversation.id, ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
-        else conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { customerId: customer.id, channel: "messenger", ...(metaConversation.updated_time ? { updatedAt: new Date(metaConversation.updated_time) } : {}) } });
+        const ensured = await this.ensureMessengerContact(
+          participant.id,
+          participant.name || "Messenger Customer",
+          metaConversation.id
+        );
+        const customer = ensured.customer;
+        let conversation = ensured.conversation;
+        if (metaConversation.updated_time) {
+          conversation = await this.prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { updatedAt: new Date(metaConversation.updated_time) }
+          });
+        }
         conversationsImported += 1;
         let messageUrl: string | undefined = `https://graph.facebook.com/${this.graphVersion()}/${encodeURIComponent(metaConversation.id)}/messages?fields=id,message,created_time,from,to,attachments,tags&limit=100`;
         let conversationMessageCount = 0; let newestMessage: MetaMessage | undefined;
@@ -173,13 +181,308 @@ export class MessengerService {
   private messageContent(message: MetaMessage) { if (message.message) return message.message; if (this.hasAttachments(message)) return "[Attachment]"; return "[Messenger message]"; }
 
   private async getOrCreateConversationByPsid(psid: string, lastMessage?: string, name?: string) {
-    const customer = await this.customersService.findOrCreateByMessenger(psid, name || "Messenger Customer");
-    const existing = await this.prisma.conversation.findFirst({ where: { customerId: customer.id, channel: "messenger" } });
-    if (existing) {
-      if (lastMessage !== undefined) return this.prisma.conversation.update({ where: { id: existing.id }, data: { lastMessage, updatedAt: new Date() } });
-      return existing;
+    const ensured = await this.ensureMessengerContact(psid, name || "Messenger Customer");
+    if (lastMessage !== undefined) {
+      return this.prisma.conversation.update({
+        where: { id: ensured.conversation.id },
+        data: { lastMessage, updatedAt: new Date() }
+      });
     }
-    return this.prisma.conversation.create({ data: { customerId: customer.id, channel: "messenger", lastMessage } });
+    return ensured.conversation;
+  }
+
+  private isPlaceholderCustomerName(name?: string | null) {
+    return !name || name.trim() === "" || name.trim() === "Messenger Customer";
+  }
+
+  private pickCanonicalCustomer<
+    T extends {
+      id: string;
+      name: string;
+      totalOrders: number;
+      totalSpent: number;
+      updatedAt: Date;
+    }
+  >(customers: T[]) {
+    return [...customers].sort((a, b) => {
+      const score = (customer: T) =>
+        (this.isPlaceholderCustomerName(customer.name) ? 0 : 1) * 1_000_000 +
+        customer.totalOrders * 1_000 +
+        customer.totalSpent;
+      return score(b) - score(a) || b.updatedAt.getTime() - a.updatedAt.getTime();
+    })[0];
+  }
+
+  private pickCanonicalConversation(
+    conversations: Array<{
+      id: string;
+      metaConversationId: string | null;
+      updatedAt: Date;
+      lastMessage: string | null;
+    }>,
+    preferredMetaConversationId?: string
+  ) {
+    if (!conversations.length) return undefined;
+    return [...conversations].sort((a, b) => {
+      const aPreferred = preferredMetaConversationId && a.metaConversationId === preferredMetaConversationId ? 1 : 0;
+      const bPreferred = preferredMetaConversationId && b.metaConversationId === preferredMetaConversationId ? 1 : 0;
+      if (aPreferred !== bPreferred) return bPreferred - aPreferred;
+      const aHasMeta = a.metaConversationId ? 1 : 0;
+      const bHasMeta = b.metaConversationId ? 1 : 0;
+      if (aHasMeta !== bHasMeta) return bHasMeta - aHasMeta;
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
+    })[0];
+  }
+
+  private async mergeConversationInto(
+    tx: Prisma.TransactionClient,
+    sourceConversationId: string,
+    targetConversationId: string,
+    targetUpdatedAt: Date,
+    source: { updatedAt: Date; lastMessage: string | null; metaConversationId: string | null }
+  ) {
+    if (sourceConversationId === targetConversationId) return targetUpdatedAt;
+
+    await tx.message.updateMany({
+      where: { conversationId: sourceConversationId },
+      data: { conversationId: targetConversationId }
+    });
+
+    await tx.order.updateMany({
+      where: { conversationId: sourceConversationId },
+      data: { conversationId: targetConversationId }
+    });
+
+    await tx.conversation.delete({ where: { id: sourceConversationId } });
+
+    if (source.updatedAt.getTime() > targetUpdatedAt.getTime()) {
+      return source.updatedAt;
+    }
+    return targetUpdatedAt;
+  }
+
+  private async mergeCustomerInto(
+    tx: Prisma.TransactionClient,
+    sourceCustomerId: string,
+    targetCustomerId: string
+  ) {
+    if (sourceCustomerId === targetCustomerId) return;
+
+    const sourceCustomer = await tx.customer.findUnique({
+      where: { id: sourceCustomerId }
+    });
+    const targetCustomer = await tx.customer.findUnique({
+      where: { id: targetCustomerId }
+    });
+    if (!sourceCustomer || !targetCustomer) return;
+
+    await tx.order.updateMany({
+      where: { customerId: sourceCustomerId },
+      data: { customerId: targetCustomerId }
+    });
+
+    await tx.conversation.updateMany({
+      where: { customerId: sourceCustomerId },
+      data: { customerId: targetCustomerId }
+    });
+
+    const nextName = this.isPlaceholderCustomerName(targetCustomer.name) && !this.isPlaceholderCustomerName(sourceCustomer.name)
+      ? sourceCustomer.name
+      : targetCustomer.name;
+    const nextPhone = targetCustomer.phoneNumber || sourceCustomer.phoneNumber;
+    const nextAddress = targetCustomer.defaultAddress || sourceCustomer.defaultAddress;
+
+    await tx.customer.update({
+      where: { id: targetCustomerId },
+      data: {
+        ...(nextName !== targetCustomer.name ? { name: nextName } : {}),
+        ...(nextPhone !== targetCustomer.phoneNumber ? { phoneNumber: nextPhone } : {}),
+        ...(nextAddress !== targetCustomer.defaultAddress ? { defaultAddress: nextAddress } : {})
+      }
+    });
+
+    await tx.customer.delete({ where: { id: sourceCustomerId } });
+  }
+
+  private async mergeDuplicateMessengerConversations(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    preferredMetaConversationId?: string
+  ) {
+    const conversations = await tx.conversation.findMany({
+      where: { customerId, channel: "messenger" },
+      orderBy: { updatedAt: "desc" }
+    });
+
+    const canonical = this.pickCanonicalConversation(conversations, preferredMetaConversationId);
+    if (!canonical) return undefined;
+
+    let latestUpdatedAt = canonical.updatedAt;
+    let latestLastMessage = canonical.lastMessage;
+    let metaConversationId = canonical.metaConversationId;
+
+    for (const conversation of conversations) {
+      if (conversation.id === canonical.id) continue;
+      latestUpdatedAt = await this.mergeConversationInto(
+        tx,
+        conversation.id,
+        canonical.id,
+        latestUpdatedAt,
+        conversation
+      );
+      if (conversation.updatedAt.getTime() > (canonical.updatedAt?.getTime() ?? 0)) {
+        latestLastMessage = conversation.lastMessage;
+      }
+      if (!metaConversationId && conversation.metaConversationId) {
+        metaConversationId = conversation.metaConversationId;
+      }
+    }
+
+    const data: Prisma.ConversationUpdateInput = {
+      updatedAt: latestUpdatedAt,
+      ...(latestLastMessage !== undefined ? { lastMessage: latestLastMessage } : {}),
+      ...(preferredMetaConversationId
+        ? { metaConversationId: preferredMetaConversationId }
+        : metaConversationId
+          ? { metaConversationId }
+          : {})
+    };
+
+    return tx.conversation.update({
+      where: { id: canonical.id },
+      data
+    });
+  }
+
+  private async ensureMessengerContact(
+    psid: string,
+    name?: string,
+    metaConversationId?: string
+  ) {
+    const normalizedPsid = psid.trim();
+    if (!normalizedPsid) throw new Error("Messenger PSID is required.");
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const existing = await tx.messengerContact.findUnique({
+            where: { psid: normalizedPsid },
+            include: { customer: true, conversation: true }
+          });
+
+          if (existing) {
+            const realName = name?.trim();
+            const updatedCustomer = realName && !this.isPlaceholderCustomerName(realName) && this.isPlaceholderCustomerName(existing.customer.name)
+              ? await tx.customer.update({
+                  where: { id: existing.customer.id },
+                  data: { name: realName }
+                })
+              : existing.customer;
+
+            const updatedContact = metaConversationId && existing.metaConversationId !== metaConversationId
+              ? await tx.messengerContact.update({
+                  where: { id: existing.id },
+                  data: { metaConversationId }
+                })
+              : existing;
+
+            const refreshedConversation = await tx.conversation.findUnique({
+              where: { id: updatedContact.conversationId }
+            });
+            if (!refreshedConversation) {
+              throw new Error(`Messenger contact ${normalizedPsid} points to a missing conversation.`);
+            }
+
+            return {
+              customer: updatedCustomer,
+              conversation: refreshedConversation
+            };
+          }
+
+          const legacyCustomers = await tx.customer.findMany({
+            where: { messengerPsid: normalizedPsid },
+            orderBy: { updatedAt: "desc" },
+            take: 20
+          });
+
+          let customer = this.pickCanonicalCustomer(legacyCustomers);
+          if (!customer) {
+            customer = await tx.customer.create({
+              data: {
+                messengerPsid: normalizedPsid,
+                name: name?.trim() || "Messenger Customer"
+              }
+            });
+          } else {
+            const realName = name?.trim();
+            if (realName && !this.isPlaceholderCustomerName(realName) && this.isPlaceholderCustomerName(customer.name)) {
+              customer = await tx.customer.update({
+                where: { id: customer.id },
+                data: { name: realName }
+              });
+            }
+          }
+
+          for (const duplicateCustomer of legacyCustomers) {
+            if (duplicateCustomer.id !== customer.id) {
+              await this.mergeCustomerInto(tx, duplicateCustomer.id, customer.id);
+            }
+          }
+
+          let conversation = await this.mergeDuplicateMessengerConversations(
+            tx,
+            customer.id,
+            metaConversationId
+          );
+
+          if (!conversation) {
+            conversation = await tx.conversation.create({
+              data: {
+                customerId: customer.id,
+                channel: "messenger",
+                ...(metaConversationId ? { metaConversationId } : {})
+              }
+            });
+          } else if (metaConversationId && conversation.metaConversationId !== metaConversationId) {
+            conversation = await tx.conversation.update({
+              where: { id: conversation.id },
+              data: { metaConversationId }
+            });
+          }
+
+          await tx.messengerContact.create({
+            data: {
+              psid: normalizedPsid,
+              customerId: customer.id,
+              conversationId: conversation.id,
+              ...(metaConversationId ? { metaConversationId } : {})
+            }
+          });
+
+          return { customer, conversation };
+        });
+      } catch (error) {
+        const retryable = error instanceof Prisma.PrismaClientKnownRequestError &&
+          (error.code === "P2002" || error.code === "P2034");
+
+        if (!retryable) throw error;
+
+        const raced = await this.prisma.messengerContact.findUnique({
+          where: { psid: normalizedPsid }
+        });
+        if (raced) {
+          const [customer, conversation] = await Promise.all([
+            this.prisma.customer.findUniqueOrThrow({ where: { id: raced.customerId } }),
+            this.prisma.conversation.findUniqueOrThrow({ where: { id: raced.conversationId } })
+          ]);
+          return { customer, conversation };
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
+
+    throw new ServiceUnavailableException("Messenger conversation is being initialized. Please retry.");
   }
 
   private async emitRealtimeMessage(conversationId: string, messageId: string, type: "messenger.message_received" | "messenger.message_sent") {
@@ -199,14 +502,31 @@ export class MessengerService {
   }
 
   async persistInbound(payload: { senderId: string; messageId?: string; text: string; rawPayload: unknown; type?: "text" | "attachment" }) {
-    const profileName = await this.getMessengerProfileName(payload.senderId);
-    const conversation = await this.getOrCreateConversationByPsid(payload.senderId, payload.text, profileName);
     if (payload.messageId) {
       const existing = await this.prisma.message.findFirst({ where: { metaMessageId: payload.messageId } });
       if (existing) return existing;
     }
-    const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: payload.messageId, direction: "inbound", type: payload.type ?? "text", content: payload.text, rawPayload: payload.rawPayload as never } });
-    await this.emitRealtimeMessage(conversation.id, message.id, "messenger.message_received");
+
+    const profileName = await this.getMessengerProfileName(payload.senderId);
+    const ensured = await this.ensureMessengerContact(payload.senderId, profileName);
+
+    const message = await this.prisma.message.create({
+      data: {
+        conversationId: ensured.conversation.id,
+        metaMessageId: payload.messageId,
+        direction: "inbound",
+        type: payload.type ?? "text",
+        content: payload.text,
+        rawPayload: payload.rawPayload as never
+      }
+    });
+
+    await this.prisma.conversation.update({
+      where: { id: ensured.conversation.id },
+      data: { lastMessage: payload.text, updatedAt: new Date() }
+    });
+
+    await this.emitRealtimeMessage(ensured.conversation.id, message.id, "messenger.message_received");
     return message;
   }
 
@@ -220,9 +540,20 @@ export class MessengerService {
       const response = await this.metaFetch(`${endpoint}?access_token=${encodeURIComponent(pageToken)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal });
       if (!response.ok) throw new Error(`Meta send failed: ${response.status}: ${await response.text()}`);
       const metaResult = await response.json() as { message_id?: string };
-      const conversation = await this.getOrCreateConversationByPsid(recipientPsid, text);
-      const message = await this.prisma.message.create({ data: { conversationId: conversation.id, metaMessageId: metaResult.message_id, direction: "outbound", content: text } });
-      await this.emitRealtimeMessage(conversation.id, message.id, "messenger.message_sent");
+      const ensured = await this.ensureMessengerContact(recipientPsid);
+      const message = await this.prisma.message.create({
+        data: {
+          conversationId: ensured.conversation.id,
+          metaMessageId: metaResult.message_id,
+          direction: "outbound",
+          content: text
+        }
+      });
+      await this.prisma.conversation.update({
+        where: { id: ensured.conversation.id },
+        data: { lastMessage: text, updatedAt: new Date() }
+      });
+      await this.emitRealtimeMessage(ensured.conversation.id, message.id, "messenger.message_sent");
       return metaResult;
     } finally { clearTimeout(timeout); }
   }

@@ -42,7 +42,8 @@ export const PERMISSION_LABELS: Record<string, string> = {
 export function hasPermission(role: UserRole, permission: string): boolean { return ROLE_PERMISSIONS[role]?.includes(permission) ?? false; }
 
 export function permissionForRequest(method: string, path: string): string | null {
-  const normalizedPath = path.split("?")[0].replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
+  const rawPath = path.split("?")[0].replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
+  const normalizedPath = rawPath === "/api" ? "/" : rawPath.replace(/^\/api(?=\/|$)/, "") || "/";
   const upperMethod = method.toUpperCase();
   const view = upperMethod === "GET" || upperMethod === "HEAD";
   const manage = ["POST", "PUT", "PATCH", "DELETE"].includes(upperMethod);
@@ -56,7 +57,9 @@ export function permissionForRequest(method: string, path: string): string | nul
   if (normalizedPath.startsWith("/batches")) return view ? "batches.view" : manage ? "batches.manage" : "admin.only";
   if (normalizedPath.startsWith("/deliveries")) return view ? "deliveries.view" : manage ? "deliveries.manage" : "admin.only";
   if (normalizedPath.startsWith("/delivery-network")) return view ? "delivery-network.view" : manage ? "delivery-network.manage" : "admin.only";
-  if (normalizedPath.startsWith("/rider")) return view ? "riders.view" : manage ? "riders.manage" : "admin.only";
+  // Rider self-service endpoints are part of the rider's delivery workflow.
+  // Admins/dispatchers retain riders.view/riders.manage for staff rider management.
+  if (normalizedPath.startsWith("/rider")) return view ? "deliveries.view" : manage ? "deliveries.manage" : "admin.only";
   if (normalizedPath.startsWith("/fraud")) return view ? "fraud.view" : manage ? "fraud.manage" : "admin.only";
   if (normalizedPath.startsWith("/analytics")) return "analytics.view";
   if (normalizedPath.startsWith("/referrals")) return view ? "referrals.view" : manage ? "referrals.manage" : "admin.only";

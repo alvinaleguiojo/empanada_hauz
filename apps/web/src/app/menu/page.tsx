@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { Route } from "next";
 import {
+  getProductRatingSummaries,
   getSeoProducts,
   productSlug,
   resolveProductImage,
@@ -18,7 +19,11 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function MenuPage() {
-  const products = await getSeoProducts();
+  const [products, ratings] = await Promise.all([
+    getSeoProducts(),
+    getProductRatingSummaries(),
+  ]);
+  const ratingByProduct = new Map(ratings.map((rating) => [rating.productKey, rating]));
 
   const menuJsonLd = {
     "@context": "https://schema.org",
@@ -78,12 +83,14 @@ export default async function MenuPage() {
                 product.imageUrl || product.imageUrls?.[0],
               );
               const soldOut = product.available === false;
+              const rating = ratingByProduct.get(productSlug(product.name));
 
               return (
                 <article
                   key={product._id ?? product.name}
                   className="overflow-hidden rounded-2xl border border-[#F2E8D5]/10 bg-[#241c13]/70"
                 >
+                  <div className="relative">
                   {image ? (
                     <img
                       src={image}
@@ -91,6 +98,12 @@ export default async function MenuPage() {
                       className="aspect-[16/9] w-full object-cover"
                     />
                   ) : null}
+                  {rating ? (
+                    <div className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/30 bg-[#1a140d]/90 px-2.5 py-1 text-xs font-bold text-[#E3A64B] backdrop-blur">
+                      <span aria-hidden="true">★</span> {rating.ratingValue.toFixed(1)} ({rating.reviewCount})
+                    </div>
+                  ) : null}
+                  </div>
 
                   <div className="p-5">
                     <div className="flex items-start justify-between gap-4">
@@ -101,9 +114,14 @@ export default async function MenuPage() {
                             `Freshly made ${product.name} from Empanada Hauz.`}
                         </p>
                       </div>
-                      <span className="shrink-0 font-semibold text-[#E3A64B]">
-                        ₱{product.price}
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-1.5">
+                        <span className="font-semibold text-[#E3A64B]">₱{product.price}</span>
+                        {rating ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/20 bg-[#E3A64B]/8 px-2 py-1 text-[10px] font-bold text-[#E3A64B]">
+                            ★ {rating.ratingValue.toFixed(1)} ({rating.reviewCount})
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
@@ -157,6 +175,7 @@ export default async function MenuPage() {
             <Link href="/empanada-cebu">Empanada in Cebu</Link>
             <Link href="/empanada-delivery-cebu">Empanada Delivery Cebu</Link>
             <Link href="/empanada-talisay">Empanada Talisay</Link>
+            <Link href="/delivery-fee">Check Delivery Fee</Link>
             <Link href="/order">Order Empanadas Online</Link>
           </div>
         </div>

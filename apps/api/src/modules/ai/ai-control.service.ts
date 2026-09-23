@@ -95,7 +95,24 @@ export class AiControlService {
           : provider === "openrouter"
             ? "openrouter/free"
             : "qwen3:4b-instruct";
-    return { provider, model: setting?.model?.trim() || defaultModel };
+    const savedModel = setting?.model?.trim();
+    const model = savedModel || defaultModel;
+
+    // Keep the persisted global setting aligned with the OpenRouter free-tier default.
+    if (provider === "openrouter" && !savedModel) {
+      await this.prisma.$runCommandRaw({
+        update: this.collection,
+        updates: [
+          {
+            q: { key: this.globalKey },
+            u: { $set: { key: this.globalKey, provider, model: defaultModel, updatedAt: new Date() } },
+            upsert: true
+          }
+        ]
+      });
+    }
+
+    return { provider, model };
   }
 
   async setGlobalModelSettings(provider: AiModelProvider, model: string) {

@@ -1,7 +1,9 @@
 import * as SecureStore from "expo-secure-store";
 import { DeliveryJob, RiderProfile, RiderStatus } from "./types";
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://empanadahauz.com/api";
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+
+export const API_URL = (configuredApiUrl || "https://api.empanadahauz.com/api").replace(/\/$/, "");
 export const SOCKET_URL = API_URL.replace(/\/api\/?$/, "");
 export const TOKEN_KEY = "empanada-hauz-rider-token";
 

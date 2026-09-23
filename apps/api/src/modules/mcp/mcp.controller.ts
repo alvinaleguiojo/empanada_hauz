@@ -9,6 +9,7 @@ import { MessengerService } from "../messenger/messenger.service";
 import { McpExpensesService } from "./mcp-expenses.service";
 import { McpAuthService } from "./mcp-auth.service";
 import { McpOrdersService } from "./mcp-orders.service";
+import { RateLimit } from "../../common/rate-limit/rate-limit.decorator";
 
 type ToolResult = {
   isError?: boolean;
@@ -33,6 +34,7 @@ type ToolRegistrar = (
 ) => void;
 
 @UseInterceptors(NoCacheInterceptor)
+@RateLimit({ limit: 120, windowSeconds: 60, key: "ip" })
 @Controller("mcp")
 export class McpController {
   private readonly logger = new Logger(McpController.name);

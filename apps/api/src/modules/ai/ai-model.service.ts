@@ -43,8 +43,10 @@ export class AiModelService {
 
   async setSettings(provider: string, model: string) {
     if (!["ollama", "gemini", "groq", "openai", "openrouter"].includes(provider)) throw new BadRequestException("AI provider must be ollama, gemini, groq, openai, or openrouter.");
-    if (!model?.trim()) throw new BadRequestException("AI model is required.");
-    return this.aiControl.setGlobalModelSettings(provider as AiModelProvider, model.trim());
+    const normalizedProvider = provider as AiModelProvider;
+    const normalizedModel = model?.trim() || (normalizedProvider === "openrouter" ? "openrouter/free" : "");
+    if (!normalizedModel) throw new BadRequestException("AI model is required.");
+    return this.aiControl.setGlobalModelSettings(normalizedProvider, normalizedModel);
   }
 
   async generateProduct(prompt: string, existingProducts: Array<{ name: string; category: string }>): Promise<GeneratedProduct> {

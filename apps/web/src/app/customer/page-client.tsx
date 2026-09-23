@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Baloo_2, Caveat, IBM_Plex_Mono } from "next/font/google";
 import {
   ArrowLeft,
@@ -16,18 +17,25 @@ import {
   Plus,
   Search,
   ShoppingBag,
+  Star,
   Ticket,
   Truck,
   Wallet,
   X
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { MENU_ITEMS } from "@/lib/menu";
-import GestureOrdering from "@/components/customer/gesture-ordering";
+import { getProductRating, MENU_ITEMS } from "@/lib/menu";
+import { useProductCatalog } from "@/components/products/product-catalog-provider";
+import dynamic from "next/dynamic";
 
 const display = Baloo_2({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-display" });
 const script = Caveat({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-script" });
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["500", "600"], variable: "--font-mono" });
+
+const GestureOrdering = dynamic(() => import("@/components/customer/gesture-ordering"), {
+  ssr: false,
+  loading: () => null,
+});
 
 const flavorOptions = MENU_ITEMS;
 const deliveryMethods = [
@@ -52,7 +60,6 @@ type FormState = {
 };
 type PublicOrderResponse = { order: { id: string; orderNumber?: string }; trackingPath?: string };
 type SuccessState = { orderNumber?: string; trackingPath: string; trackingUrl: string };
-
 const initialState: FormState = {
   deliveryDate: "",
   customerName: "",
@@ -75,6 +82,100 @@ function formatProductTag(tag: string) {
     .replace(/[-_]+/g, " ")
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function CustomerKioskLoading({ stage }: { stage: "splash" | "skeleton" }) {
+  if (stage === "splash") {
+    return (
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
+        <div className="flex flex-col items-center text-center">
+          <div className="grid h-28 w-28 place-items-center overflow-hidden rounded-[30px] border border-[#E3A64B]/25 bg-[#241c13] shadow-[0_20px_60px_-25px_rgba(227,166,75,0.9)]">
+            <img
+              src="/empanada hauz logo.jpg"
+              alt="Empanada Hauz"
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="mt-5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-[#F6EFDD]">
+            Empanada Hauz
+          </div>
+          <div className="mt-1 font-[family-name:var(--font-script)] text-lg text-[#F2E8D5]/55">
+            Freshly made, your way.
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="kiosk-board min-h-screen px-3 pb-8 pt-3 text-[#F2E8D5] sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl animate-pulse">
+        <header className="sticky top-0 z-40 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-[#E3A64B]/15" />
+              <div>
+                <div className="h-4 w-32 rounded bg-[#F2E8D5]/10" />
+                <div className="mt-2 h-3 w-24 rounded bg-[#F2E8D5]/5" />
+              </div>
+            </div>
+            <div className="h-9 w-24 rounded-full bg-[#F2E8D5]/8" />
+          </div>
+        </header>
+
+        <div className="sticky top-[67px] z-30 -mx-3 border-b border-[#F2E8D5]/10 bg-[#17110b]/90 px-3 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="mx-auto flex max-w-7xl gap-2.5 py-2.5">
+            {[1, 2, 3].map((item) => (
+              <div key={item} className="h-10 w-24 rounded-full bg-[#F2E8D5]/7" />
+            ))}
+          </div>
+        </div>
+
+        <section className="mt-0 overflow-hidden rounded-b-[30px] border-x border-b border-[#F2E8D5]/10 bg-[#241c13]">
+          <div className="h-1.5 w-full bg-[#E3A64B]/15" />
+          <div className="grid gap-8 px-5 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.75fr] lg:px-10 lg:py-10">
+            <div>
+              <div className="h-7 w-48 rounded-full bg-[#E3A64B]/10" />
+              <div className="mt-5 h-12 w-full max-w-2xl rounded-xl bg-[#F2E8D5]/8 sm:h-16" />
+              <div className="mt-3 h-5 w-5/6 max-w-2xl rounded bg-[#F2E8D5]/6" />
+              <div className="mt-2 h-5 w-3/5 max-w-xl rounded bg-[#F2E8D5]/6" />
+            </div>
+            <div className="hidden lg:flex lg:items-end lg:justify-end">
+              <div className="h-28 w-72 rounded-2xl bg-[#F2E8D5]/5" />
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-5 rounded-[26px] border border-[#F2E8D5]/10 bg-[#20180f] p-4 sm:p-6">
+          <div className="flex items-end justify-between gap-4 border-b border-[#F2E8D5]/10 pb-5">
+            <div>
+              <div className="h-3 w-20 rounded bg-[#E3A64B]/10" />
+              <div className="mt-2 h-8 w-56 rounded bg-[#F2E8D5]/8" />
+              <div className="mt-2 h-4 w-72 max-w-full rounded bg-[#F2E8D5]/5" />
+            </div>
+            <div className="hidden h-11 w-56 rounded-xl bg-[#F2E8D5]/7 sm:block" />
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((item) => (
+              <div key={item} className="overflow-hidden rounded-2xl border border-[#F2E8D5]/8 bg-[#261d13]">
+                <div className="aspect-[16/9] bg-[#F2E8D5]/7" />
+                <div className="p-4">
+                  <div className="h-5 w-3/4 rounded bg-[#F2E8D5]/8" />
+                  <div className="mt-2 h-3 w-full rounded bg-[#F2E8D5]/5" />
+                  <div className="mt-2 h-3 w-2/3 rounded bg-[#F2E8D5]/5" />
+                  <div className="mt-4 flex items-center gap-2">
+                    <div className="h-7 w-16 rounded bg-[#E3A64B]/8" />
+                    <div className="h-7 w-20 rounded-full bg-[#E3A64B]/8" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
 }
 
 function ProductBadges({ option }: { option: (typeof MENU_ITEMS)[number] }) {
@@ -130,6 +231,13 @@ export default function CustomerKioskPage() {
   const [quotingDelivery, setQuotingDelivery] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<"splash" | "skeleton">("splash");
+  const { status: catalogStatus } = useProductCatalog();
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLoadingStage("skeleton"), 750);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const summary = useMemo(() => {
     const items = selectedFlavors.map((item) => {
@@ -172,7 +280,6 @@ export default function CustomerKioskPage() {
       setReferralCode(window.localStorage.getItem("empanada-referral-code") ?? "");
     }
   }, []);
-
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
     if (key === "address" || key === "landmark") setDeliveryQuote(null);
@@ -328,6 +435,21 @@ export default function CustomerKioskPage() {
   const remaining = Math.max(0, 10 - summary.totalQuantity);
   const handleStartNewOrder = () => { setSuccess(null); setError(null); };
 
+  if (catalogStatus === "loading") {
+    return <CustomerKioskLoading stage={loadingStage} />;
+  }
+
+  if (catalogStatus === "error") {
+    return (
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 text-[#F2E8D5]">
+        <div className="max-w-sm rounded-2xl border border-[#C0472B]/30 bg-[#241c13] px-6 py-5 text-center shadow-xl">
+          <p className="text-sm font-semibold">We couldn’t load the menu right now.</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#C0472B] px-4 py-2 text-sm font-bold text-white">Try again</button>
+        </div>
+      </main>
+    );
+  }
+
   if (success) {
     return (
       <main className={`${display.variable} ${script.variable} ${mono.variable} kiosk-board flex min-h-screen items-center justify-center px-4 py-10 text-[#F2E8D5] sm:px-6`}>
@@ -405,6 +527,7 @@ export default function CustomerKioskPage() {
               <div className="inline-flex items-center gap-2 rounded-full border border-[#E3A64B]/30 bg-[#E3A64B]/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-[#E3A64B]">Made to order <span className="h-1 w-1 rounded-full bg-[#E3A64B]/60" /> 10 pcs minimum</div>
               <h1 className="mt-4 max-w-3xl font-[family-name:var(--font-display)] text-4xl font-extrabold leading-[1.02] tracking-tight text-[#F6EFDD] sm:text-5xl lg:text-6xl">Build your box.<br /><span className="text-[#E3A64B]">We'll handle the rest.</span></h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-[#F2E8D5]/60 sm:text-base">Choose your favorite flavors, set your quantities, then tell us where to send your freshly made empanadas.</p>
+              <Link href="/delivery-fee" className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-[#E3A64B] underline underline-offset-4">Check delivery fee first →</Link>
               <div className="mt-6 hidden lg:block" />
             </div>
             <div className="hidden lg:flex lg:items-end lg:justify-end">
@@ -439,11 +562,12 @@ export default function CustomerKioskPage() {
                   {visibleFlavorOptions.length > 0 ? visibleFlavorOptions.map((option) => {
                     const selected = selectedFlavors.find((item) => item.value === option.value);
                     const soldOut = option.available === false;
+                    const rating = getProductRating(option.value);
                     return (
                       <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-[#E3A64B]/70 bg-[#2a2014] shadow-[0_12px_35px_-22px_rgba(227,166,75,0.9)]" : "border-[#F2E8D5]/8 bg-[#261d13] hover:-translate-y-0.5 hover:border-[#F2E8D5]/15"} ${soldOut ? "opacity-55" : ""}`}>
                         <ProductBadges option={option} />
                         <div className="relative aspect-[16/9] overflow-hidden bg-[#17110b]">
-                          {option.imageUrl ? <img src={option.imageUrl} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgba(227,166,75,.18),transparent_60%)]"><span className="font-[family-name:var(--font-script)] text-4xl text-[#E3A64B]/55">EH</span></div>}
+                          {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgba(227,166,75,.18),transparent_60%)]"><span className="font-[family-name:var(--font-script)] text-4xl text-[#E3A64B]/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[#17110b] via-transparent to-transparent" />
                           {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-[#17110b]/85 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.16em] text-[#F2E8D5]/65">Sold out</span> : null}
                           {selected ? <span className="absolute bottom-3 right-3 grid h-8 w-8 place-items-center rounded-full bg-[#E3A64B] text-[#20160d] shadow-lg"><Check size={16} /></span> : null}
@@ -454,7 +578,16 @@ export default function CustomerKioskPage() {
                               <div className="min-w-0">
                                 <h3 className="truncate font-[family-name:var(--font-display)] text-lg font-extrabold text-[#F6EFDD]">{option.value}</h3>
                                 {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#F2E8D5]/45">{option.description}</p> : null}
-                                <div className="mt-2 font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <div className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[#E3A64B]">Php {option.price}</div>
+                                  {rating ? (
+                                    <div className="inline-flex items-center gap-1 rounded-full border border-[#E3A64B]/20 bg-[#E3A64B]/8 px-2 py-1 text-[10px] font-bold text-[#E3A64B]">
+                                      <Star size={11} fill="currentColor" />
+                                      <span>{rating.ratingValue.toFixed(1)}</span>
+                                      <span className="font-normal text-[#F2E8D5]/45">({rating.reviewCount})</span>
+                                    </div>
+                                  ) : null}
+                                </div>
                               </div>
                             </div>
                           </button>

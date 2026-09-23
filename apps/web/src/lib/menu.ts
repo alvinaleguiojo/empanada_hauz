@@ -63,3 +63,36 @@ export function replaceMenuItems(products: ProductCatalogItem[]) {
 
   MENU_ITEMS.splice(0, MENU_ITEMS.length, ...next);
 }
+
+
+export type ProductRatingSummary = {
+  productKey: string;
+  ratingValue: number;
+  reviewCount: number;
+};
+
+const PRODUCT_RATINGS: Record<string, ProductRatingSummary> = {};
+
+function productRatingKey(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function replaceProductRatings(summaries: ProductRatingSummary[]) {
+  for (const key of Object.keys(PRODUCT_RATINGS)) {
+    delete PRODUCT_RATINGS[key];
+  }
+
+  for (const summary of summaries) {
+    PRODUCT_RATINGS[summary.productKey] = summary;
+  }
+}
+
+export function getProductRating(productName: string) {
+  return PRODUCT_RATINGS[productRatingKey(productName)];
+}

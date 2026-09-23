@@ -86,22 +86,23 @@ export default function CustomerGooglePlacesAutocomplete() {
           autocomplete.addListener("place_changed", () => {
             const place = autocomplete.getPlace();
             const location = place.geometry?.location;
-            const value = place.formatted_address ?? place.name ?? "";
-            if (!value) return;
-
             const latitude = location?.lat();
             const longitude = location?.lng();
+            const selectedValue =
+              place.name ?? place.formatted_address ?? "";
+
+            if (!selectedValue) return;
 
             const setter = Object.getOwnPropertyDescriptor(
               HTMLInputElement.prototype,
               "value"
             )?.set;
-            setter?.call(input, value);
+            setter?.call(input, selectedValue);
 
             if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
               input.dataset.latitude = String(latitude);
               input.dataset.longitude = String(longitude);
-              input.dataset.placeValue = value;
+              input.dataset.placeValue = selectedValue;
             } else {
               delete input.dataset.latitude;
               delete input.dataset.longitude;
@@ -115,7 +116,7 @@ export default function CustomerGooglePlacesAutocomplete() {
               new CustomEvent<CustomerPlaceSelectedDetail>("customer-place-selected", {
                 detail: {
                   field: config.field,
-                  value,
+                  value: selectedValue,
                   formattedAddress: place.formatted_address,
                   name: place.name,
                   latitude,
@@ -140,7 +141,7 @@ export default function CustomerGooglePlacesAutocomplete() {
 
       if (!existingCustomerScript) {
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=en&region=PH`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&language=en&region=PH`;
         script.async = true;
         script.defer = true;
         script.dataset.googlePlacesCustomer = "true";

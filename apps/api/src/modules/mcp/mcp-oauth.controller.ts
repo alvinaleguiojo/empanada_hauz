@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import { NoCacheInterceptor } from "./no-cache.interceptor";
+import { RateLimit } from "../../common/rate-limit/rate-limit.decorator";
 
 type ClientRegistration = {
   client_id?: string;
@@ -74,6 +75,7 @@ export class McpOAuthController {
     return this.oauthMetadata(baseUrl);
   }
 
+  @RateLimit({ limit: 10, windowSeconds: 15 * 60, key: "ip" })
   @Post("oauth/register")
   async registerClient(@Body() body: ClientRegistration) {
     const redirectUris = Array.isArray(body.redirect_uris)
@@ -109,6 +111,7 @@ export class McpOAuthController {
     };
   }
 
+  @RateLimit({ limit: 20, windowSeconds: 15 * 60, key: "ip" })
   @Get("oauth/authorize")
   @Header("Content-Type", "text/html; charset=utf-8")
   async authorizeForm(
@@ -141,6 +144,7 @@ export class McpOAuthController {
     );
   }
 
+  @RateLimit({ limit: 20, windowSeconds: 15 * 60, key: "ip" })
   @Post("oauth/authorize")
   async authorize(
     @Body()
@@ -232,6 +236,7 @@ export class McpOAuthController {
     }
   }
 
+  @RateLimit({ limit: 30, windowSeconds: 15 * 60, key: "ip" })
   @Post("oauth/token")
   @Header("Cache-Control", "no-store")
   @Header("Pragma", "no-cache")

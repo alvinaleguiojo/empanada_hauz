@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radius, spacing } from "../theme";
 
@@ -14,7 +14,7 @@ export function LoginScreen({ busy, error, onSubmit, onBack }: Props) {
       <View style={styles.page}>
         <Pressable onPress={onBack} hitSlop={12} style={styles.back}><Text style={styles.backText}>‹</Text></Pressable>
         <View style={styles.card}>
-          <View style={styles.logo}><Text style={styles.logoText}>🥟</Text></View>
+          <View style={styles.logo}><Image source={require("../../assets/icon.png")} style={styles.logoImage} resizeMode="cover" /></View>
           <Text style={styles.eyebrow}>EMPANADA HAUZ</Text>
           <Text style={styles.title}>Rider Login</Text>
           <Text style={styles.subtitle}>Sign in to access your deliveries, map, and rider profile.</Text>
@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
   backText: { color: colors.ink, fontSize: 32 },
   card: { width: "100%", maxWidth: 430, alignSelf: "center", backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.lg, ...{ shadowColor: "#3B1D0F", shadowOpacity: 0.12, shadowRadius: 22, shadowOffset: { width: 0, height: 9 }, elevation: 4 } },
   logo: { width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.orangeSoft, alignItems: "center", justifyContent: "center", alignSelf: "center" },
-  logoText: { fontSize: 32 },
+  logoImage: { width: "100%", height: "100%", borderRadius: radius.md },
   eyebrow: { marginTop: spacing.md, fontSize: 10, fontWeight: "900", letterSpacing: 2.2, color: colors.muted, textAlign: "center" },
   title: { marginTop: 3, fontSize: 30, fontWeight: "900", color: colors.ink, textAlign: "center" },
   subtitle: { marginTop: 6, fontSize: 12, lineHeight: 18, color: colors.muted, textAlign: "center" },

@@ -20,7 +20,8 @@
     "react-native": "0.86.2",
     "react-native-maps": "1.27.2",
     "react-native-safe-area-context": "~5.7.0",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "expo-speech": "~57.0.3"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

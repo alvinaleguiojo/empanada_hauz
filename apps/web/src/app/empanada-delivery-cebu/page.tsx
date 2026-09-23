@@ -20,7 +20,7 @@ export default function EmpanadaDeliveryCebuPage() {
         </ol>
         <h2 className="mt-12 text-2xl font-bold">For Parties, Offices & Events</h2>
         <p className="mt-3 text-[#F2E8D5]/80">Empanadas can be ordered as individual snacks or for group occasions. Use the online ordering flow to choose the quantity and flavors you need.</p>
-        <Link className="mt-8 inline-flex rounded-full bg-[#C0472B] px-6 py-3 font-bold text-white" href="/order">Order for Delivery</Link>
+        <div className="mt-8 flex flex-wrap gap-3"><Link className="inline-flex rounded-full border border-[#F2E8D5]/15 bg-[#F2E8D5]/5 px-5 py-3 font-bold text-[#F2E8D5] transition hover:bg-[#F2E8D5]/10" href="/delivery-fee">Check Delivery Fee</Link><Link className="inline-flex rounded-full bg-[#C0472B] px-6 py-3 font-bold text-white" href="/order">Order for Delivery</Link></div>
       </article>
     </main>
   );
