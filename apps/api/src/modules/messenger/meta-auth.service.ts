@@ -5,7 +5,7 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEq
 
 interface MetaTokenDebug { data?: { type?: string; profile_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number; scopes?: string[] } }
 interface MetaPageAccount { id: string; name?: string; access_token?: string }
-interface MetaSubscribedApp { id?: string; name?: string; subscribed_fields?: string[] }
+interface MetaSubscribedApp { id?: string; name?: string; subscribed_fields?: Array<string | MetaWebhookField> }
 interface MetaWebhookField {
   name?: string;
   version?: string;
@@ -112,19 +112,28 @@ export class MetaAuthService implements OnModuleInit {
     }
 
     try {
-      const currentResult = await this.graphGet<{ data?: MetaWebhookSubscription[] }>(
-        `/${encodeURIComponent(appId)}/subscriptions`,
-        appAccessToken
-      );
-      const current = (currentResult.data ?? []).find((item) => item.object === "page");
+      const readCurrent = async () => {
+        const currentResult = await this.graphGet<{ data?: MetaWebhookSubscription[] }>(
+          `/${encodeURIComponent(appId)}/subscriptions?object=page`,
+          appAccessToken
+        );
+        return (currentResult.data ?? []).find((item) => item.object === "page");
+      };
+
+      let current = await readCurrent();
       let hasMessages = current?.fields?.some((field) =>
         typeof field === "string" ? field === "messages" : field?.name === "messages"
       ) ?? false;
       let matchesCallback = current?.callback_url === callbackUrl;
-      let active = current?.active !== false;
+      let active = current?.active === true;
 
-      if (!hasMessages || !matchesCallback || !active) {
-        await this.graphPost(
+      // Re-apply the app subscription at startup even when Meta reports it as
+      // present. This is intentionally idempotent and helps recover from a
+      // stale registration where the Graph API still reports the old state.
+      const shouldRepair = !hasMessages || !matchesCallback || !active || source === "startup";
+
+      if (shouldRepair) {
+        const writeResult = await this.graphPost<{ success?: boolean }>(
           `/${encodeURIComponent(appId)}/subscriptions`,
           appAccessToken,
           {
@@ -134,13 +143,24 @@ export class MetaAuthService implements OnModuleInit {
             fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers"
           }
         );
-        // Meta may return subscription fields as objects ({ name, version })
-        // rather than bare strings. The successful POST above is the source of
-        // truth for the repaired state; avoid immediately treating the object
-        // shape as an unsubscribed state and posting on every status check.
-        hasMessages = true;
-        matchesCallback = true;
-        active = true;
+
+        if (writeResult?.success === false) {
+          throw new Error("Meta rejected the app webhook subscription update");
+        }
+
+        current = await readCurrent();
+        hasMessages = current?.fields?.some((field) =>
+          typeof field === "string" ? field === "messages" : field?.name === "messages"
+        ) ?? false;
+        matchesCallback = current?.callback_url === callbackUrl;
+        active = current?.active === true;
+      }
+
+      if (!hasMessages || !matchesCallback || !active) {
+        console.warn(
+          `[Messenger] App webhook subscription NOT VERIFIED (${source}): object=page active=${active} messages=${hasMessages} callback=${matchesCallback} callbackUrl=${callbackUrl}`
+        );
+        return;
       }
 
       console.log(
@@ -162,11 +182,40 @@ export class MetaAuthService implements OnModuleInit {
       const debug = await this.graphGet<MetaTokenDebug>(`/debug_token?input_token=${encodeURIComponent(token)}`, token);
       const data = debug.data;
       if (!data?.is_valid || data.type !== "PAGE" || data.profile_id !== pageId) return;
-      const result = await this.graphGet<{ data?: MetaSubscribedApp[] }>(`/${encodeURIComponent(pageId)}/subscribed_apps?fields=id,name,subscribed_fields`, token);
-      const current = (result.data ?? []).find((item) => item.id === this.appId());
-      const hasMessages = current?.subscribed_fields?.includes("messages") ?? false;
-      if (!current || !hasMessages) await this.subscribePageToMessenger(pageId, token);
-      console.log(`[Messenger] Page webhook subscription reconciled (${source}): page=${pageId} app=${this.appId()} subscribed=${Boolean(current)} messages=${hasMessages}`);
+      const readCurrent = async () => {
+        const result = await this.graphGet<{ data?: MetaSubscribedApp[] }>(
+          `/${encodeURIComponent(pageId)}/subscribed_apps?fields=id,name,subscribed_fields`,
+          token
+        );
+        return (result.data ?? []).find((item) => item.id === this.appId());
+      };
+
+      const hasMessagesField = (current?: MetaSubscribedApp) =>
+        current?.subscribed_fields?.some((field) =>
+          typeof field === "string" ? field === "messages" : field?.name === "messages"
+        ) ?? false;
+
+      let current = await readCurrent();
+      let hasMessages = hasMessagesField(current);
+
+      // Re-apply the Page subscription at startup as a self-healing step.
+      const shouldRepair = !current || !hasMessages || source === "startup";
+      if (shouldRepair) {
+        await this.subscribePageToMessenger(pageId, token);
+        current = await readCurrent();
+        hasMessages = hasMessagesField(current);
+      }
+
+      if (!current || !hasMessages) {
+        console.warn(
+          `[Messenger] Page webhook subscription NOT VERIFIED (${source}): page=${pageId} app=${this.appId()} subscribed=${Boolean(current)} messages=${hasMessages}`
+        );
+        return;
+      }
+
+      console.log(
+        `[Messenger] Page webhook subscription reconciled (${source}): page=${pageId} app=${this.appId()} subscribed=true messages=true`
+      );
     } catch (err) {
       console.warn(`[Messenger] Page webhook subscription reconciliation failed (${source}): ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -224,7 +273,17 @@ export class MetaAuthService implements OnModuleInit {
     return { pageId: page.id, pageName: page.name, expiresAt: data.expires_at ? new Date(data.expires_at * 1000) : null };
   }
   private async subscribePageToMessenger(pageId: string, pageAccessToken: string) {
-    await this.graphPost<{ success?: boolean }>(`/${encodeURIComponent(pageId)}/subscribed_apps`, pageAccessToken, { subscribed_fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers" });
+    const result = await this.graphPost<{ success?: boolean }>(
+      `/${encodeURIComponent(pageId)}/subscribed_apps`,
+      pageAccessToken,
+      {
+        subscribed_fields: "messages,messaging_postbacks,messaging_optins,messaging_referrals,messaging_handovers"
+      }
+    );
+
+    if (result?.success === false) {
+      throw new Error(`Meta rejected Page subscription: page=${pageId} app=${this.appId()}`);
+    }
   }
   async getPageToken() {
     const connection = await this.prisma.metaConnection.findUnique({ where: { id: "meta" } });
