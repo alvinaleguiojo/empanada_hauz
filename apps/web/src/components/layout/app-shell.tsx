@@ -307,7 +307,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
       socket.off("operator.chat.message", handleOperatorChatMessage);
-      socket.disconnect();
     };
   }, [browserNotificationsEnabled, push, speechEnabled]);
 
