@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AiConversationStateService, AiOrderDraft } from "./ai-conversation-state.service";
+import { AiConversationStateService } from "./ai-conversation-state.service";
 import { AiToolRegistryService } from "./ai-tool-registry.service";
 import { AiInstructionsService } from "../ai-instructions/ai-instructions.service";
 import { AiAgentOrchestratorService } from "./ai-agent-orchestrator.service";
@@ -20,7 +20,6 @@ export class AiRuntimeService {
   private readonly baseUrl: string;
   private readonly model: string;
   private readonly timeoutMs: number;
-  private readonly trackingBaseUrl: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -33,7 +32,6 @@ export class AiRuntimeService {
     this.model = this.config.get<string>("OLLAMA_MODEL", "qwen3:4b-instruct");
     const configuredTimeout = Number(this.config.get<string>("OLLAMA_TIMEOUT_MS", "120000"));
     this.timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 1000 ? configuredTimeout : 120000;
-    this.trackingBaseUrl = (this.config.get<string>("AI_TRACKING_BASE_URL") ?? "https://empanadahauz.com").replace(/\/$/, "");
   }
 
   async process(request: RuntimeRequest) {
@@ -112,34 +110,6 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
   async chat(messages: Array<Record<string, unknown>>, tools: Array<Record<string, unknown>>) {
     const response = await this.fetchOllama({ model: this.model, messages, tools, tool_choice: "auto" });
     return response;
-  }
-
-  private async createConfirmedOrder(request: RuntimeRequest, draft: AiOrderDraft) {
-    const args: Record<string, unknown> = {
-      customerName: request.customerName,
-      items: draft.items,
-      quantity: draft.quantity,
-      deliveryMethod: draft.deliveryMethod,
-      paymentMethod: draft.paymentMethod,
-      address: draft.address,
-      location: draft.landmark,
-      phoneNumber: draft.contactNumber,
-      preferredSchedule: [draft.deliveryDate, draft.preferredTime].filter(Boolean).join(" "),
-      confirmed: true
-    };
-
-    try {
-      const order = await this.toolRegistry.execute("create_order", args, {
-        customerId: request.customerId,
-        conversationId: request.conversationId,
-        channel: request.channel
-      });
-      await this.stateService.clear(request.conversationId, request.customerId);
-      return { reply: this.renderCreatedOrderReply(order), toolResult: order };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Application action failed.";
-      return { reply: this.renderOrderCreationFailure(errorMessage, draft), toolResult: { ok: false, error: errorMessage } };
-    }
   }
 
   private async fetchOllama(body: Record<string, unknown>) {
