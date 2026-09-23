@@ -30,13 +30,73 @@ export class MessengerController {
   private async processWebhookEntries(entries: any[]) { for (const entry of entries) { await this.processEvents(entry.messaging ?? [], "messaging"); await this.processEvents(entry.standby ?? [], "standby"); for (const handover of entry.messaging_handovers ?? []) this.logger.log(`Messenger handover event: sender=${handover.sender?.id ?? "unknown"}`); } }
   private async processEvents(events: any[], channel: "messaging" | "standby") {
     for (const event of events) {
-      const text = event.message?.text; const attachments = event.message?.attachments;
-      const hasAttachments = Array.isArray(attachments?.data) ? attachments.data.length > 0 : Array.isArray(attachments) ? attachments.length > 0 : Boolean(attachments);
-      const senderId = event.sender?.id; if (!senderId) continue;
-      if (channel === "standby") { try { await this.messengerService.handleStandbyEvent({ senderId, messageId: event.message?.mid, text, rawPayload: event }); } catch (err) { this.logger.error(`Failed standby event from ${senderId}`, err); } continue; }
-      if (event.message?.is_echo === true || (!text && !hasAttachments)) continue;
-      try { if (text) await this.messengerService.processIncoming({ senderId, messageId: event.message?.mid, text, rawPayload: event }); else await this.messengerService.persistInbound({ senderId, messageId: event.message?.mid, text: "[Attachment]", type: "attachment", rawPayload: event }); }
-      catch (err) { this.logger.error(`Failed to process message from ${senderId}`, err); }
+      const text = typeof event.message?.text === "string" ? event.message.text : undefined;
+      const attachments = event.message?.attachments;
+      const hasAttachments = Array.isArray(attachments?.data)
+        ? attachments.data.length > 0
+        : Array.isArray(attachments)
+          ? attachments.length > 0
+          : Boolean(attachments);
+      const senderId = event.sender?.id;
+      const recipientId = event.recipient?.id;
+      const messageId = event.message?.mid;
+      const isEcho = event.message?.is_echo === true;
+
+      this.logger.log(
+        `Messenger webhook event: channel=${channel} sender=${senderId ?? "missing"} recipient=${recipientId ?? "missing"} messageId=${messageId ?? "missing"} text=${Boolean(text)} attachments=${hasAttachments} echo=${isEcho} keys=${Object.keys(event ?? {}).join(",") || "none"} messageKeys=${Object.keys(event.message ?? {}).join(",") || "none"}`
+      );
+
+      if (!senderId) {
+        this.logger.warn(`Skipping Messenger webhook event: senderId missing channel=${channel}`);
+        continue;
+      }
+
+      if (channel === "standby") {
+        try {
+          await this.messengerService.handleStandbyEvent({
+            senderId,
+            messageId,
+            text,
+            rawPayload: event
+          });
+        } catch (err) {
+          this.logger.error(`Failed standby event from ${senderId}`, err);
+        }
+        continue;
+      }
+
+      if (isEcho) {
+        this.logger.log(`Skipping Messenger echo event: sender=${senderId} messageId=${messageId ?? "missing"}`);
+        continue;
+      }
+
+      if (!text && !hasAttachments) {
+        this.logger.log(
+          `Skipping Messenger event without message content: sender=${senderId} messageId=${messageId ?? "missing"}`
+        );
+        continue;
+      }
+
+      try {
+        if (text) {
+          await this.messengerService.processIncoming({
+            senderId,
+            messageId,
+            text,
+            rawPayload: event
+          });
+        } else {
+          await this.messengerService.persistInbound({
+            senderId,
+            messageId,
+            text: "[Attachment]",
+            type: "attachment",
+            rawPayload: event
+          });
+        }
+      } catch (err) {
+        this.logger.error(`Failed to process message from ${senderId}`, err);
+      }
     }
   }
   private verifySignature(rawBody?: Buffer, signature?: string) {
