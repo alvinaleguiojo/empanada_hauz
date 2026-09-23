@@ -136,44 +136,4 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
     }
   }
 
-  private renderCreatedOrderReply(order: unknown) {
-    const record = (order && typeof order === "object" ? order : {}) as Record<string, unknown>;
-    const orderNumber = typeof record.orderNumber === "string" ? record.orderNumber : "your order";
-    const id = typeof record.id === "string" ? record.id : "";
-    const trackingUrl = id ? `${this.trackingBaseUrl}/track/${encodeURIComponent(id)}` : "";
-    const total = typeof record.totalAmount === "number" ? ` Total: ₱${record.totalAmount.toFixed(2)}.` : "";
-    const delivery = record.delivery && typeof record.delivery === "object" ? record.delivery as Record<string, unknown> : undefined;
-    const maximTracking = typeof delivery?.trackingLink === "string" ? delivery.trackingLink : "";
-    return [
-      "Order confirmed! 🎉",
-      `Order ID: ${orderNumber}.`,
-      total.trim(),
-      trackingUrl ? `Track your order: ${trackingUrl}` : "",
-      maximTracking ? `Live Maxim tracking: ${maximTracking}` : "",
-      "Thank you! We’ll keep you updated on your order. 😊"
-    ].filter(Boolean).join("\n");
-  }
-
-  private renderOrderCreationFailure(error: string, draft: AiOrderDraft) {
-    const missing: string[] = [];
-    if (!draft.items?.length) missing.push("the items and quantities");
-    if (!draft.deliveryMethod) missing.push("pickup or delivery");
-    if (!draft.paymentMethod) missing.push("your payment method");
-    if (draft.deliveryMethod === "maxim" && !draft.address) missing.push("your delivery address");
-    if (draft.deliveryMethod === "maxim" && !draft.landmark) missing.push("your landmark/location");
-    if (draft.deliveryMethod === "maxim" && !draft.contactNumber) missing.push("your contact number");
-    if (!draft.items?.length || !draft.quantity || draft.quantity < 10) missing.push("at least 10 pieces");
-
-    if (missing.length) {
-      const unique = [...new Set(missing)];
-      return `I’m ready to place your order, but I still need ${joinNatural(unique)} before I can submit it. Please send those details and I’ll place the order after your confirmation. 😊`;
-    }
-    return `I couldn't place the order yet because the application rejected the request: ${error}. Please send the missing or corrected checkout details and I'll try again. 😊`;
-  }
-}
-
-function joinNatural(values: string[]) {
-  if (values.length === 1) return values[0];
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
-  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
 }
