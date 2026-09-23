@@ -1,0 +1,18 @@
+# Cloudflare Tunnel configuration for the local Windows deployment.
+# Copy this to %USERPROFILE%\.cloudflared\config.yml and replace the placeholders.
+# Never commit the real tunnel credentials JSON.
+
+tunnel: YOUR_TUNNEL_UUID
+credentials-file: C:\Users\YOUR_WINDOWS_USER\.cloudflared\YOUR_TUNNEL_UUID.json
+
+ingress:
+  - hostname: empanadahauz.com
+    service: http://127.0.0.1:3000
+
+  - hostname: www.empanadahauz.com
+    service: http://127.0.0.1:3000
+
+  - hostname: api.empanadahauz.com
+    service: http://127.0.0.1:4000
+
+  - service: http_status:404

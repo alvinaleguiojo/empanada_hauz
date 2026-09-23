@@ -26,10 +26,58 @@
 - To calculate own-delivery road distance, fare, and ETA, the same `GOOGLE_MAPS_API_KEY` must have Geocoding API and Routes API enabled. If pickup/dropoff coordinates are supplied from Places, the app can estimate distance and ETA without Routes API.
 - Tune own-delivery pricing with `DELIVERY_BASE_FARE`, `DELIVERY_PER_KM_RATE`, `DELIVERY_SERVICE_FEE`, `DELIVERY_DISTANCE_MULTIPLIER`, and `DELIVERY_AVG_SPEED_KMPH`.
 - Set `CORS_ORIGIN` to the deployed frontend URL.
-- Set `NEXT_PUBLIC_API_URL` to the public API URL.
-- Set `NEXT_PUBLIC_SOCKET_URL` to the public Socket.IO namespace URL.
+- Set `NEXT_PUBLIC_API_URL=https://api.empanadahauz.com/api` for the web app.
+- Set `NEXT_PUBLIC_SOCKET_URL=https://api.empanadahauz.com/ops` for the web app.
 - Documents and videos are stored outside MongoDB. For Docker Compose, the API mounts the persistent `documents-data` volume at `/data/documents` and sets `DOCUMENTS_STORAGE_PATH=/data/documents`.
 - If deploying without Docker, set `DOCUMENTS_STORAGE_PATH` to a persistent writable directory. Do not point it at an ephemeral container filesystem.
+
+## Cloudflare Tunnel + PM2 on the local Windows host
+
+The production frontend and API can run locally while Cloudflare Tunnel provides the public HTTPS endpoints:
+
+- `https://empanadahauz.com` -> Next.js on `127.0.0.1:3000`
+- `https://www.empanadahauz.com` -> Next.js on `127.0.0.1:3000`
+- `https://api.empanadahauz.com` -> NestJS on `127.0.0.1:4000`
+- Socket.IO namespace `/ops` remains on the API hostname.
+
+Keep the tunnel credentials outside Git. Start from `cloudflared/config.yml.example` and create the real Cloudflare config in the Windows user's `.cloudflared` directory.
+
+For the existing named tunnel:
+
+```powershell
+cloudflared tunnel route dns empanada-api empanadahauz.com
+cloudflared tunnel route dns empanada-api www.empanadahauz.com
+cloudflared tunnel route dns empanada-api api.empanadahauz.com
+```
+
+Only run the DNS commands when the hostname routes do not already exist.
+
+The repository includes `ecosystem.cloudflare.config.js` specifically because passing `tunnel run empanada-api` directly to PM2 on Windows can cause PM2 to interpret `tunnel` as the script path. Use the ecosystem file instead:
+
+```powershell
+pm2 delete cloudflared
+pm2 start ecosystem.cloudflare.config.js
+pm2 save
+pm2 logs cloudflared
+```
+
+The PM2 entry expects the `cloudflared` executable to be available on PATH, which matches the Windows installation used by this deployment.
+
+Before starting the tunnel, make sure the local services are healthy:
+
+```powershell
+curl http://127.0.0.1:3000
+curl http://127.0.0.1:4000/api/health
+```
+
+Then verify the public endpoints:
+
+```powershell
+curl https://empanadahauz.com
+curl https://api.empanadahauz.com/api/health
+```
+
+Cloudflare Tunnel proxies WebSocket upgrades, so the web app can continue using `https://api.empanadahauz.com/ops` for Socket.IO.
 
 ## Build and run
 
