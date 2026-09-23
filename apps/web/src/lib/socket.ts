@@ -13,6 +13,14 @@ export const socket = io(SOCKET_URL, {
   reconnectionDelayMax: 10000
 });
 
+socket.on("connect", () => {
+  console.info("[Realtime] Socket.IO connected:", socket.id);
+});
+
+socket.on("disconnect", (reason) => {
+  console.warn("[Realtime] Socket.IO disconnected:", reason);
+});
+
 socket.on("connect_error", (error) => {
   console.warn("[Realtime] Socket.IO connection error:", error.message);
 });
