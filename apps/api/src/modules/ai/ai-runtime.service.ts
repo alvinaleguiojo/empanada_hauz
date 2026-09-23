@@ -45,16 +45,6 @@ export class AiRuntimeService {
     const tools = await this.toolRegistry.getTools();
     const liveState = await this.stateService.get(request.conversationId, request.customerId);
 
-    if (this.isExplicitConfirmation(message) && liveState?.draft?.items?.length) {
-      const confirmed = await this.createConfirmedOrder(request, liveState.draft);
-      return {
-        reply: confirmed.reply,
-        tool: "create_order",
-        toolResult: confirmed.toolResult,
-        state: await this.stateService.get(request.conversationId, request.customerId)
-      };
-    }
-
     const system = `${instructions || "You are the Empanada Hauz customer assistant."}
 
 You are the reasoning brain for a customer conversation.
@@ -69,7 +59,12 @@ RULES:
 - If checkout information is missing, ask only for the missing information needed to continue.
 - You may chain tools when one result is needed by another tool.
 - Tool results are authoritative. If a tool fails, explain the application error naturally and do not fabricate a replacement result.
+- A real order action must be performed by the corresponding application tool. Never simulate an action in your reply.
+- Never claim that an order was created, cancelled, updated, rescheduled, deleted, submitted, accepted, received, completed, or otherwise changed unless the corresponding application tool was actually called and returned a successful result.
+- Customer confirmation such as "yes", "okay", or "confirm" is context-dependent. Do not treat every confirmation as approval to create an order. Use the conversation context and the requested action.
 - Never expose internal pricing configuration or internal tool implementation details.
+- Customer-facing replies must be normal conversational text, not JSON, JavaScript objects, tool calls, XML, or internal application payloads.
+- If a model response is wrapped as JSON such as {"message":"..."} or {"reply":"..."}, output only the customer-facing text value.
 - Respond in the customer's language when practical. If the customer uses Cebuano, respond naturally in Cebuano.
 
 ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
@@ -169,11 +164,6 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
     } finally {
       clearTimeout(timeout);
     }
-  }
-
-  private isExplicitConfirmation(message: string) {
-    const normalized = message.trim().toLowerCase().replace(/[.!?]+$/g, "");
-    return /^(confirm|confirmed|yes|y|okay|ok|correct|that is correct|that's correct|go ahead|proceed|submit|place it|place my order|do it|yes please)$/.test(normalized);
   }
 
   private renderCreatedOrderReply(order: unknown) {
