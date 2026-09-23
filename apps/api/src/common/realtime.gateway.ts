@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import {
   ConnectedSocket,
   MessageBody,
@@ -22,13 +23,16 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   @WebSocketServer()
   server!: Server;
 
+  private readonly logger = new Logger(RealtimeGateway.name);
   private readonly voiceClients = new Map<string, string>();
   private readonly riderClients = new Map<string, Set<string>>();
 
   constructor(private readonly chatService: ChatService) {}
 
-  handleConnection() {
-    return;
+  handleConnection(client: Socket) {
+    this.logger.log(
+      `Socket.IO client connected: id=${client.id} clients=${this.server?.sockets?.sockets?.size ?? 0} origin=${client.handshake.headers.origin ?? "unknown"}`
+    );
   }
 
   handleDisconnect(client: Socket) {
@@ -43,9 +47,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       sockets.delete(client.id);
       if (sockets.size === 0) this.riderClients.delete(riderId);
     }
+
+    this.logger.log(
+      `Socket.IO client disconnected: id=${client.id} clients=${this.server?.sockets?.sockets?.size ?? 0}`
+    );
   }
 
   emit(event: string, payload: unknown) {
+    const clients = this.server?.sockets?.sockets?.size ?? 0;
+    this.logger.log(`Socket.IO emit: event=${event} clients=${clients}`);
     this.server.emit(event, payload);
   }
 
