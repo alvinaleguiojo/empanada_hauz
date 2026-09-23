@@ -44,7 +44,12 @@ export class AiAgentOrchestratorService {
       const calls = readToolCalls(response);
 
       if (!calls.length) {
-        return { reply: content || "I couldn't produce a response.", tool: lastTool, toolResult: lastToolResult, iterations: step + 1 };
+        return {
+          reply: sanitizeCustomerReply(content, lastTool, lastToolResult),
+          tool: lastTool,
+          toolResult: lastToolResult,
+          iterations: step + 1
+        };
       }
 
       messages.push({
@@ -71,6 +76,59 @@ export class AiAgentOrchestratorService {
 
     return { reply: "I reached the tool execution limit before completing that request.", tool: lastTool, toolResult: lastToolResult, iterations: maxSteps };
   }
+}
+
+function sanitizeCustomerReply(value: string, lastTool?: string, lastToolResult?: unknown) {
+  const text = extractCustomerText(value);
+  if (!text) return fallbackCustomerReply(lastTool, lastToolResult);
+  if (claimsMutationSuccess(text) && !hasSuccessfulMutation(lastTool, lastToolResult)) return fallbackCustomerReply(lastTool, lastToolResult);
+  if (lastTool === "cancel_order" && !hasSuccessfulCancellation(lastToolResult) && claimsCancellationSuccess(text)) {
+    return "I was unable to confirm the cancellation because the application did not confirm it. Please try again.";
+  }
+  return text;
+}
+
+function extractCustomerText(value: string) {
+  const cleaned = String(value ?? "").replace(/^```(?:json|text|markdown)?/i, "").replace(/```$/i, "").trim();
+  if (!cleaned) return "";
+  try {
+    const parsed = JSON.parse(cleaned) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      for (const key of ["reply", "message", "text"]) {
+        if (typeof record[key] === "string" && record[key].trim()) return record[key].trim();
+      }
+    }
+  } catch {}
+  return cleaned;
+}
+
+function claimsMutationSuccess(text: string) {
+  return /(?:order\s+(?:has been|was|is)\s+(?:cancelled|canceled|updated|rescheduled|created|placed|submitted|accepted|received|completed|deleted)|(?:successfully|success)\s+(?:cancelled|canceled|updated|rescheduled|created|placed|submitted|deleted)|(?:cancelled|canceled|updated|rescheduled|created|placed|submitted|deleted)\s+successfully)/i.test(text);
+}
+
+function claimsCancellationSuccess(text: string) {
+  return /(?:order\s+(?:has been|was|is)\s+(?:cancelled|canceled)|(?:successfully|success)\s+(?:cancelled|canceled)|(?:cancelled|canceled)\s+successfully)/i.test(text);
+}
+
+function hasSuccessfulMutation(tool: string | undefined, result: unknown) {
+  if (!tool || !result || typeof result !== "object") return false;
+  const record = result as Record<string, unknown>;
+  if (record.ok === false || typeof record.error === "string") return false;
+  if (tool === "create_order") return typeof record.id === "string" && typeof record.orderNumber === "string";
+  if (tool === "cancel_order") return record.status === "cancelled" || record.status === "canceled";
+  if (tool === "update_order" || tool === "reschedule_order") return typeof record.id === "string" || typeof record.orderNumber === "string";
+  return tool !== "delete_order";
+}
+
+function hasSuccessfulCancellation(result: unknown) {
+  return hasSuccessfulMutation("cancel_order", result);
+}
+
+function fallbackCustomerReply(lastTool?: string, lastToolResult?: unknown) {
+  if (lastTool === "cancel_order" && !hasSuccessfulCancellation(lastToolResult)) return "I could not confirm the cancellation yet. I will only tell you it was cancelled after the application succeeds. 😊";
+  if (lastTool && !hasSuccessfulMutation(lastTool, lastToolResult) && ["create_order", "update_order", "reschedule_order", "delete_order"].includes(lastTool)) return "I could not confirm that change yet. I will only confirm it after the application succeeds. 😊";
+  return "How can I help you with your Empanada Hauz order? 😊";
 }
 
 function readContent(response: unknown) {
