@@ -289,10 +289,43 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
   }, []);
 
   useEffect(() => {
+    // The Inbox is a realtime consumer itself, so it should never depend on
+    // another component deciding whether the shared singleton is connected.
+    socket.connect();
+
     const handleNotification = (payload: unknown) => {
       if (!isMessengerNotification(payload)) return;
+
+      const notificationPayload = payload.payload;
+      const conversationId = notificationPayload?.conversationId;
+      const conversation = notificationPayload?.conversation;
+      const messageRecord = notificationPayload?.messageRecord;
+
+      if (conversation?.id) {
+        setConversations((current) => {
+          const withoutCurrent = current.filter((item) => item.id !== conversation.id);
+          return [conversation, ...withoutCurrent].slice(0, 100);
+        });
+      }
+
+      if (
+        conversationId &&
+        conversationId === selectedIdRef.current &&
+        messageRecord?.id
+      ) {
+        setMessages((current) => {
+          if (current.some((item) => item.id === messageRecord.id)) {
+            return current;
+          }
+          return [...current, messageRecord].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+        });
+      }
+
+      // Reconcile with REST as a consistency check, but do not wait for it
+      // before showing the pushed Messenger message.
       void loadConversations(true);
-      const conversationId = payload.payload?.conversationId;
       if (conversationId && conversationId === selectedIdRef.current) {
         void loadMessages(conversationId, true);
       }
@@ -436,7 +469,14 @@ export function InboxList({ initialConversations }: { initialConversations: Conv
 
 function isMessengerNotification(
   value: unknown
-): value is { type: string; payload?: { conversationId?: string } } {
+): value is {
+  type: string;
+  payload?: {
+    conversationId?: string;
+    conversation?: Conversation;
+    messageRecord?: Message;
+  };
+} {
   if (typeof value !== "object" || value === null || !("type" in value)) return false;
   const type = (value as { type?: unknown }).type;
   return type === "messenger.message_received" || type === "messenger.message_sent";
