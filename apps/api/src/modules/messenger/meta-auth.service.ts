@@ -114,7 +114,7 @@ export class MetaAuthService implements OnModuleInit {
     try {
       const readCurrent = async () => {
         const currentResult = await this.graphGet<{ data?: MetaWebhookSubscription[] }>(
-          `/${encodeURIComponent(appId)}/subscriptions?object=page`,
+          `/${encodeURIComponent(appId)}/subscriptions`,
           appAccessToken
         );
         return (currentResult.data ?? []).find((item) => item.object === "page");
