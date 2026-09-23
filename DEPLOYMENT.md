@@ -52,7 +52,7 @@ cloudflared tunnel route dns empanada-api api.empanadahauz.com
 
 Only run the DNS commands when the hostname routes do not already exist.
 
-The repository includes `ecosystem.cloudflare.config.js` specifically because passing `tunnel run empanada-api` directly to PM2 on Windows can cause PM2 to interpret `tunnel` as the script path. Use the ecosystem file instead:
+The repository includes `ecosystem.cloudflare.config.js` specifically because passing `tunnel run empanada-api` directly to PM2 on Windows can cause PM2 to interpret `tunnel` as the script path. The ecosystem file uses the installed `cloudflared.exe` and explicitly points at the current Windows user's `.cloudflared\\config.yml`:
 
 ```powershell
 pm2 delete cloudflared
@@ -61,7 +61,15 @@ pm2 save
 pm2 logs cloudflared
 ```
 
-The PM2 entry expects the `cloudflared` executable to be available on PATH, which matches the Windows installation used by this deployment.
+The frontend also has `apps/web/ecosystem.config.js` because the Cloudflare ingress sends the public website to port 3000:
+
+```powershell
+npm run build --workspace @empanada-hauz/web
+pm2 delete empanada-hauz-web
+pm2 start apps/web/ecosystem.config.js
+pm2 save
+pm2 logs empanada-hauz-web
+```
 
 Before starting the tunnel, make sure the local services are healthy:
 
