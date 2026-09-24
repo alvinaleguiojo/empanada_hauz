@@ -448,7 +448,7 @@ export default function CustomerKioskPage() {
 
   if (success) {
     return (
-      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 py-10 text-foreground sm:px-6`}>
+      <main className="kiosk-board flex min-h-screen items-center justify-center px-4 py-10 text-foreground sm:px-6">
         <div className="w-full max-w-lg">
           <div className="overflow-hidden rounded-[28px] border border-line/10 bg-panel/95 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.8)] backdrop-blur">
             <div className="jeepney-stripe h-2 w-full" />
