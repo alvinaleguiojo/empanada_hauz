@@ -25,14 +25,6 @@ import {
 import { apiFetch } from "@/lib/api";
 import { getProductRating, MENU_ITEMS } from "@/lib/menu";
 import { useProductCatalog } from "@/components/products/product-catalog-provider";
-import dynamic from "next/dynamic";
-
-
-const GestureOrdering = dynamic(() => import("@/components/customer/gesture-ordering"), {
-  ssr: false,
-  loading: () => null,
-});
-
 const flavorOptions = MENU_ITEMS;
 const deliveryMethods = [
   { label: "Pickup", value: "pickup" },
@@ -669,8 +661,6 @@ export default function CustomerKioskPage() {
           </aside>
         </div>
       ) : null}
-
-      <GestureOrdering />
 
       <style jsx global>{`.kiosk-board{background:radial-gradient(circle at 8% 2%,rgb(var(--accent) / 0.18),transparent 30rem),radial-gradient(circle at 94% 22%,rgb(23 198 214 / 0.10),transparent 28rem),linear-gradient(135deg,#111827 0%,#151b30 48%,#1b2539 100%)} .jeepney-stripe{background:linear-gradient(135deg,rgb(var(--accent)),#ff8a4d)} .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
     </main>
