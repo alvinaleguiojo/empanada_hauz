@@ -581,12 +581,18 @@ export default function CustomerKioskPage() {
                     const rating = getProductRating(option.value);
                     return (
                       <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-accent/70 bg-panel shadow-[0_12px_35px_-22px_rgb(var(--accent) / 0.9)]" : "border-line/8 bg-panel hover:-translate-y-0.5 hover:border-line/15"} ${soldOut ? "opacity-55" : ""}`}>
-                        <div className="relative aspect-[16/9] overflow-hidden bg-background">
+                        <button
+                          type="button"
+                          onClick={() => toggleFlavor(option.value)}
+                          disabled={soldOut}
+                          aria-label={soldOut ? `${option.label} is sold out` : `${selected ? "Remove" : "Select"} ${option.label}`}
+                          className="relative block aspect-[16/9] w-full overflow-hidden bg-background text-left disabled:cursor-not-allowed"
+                        >
                           {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgb(var(--accent) / 0.18),transparent_60%)]"><span className="font-sans text-4xl text-accent/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[rgb(var(--background))] via-transparent to-transparent" />
                           {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-background/85 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-foreground/65">Sold out</span> : null}
                           {selected ? <span className="absolute bottom-3 right-3 grid h-8 w-8 place-items-center rounded-full bg-accent text-foreground shadow-lg"><Check size={16} /></span> : null}
-                        </div>
+                        </button>
                         <div className="p-4">
                           <button type="button" onClick={() => toggleFlavor(option.value)} disabled={soldOut} className="w-full text-left disabled:cursor-not-allowed">
                             <div className="flex items-start justify-between gap-3">
