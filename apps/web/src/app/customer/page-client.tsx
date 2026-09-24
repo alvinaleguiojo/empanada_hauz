@@ -228,6 +228,10 @@ export default function CustomerKioskPage() {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const { status: catalogStatus } = useProductCatalog();
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLoadingStage("skeleton"), 750);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const summary = useMemo(() => {
