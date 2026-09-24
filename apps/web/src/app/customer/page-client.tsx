@@ -489,7 +489,7 @@ export default function CustomerKioskPage() {
         <header className="sticky top-0 z-40 -mx-3 border-b border-line/10 bg-background/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-foreground shadow-[0_8px_24px_-14px_rgb(var(--accent) / 0.9)]"><ChefHat size={20} /></div>
+              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-accent/20 bg-panel shadow-[0_8px_24px_-14px_rgb(var(--accent) / 0.9)]"><img src="/empanada hauz logo.jpg" alt="Empanada Hauz" className="h-full w-full object-cover" /></div>
               <div className="min-w-0">
                 <div className="font-sans text-base font-extrabold leading-none text-foreground">Empanada Hauz</div>
                 <div className="mt-1 truncate text-xs text-foreground/50">Freshly made, your way.</div>
