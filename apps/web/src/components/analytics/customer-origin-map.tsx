@@ -152,7 +152,7 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold tracking-tight">Customer Origin Map</h3>
-              <span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-accent"><Navigation size={11} /> Live analytics</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-accent"><Navigation size={11} /> Google Maps</span>
             </div>
             <p className="mt-1 text-xs text-foreground/45">Top customer locations from {rangeLabel.toLowerCase()} scheduled or created orders.</p>
           </div>
