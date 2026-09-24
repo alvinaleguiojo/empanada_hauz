@@ -7,7 +7,10 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  CalendarDays,
   ChefHat,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   ExternalLink,
   Flame,
@@ -220,11 +223,11 @@ export default function CustomerKioskPage() {
   const [bagOpen, setBagOpen] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
   const [loadingStage, setLoadingStage] = useState<"splash" | "skeleton">("splash");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const { status: catalogStatus } = useProductCatalog();
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoadingStage("skeleton"), 750);
-    return () => window.clearTimeout(timer);
   }, []);
 
   const summary = useMemo(() => {
@@ -257,6 +260,27 @@ export default function CustomerKioskPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }, []);
+
+  const calendarDays = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const leadingDays = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells: Array<string | null> = Array.from({ length: leadingDays }, () => null);
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+    }
+
+    return cells;
+  }, [calendarMonth]);
+
+  const calendarMonthKey = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonthKey = todayDateString.slice(0, 7);
+  const canGoPreviousMonth = calendarMonthKey > currentMonthKey;
+  const selectedDateLabel = form.deliveryDate
+    ? new Date(`${form.deliveryDate}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    : "Choose a future date";
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -598,7 +622,46 @@ export default function CustomerKioskPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="rounded-2xl border border-line/8 bg-panel p-4"><span className="mb-2.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-foreground/55"><Truck size={14} className="text-accent" /> Delivery method</span><div className="grid grid-cols-2 gap-2">{deliveryMethods.map((option) => <button key={option.value} type="button" onClick={() => { handleChange("deliveryMethod", option.value); if (option.value !== "maxim") setDeliveryQuote(null); }} className={`min-h-12 rounded-xl border px-3 text-sm font-bold transition ${form.deliveryMethod === option.value ? "border-accent/60 bg-accent/12 text-accent" : "border-line/10 bg-background text-foreground/60"}`}>{option.label}</button>)}</div></label>
                   <label className="rounded-2xl border border-line/8 bg-panel p-4"><span className="mb-2.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-foreground/55"><Wallet size={14} className="text-accent" /> Payment</span><div className="grid grid-cols-2 gap-2">{paymentMethods.map((option) => <button key={option.value} type="button" onClick={() => handleChange("paymentMethod", option.value)} className={`min-h-12 rounded-xl border px-3 text-sm font-bold transition ${form.paymentMethod === option.value ? "border-accent/60 bg-accent/12 text-accent" : "border-line/10 bg-background text-foreground/60"}`}>{option.label}</button>)}</div></label>
-                  <label className="rounded-2xl border border-line/8 bg-panel p-4 sm:col-span-2"><span className="mb-2.5 block text-xs font-bold uppercase tracking-[0.14em] text-foreground/55">Preferred date</span><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{Array.from({ length: 7 }, (_, index) => { const date = new Date(); date.setHours(12, 0, 0, 0); date.setDate(date.getDate() + index); const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; return <button key={value} type="button" onClick={() => handleChange("deliveryDate", value)} className={`min-h-14 rounded-xl border px-2 text-left transition ${form.deliveryDate === value ? "border-accent/60 bg-accent/12 text-accent" : "border-line/10 bg-background text-foreground/65"}`}><span className="block text-[10px] uppercase tracking-wider opacity-50">{date.toLocaleDateString(undefined, { weekday: "short" })}</span><span className="mt-1 block font-bold">{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span></button>; })}</div></label>
+                  <label className="rounded-2xl border border-line/8 bg-panel p-4 sm:col-span-2">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-foreground/55"><CalendarDays size={14} className="text-accent" /> Preferred date</span>
+                        <p className="mt-1 text-sm font-semibold text-foreground">{selectedDateLabel}</p>
+                      </div>
+                      <button type="button" onClick={() => { const today = new Date(); setCalendarMonth(new Date(today.getFullYear(), today.getMonth(), 1)); handleChange("deliveryDate", todayDateString); }} className="self-start rounded-lg border border-accent/20 bg-accent/8 px-3 py-2 text-xs font-bold text-accent transition hover:bg-accent/12 sm:self-auto">Today</button>
+                    </div>
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-line/8 bg-background">
+                      <div className="flex items-center justify-between gap-3 border-b border-line/8 px-3 py-3 sm:px-4">
+                        <button type="button" aria-label="Previous month" disabled={!canGoPreviousMonth} onClick={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} className="grid h-9 w-9 place-items-center rounded-lg border border-line/10 text-foreground/65 transition hover:border-accent/30 hover:text-accent disabled:cursor-not-allowed disabled:opacity-25"><ChevronLeft size={17} /></button>
+                        <div className="text-center">
+                          <div className="font-sans text-sm font-extrabold text-foreground sm:text-base">{calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
+                          <p className="mt-0.5 text-[10px] text-foreground/40">Future dates are available</p>
+                        </div>
+                        <button type="button" aria-label="Next month" onClick={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} className="grid h-9 w-9 place-items-center rounded-lg border border-line/10 text-foreground/65 transition hover:border-accent/30 hover:text-accent"><ChevronRight size={17} /></button>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 px-2 pb-2 pt-3 sm:gap-1.5 sm:px-3">
+                        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day} className="pb-1 text-center text-[10px] font-bold uppercase tracking-wider text-foreground/35">{day}</span>)}
+                        {calendarDays.map((value, index) => {
+                          if (!value) return <span key={`empty-${index}`} aria-hidden="true" className="aspect-square" />;
+                          const isPast = value < todayDateString;
+                          const isSelected = form.deliveryDate === value;
+                          const isToday = value === todayDateString;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              disabled={isPast}
+                              onClick={() => handleChange("deliveryDate", value)}
+                              className={`aspect-square rounded-xl border text-sm font-bold transition ${isSelected ? "border-accent/70 bg-accent text-white shadow-[0_8px_20px_-12px_rgb(var(--accent) / 0.9)]" : isPast ? "cursor-not-allowed border-transparent text-foreground/15" : isToday ? "border-accent/35 bg-accent/8 text-accent hover:border-accent/60 hover:bg-accent/12" : "border-transparent text-foreground/70 hover:border-line/15 hover:bg-panel hover:text-foreground"}`}
+                              aria-label={new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                            >
+                              {Number(value.slice(-2))}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </label>
                 </div>
               </div>
             ) : null}
