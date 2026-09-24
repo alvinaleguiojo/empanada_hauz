@@ -456,18 +456,18 @@ export default function CustomerKioskPage() {
               <div className="flex flex-col items-center text-center">
                 <span className="grid h-16 w-16 place-items-center rounded-full bg-success text-foreground shadow-[0_10px_30px_-12px_rgba(122,155,78,0.8)]"><CheckCircle2 size={32} /></span>
                 <span className="mt-5 rounded-full border border-success/30 bg-success/10 px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-success">Order confirmed</span>
-                <h1 className="mt-4 font-[family-name:var(--font-display)] text-4xl text-foreground">Thank you!</h1>
-                <p className="mt-1 font-[family-name:var(--font-script)] text-xl text-foreground/65">salamat po — we're on it</p>
-                {success.orderNumber ? <p className="mt-5 rounded-xl border border-dashed border-line/20 bg-[#1a140d] px-4 py-2 font-[family-name:var(--font-mono)] text-sm text-foreground/75">Order {success.orderNumber}</p> : null}
+                <h1 className="mt-4 font-sans text-4xl text-foreground">Thank you!</h1>
+                <p className="mt-1 font-sans text-xl text-foreground/65">salamat po — we're on it</p>
+                {success.orderNumber ? <p className="mt-5 rounded-xl border border-dashed border-line/20 bg-background px-4 py-2 font-mono text-sm text-foreground/75">Order {success.orderNumber}</p> : null}
                 <p className="mt-5 max-w-sm text-sm leading-6 text-foreground/60">Keep your tracking link handy so you can check your order status anytime.</p>
                 <div className="mt-5 grid w-full gap-2.5">
-                  <input readOnly value={success.trackingUrl} className="w-full min-w-0 rounded-xl border border-line/10 bg-[#1a140d] px-4 py-3 text-center font-[family-name:var(--font-mono)] text-xs text-foreground/75 outline-none" />
+                  <input readOnly value={success.trackingUrl} className="w-full min-w-0 rounded-xl border border-line/10 bg-background px-4 py-3 text-center font-mono text-xs text-foreground/75 outline-none" />
                   <div className="grid grid-cols-2 gap-2.5">
-                    <button type="button" onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-line/10 bg-[#2b2117] px-3 py-3 font-semibold text-foreground transition hover:bg-[#35281c]"><Copy size={15} /> Copy</button>
-                    <a href={success.trackingPath} className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-3 py-3 font-semibold text-foreground transition hover:bg-[#f1b65f]">Track order <ExternalLink size={15} /></a>
+                    <button type="button" onClick={() => void navigator.clipboard?.writeText(success.trackingUrl)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-line/10 bg-panel px-3 py-3 font-semibold text-foreground transition hover:bg-white/[0.08]"><Copy size={15} /> Copy</button>
+                    <a href={success.trackingPath} className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-3 py-3 font-semibold text-foreground transition hover:bg-accent/90">Track order <ExternalLink size={15} /></a>
                   </div>
                 </div>
-                <button type="button" onClick={handleStartNewOrder} className="mt-6 w-full rounded-xl bg-accent px-5 py-3.5 text-sm font-bold uppercase tracking-[0.08em] text-foreground shadow-[0_10px_28px_-14px_rgba(192,71,43,0.9)] transition hover:bg-[#ff8a4d]">Place another order</button>
+                <button type="button" onClick={handleStartNewOrder} className="mt-6 w-full rounded-xl bg-accent px-5 py-3.5 text-sm font-bold uppercase tracking-[0.08em] text-foreground shadow-[0_10px_28px_-14px_rgb(var(--accent) / 0.9)] transition hover:bg-[#ff8a4d]">Place another order</button>
               </div>
             </div>
           </div>
@@ -483,7 +483,7 @@ export default function CustomerKioskPage() {
         const complete = index < step;
         return (
           <button key={item.title} type="button" onClick={() => complete && setStep(index)} disabled={!complete && !active} className={`group flex shrink-0 items-center gap-2.5 rounded-full border px-3.5 py-2 transition ${active ? "border-accent/70 bg-accent/12 text-foreground" : complete ? "border-success/35 bg-success/8 text-success" : "border-line/10 text-foreground/35"}`}>
-            <span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-extrabold ${active ? "bg-accent text-foreground" : complete ? "bg-success text-[rgb(var(--background))]" : "bg-[#34271a] text-foreground/40"}`}>{complete ? <Check size={13} /> : index + 1}</span>
+            <span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-extrabold ${active ? "bg-accent text-foreground" : complete ? "bg-success text-[rgb(var(--background))]" : "bg-line/40 text-foreground/40"}`}>{complete ? <Check size={13} /> : index + 1}</span>
             <span className="font-semibold">{item.title}</span>
           </button>
         );
@@ -499,15 +499,15 @@ export default function CustomerKioskPage() {
             <div className="flex min-w-0 items-center gap-3">
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-foreground shadow-[0_8px_24px_-14px_rgb(var(--accent) / 0.9)]"><ChefHat size={20} /></div>
               <div className="min-w-0">
-                <div className="font-[family-name:var(--font-display)] text-base font-extrabold leading-none text-foreground">Empanada Hauz</div>
+                <div className="font-sans text-base font-extrabold leading-none text-foreground">Empanada Hauz</div>
                 <div className="mt-1 truncate text-xs text-foreground/50">Freshly made, your way.</div>
               </div>
             </div>
-            <button type="button" onClick={() => setBagOpen(true)} aria-label={`Open bag with ${summary.totalQuantity} pieces`} className="inline-flex items-center gap-2 rounded-full border border-line/10 bg-panel px-3 py-2 transition hover:border-accent/30 hover:bg-[#2b2117]">
+            <button type="button" onClick={() => setBagOpen(true)} aria-label={`Open bag with ${summary.totalQuantity} pieces`} className="inline-flex items-center gap-2 rounded-full border border-line/10 bg-panel px-3 py-2 transition hover:border-accent/30 hover:bg-panel">
               <ShoppingBag size={15} className="text-accent" />
-              <span className="font-[family-name:var(--font-mono)] text-xs font-semibold text-foreground">{summary.totalQuantity} pcs</span>
+              <span className="font-mono text-xs font-semibold text-foreground">{summary.totalQuantity} pcs</span>
               <span className="hidden text-foreground/30 sm:inline">·</span>
-              <span className="hidden font-[family-name:var(--font-mono)] text-xs font-semibold text-accent sm:inline">Php {summary.total}</span>
+              <span className="hidden font-mono text-xs font-semibold text-accent sm:inline">Php {summary.total}</span>
             </button>
           </div>
         </header>
@@ -521,15 +521,15 @@ export default function CustomerKioskPage() {
           <div className="grid gap-8 px-5 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.75fr] lg:px-10 lg:py-10">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-accent">Made to order <span className="h-1 w-1 rounded-full bg-accent/60" /> 10 pcs minimum</div>
-              <h1 className="mt-4 max-w-3xl font-[family-name:var(--font-display)] text-4xl font-extrabold leading-[1.02] tracking-tight text-foreground sm:text-5xl lg:text-6xl">Build your box.<br /><span className="text-accent">We'll handle the rest.</span></h1>
+              <h1 className="mt-4 max-w-3xl font-sans text-4xl font-extrabold leading-[1.02] tracking-tight text-foreground sm:text-5xl lg:text-6xl">Build your box.<br /><span className="text-accent">We'll handle the rest.</span></h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-foreground/60 sm:text-base">Choose your favorite flavors, set your quantities, then tell us where to send your freshly made empanadas.</p>
               <Link href="/delivery-fee" className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-accent underline underline-offset-4">Check delivery fee first →</Link>
               <div className="mt-6 hidden lg:block" />
             </div>
             <div className="hidden lg:flex lg:items-end lg:justify-end">
-              <div className="max-w-xs rounded-2xl border border-dashed border-line/15 bg-[#1a140d] p-5 text-right">
-                <div className="font-[family-name:var(--font-script)] text-2xl text-foreground/70">fresh from the pan</div>
-                <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.2em] text-foreground/35">packed with care · delivered with love</div>
+              <div className="max-w-xs rounded-2xl border border-dashed border-line/15 bg-background p-5 text-right">
+                <div className="font-sans text-2xl text-foreground/70">fresh from the pan</div>
+                <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/35">packed with care · delivered with love</div>
               </div>
             </div>
           </div>
@@ -541,8 +541,8 @@ export default function CustomerKioskPage() {
               <>
                 <div className="flex flex-col gap-4 border-b border-line/10 pb-5 sm:flex-row sm:items-end sm:justify-between">
                   <div>
-                    <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Step 1 · shop</p>
-                    <h2 className="mt-1.5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-foreground sm:text-3xl">Choose your flavors</h2>
+                    <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Step 1 · shop</p>
+                    <h2 className="mt-1.5 font-sans text-2xl font-extrabold text-foreground sm:text-3xl">Choose your flavors</h2>
                     <p className="mt-1 text-sm text-foreground/50">Tap a flavor to add it. Then adjust your quantity.</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -563,19 +563,19 @@ export default function CustomerKioskPage() {
                       <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-accent/70 bg-panel shadow-[0_12px_35px_-22px_rgb(var(--accent) / 0.9)]" : "border-line/8 bg-panel hover:-translate-y-0.5 hover:border-line/15"} ${soldOut ? "opacity-55" : ""}`}>
                         <ProductBadges option={option} />
                         <div className="relative aspect-[16/9] overflow-hidden bg-background">
-                          {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgba(227,166,75,.18),transparent_60%)]"><span className="font-[family-name:var(--font-script)] text-4xl text-accent/55">EH</span></div>}
+                          {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgb(var(--accent) / 0.18),transparent_60%)]"><span className="font-sans text-4xl text-accent/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[rgb(var(--background))] via-transparent to-transparent" />
-                          {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-background/85 px-2.5 py-1 font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.16em] text-foreground/65">Sold out</span> : null}
+                          {soldOut ? <span className="absolute bottom-3 left-3 rounded-full bg-background/85 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-foreground/65">Sold out</span> : null}
                           {selected ? <span className="absolute bottom-3 right-3 grid h-8 w-8 place-items-center rounded-full bg-accent text-foreground shadow-lg"><Check size={16} /></span> : null}
                         </div>
                         <div className="p-4">
                           <button type="button" onClick={() => toggleFlavor(option.value)} disabled={soldOut} className="w-full text-left disabled:cursor-not-allowed">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <h3 className="truncate font-[family-name:var(--font-display)] text-lg font-extrabold text-foreground">{option.value}</h3>
+                                <h3 className="truncate font-sans text-lg font-extrabold text-foreground">{option.value}</h3>
                                 {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-foreground/45">{option.description}</p> : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                                  <div className="font-[family-name:var(--font-mono)] text-sm font-semibold text-accent">Php {option.price}</div>
+                                  <div className="font-mono text-sm font-semibold text-accent">Php {option.price}</div>
                                   {rating ? (
                                     <div className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/8 px-2 py-1 text-[10px] font-bold text-accent">
                                       <Star size={11} fill="currentColor" />
@@ -587,7 +587,7 @@ export default function CustomerKioskPage() {
                               </div>
                             </div>
                           </button>
-                          {selected ? <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-2 border-t border-line/8 pt-3"><div className="grid h-11 grid-cols-[38px_minmax(0,1fr)_38px] overflow-hidden rounded-xl border border-line/10 bg-background"><button type="button" aria-label={`Decrease ${option.label}`} onClick={() => stepFlavorQuantity(option.value, -1)} className="flex items-center justify-center border-r border-line/10 text-accent transition hover:bg-accent/8"><Minus size={15} /></button><input type="text" inputMode="numeric" pattern="[0-9]*" aria-label={`${option.label} quantity`} value={selected.quantity} onChange={(event) => updateFlavorQuantity(option.value, event.target.value)} onFocus={(event) => event.currentTarget.select()} className="h-full min-w-0 bg-transparent text-center font-[family-name:var(--font-mono)] text-sm font-bold text-foreground outline-none" /><button type="button" aria-label={`Increase ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 1)} className="flex items-center justify-center border-l border-line/10 text-accent transition hover:bg-accent/8"><Plus size={15} /></button></div><button type="button" aria-label={`Add 5 ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 5)} className="h-11 rounded-xl border border-accent/20 bg-accent/8 px-3 font-[family-name:var(--font-mono)] text-[11px] font-bold text-accent">+5</button></div> : null}
+                          {selected ? <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-2 border-t border-line/8 pt-3"><div className="grid h-11 grid-cols-[38px_minmax(0,1fr)_38px] overflow-hidden rounded-xl border border-line/10 bg-background"><button type="button" aria-label={`Decrease ${option.label}`} onClick={() => stepFlavorQuantity(option.value, -1)} className="flex items-center justify-center border-r border-line/10 text-accent transition hover:bg-accent/8"><Minus size={15} /></button><input type="text" inputMode="numeric" pattern="[0-9]*" aria-label={`${option.label} quantity`} value={selected.quantity} onChange={(event) => updateFlavorQuantity(option.value, event.target.value)} onFocus={(event) => event.currentTarget.select()} className="h-full min-w-0 bg-transparent text-center font-mono text-sm font-bold text-foreground outline-none" /><button type="button" aria-label={`Increase ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 1)} className="flex items-center justify-center border-l border-line/10 text-accent transition hover:bg-accent/8"><Plus size={15} /></button></div><button type="button" aria-label={`Add 5 ${option.label}`} onClick={() => stepFlavorQuantity(option.value, 5)} className="h-11 rounded-xl border border-accent/20 bg-accent/8 px-3 font-mono text-[11px] font-bold text-accent">+5</button></div> : null}
                         </div>
                       </article>
                     );
@@ -599,8 +599,8 @@ export default function CustomerKioskPage() {
             {step === 1 ? (
               <div className="space-y-5">
                 <div>
-                  <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Step 2 · details</p>
-                  <h2 className="mt-1.5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-foreground sm:text-3xl">How should we get it to you?</h2>
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Step 2 · details</p>
+                  <h2 className="mt-1.5 font-sans text-2xl font-extrabold text-foreground sm:text-3xl">How should we get it to you?</h2>
                   <p className="mt-1 text-sm text-foreground/50">Pick your delivery method, payment, and preferred date.</p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -614,8 +614,8 @@ export default function CustomerKioskPage() {
             {step === 2 ? (
               <div className="space-y-5">
                 <div>
-                  <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Step 3 · review</p>
-                  <h2 className="mt-1.5 font-[family-name:var(--font-display)] text-2xl font-extrabold text-foreground sm:text-3xl">Almost there.</h2>
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-accent">Step 3 · review</p>
+                  <h2 className="mt-1.5 font-sans text-2xl font-extrabold text-foreground sm:text-3xl">Almost there.</h2>
                   <p className="mt-1 text-sm text-foreground/50">Add your contact and delivery details, then place your order.</p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -633,7 +633,7 @@ export default function CustomerKioskPage() {
           </section>
         </form>
 
-        <p className="py-4 text-center font-[family-name:var(--font-script)] text-lg text-foreground/35">made fresh daily by Empanada Hauz</p>
+        <p className="py-4 text-center font-sans text-lg text-foreground/35">made fresh daily by Empanada Hauz</p>
       </div>
 
       {bagOpen ? (
@@ -642,19 +642,19 @@ export default function CustomerKioskPage() {
           <aside className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-panel text-foreground shadow-[-24px_0_80px_-40px_rgba(0,0,0,0.85)]">
             <div className="flex items-center justify-between border-b border-dashed border-line/15 px-5 py-5 sm:px-6">
               <div>
-                <div className="flex items-center gap-2 font-[family-name:var(--font-display)] text-sm font-extrabold uppercase tracking-[0.16em]"><ShoppingBag size={17} /> Your bag</div>
+                <div className="flex items-center gap-2 font-sans text-sm font-extrabold uppercase tracking-[0.16em]"><ShoppingBag size={17} /> Your bag</div>
                 <p className="mt-1.5 text-xs text-foreground/45">Your selections update live.</p>
               </div>
               <button type="button" onClick={() => setBagOpen(false)} aria-label="Close bag" className="grid h-10 w-10 place-items-center rounded-full border border-line/10 bg-panel/5 transition hover:bg-panel/10"><X size={18} /></button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto px-5 py-4 sm:px-6">
               {summary.items.length > 0 ? summary.items.map((item) => (
-                <div key={item.name} className="flex items-center justify-between gap-3 border-b border-line/7 py-3 first:pt-0 last:border-b-0"><div className="min-w-0"><div className="truncate text-sm font-bold">{item.name}</div><div className="mt-0.5 font-[family-name:var(--font-mono)] text-[11px] text-foreground/45">{item.quantity} × Php {item.price}</div></div><div className="shrink-0 font-[family-name:var(--font-mono)] text-sm font-bold">Php {item.subtotal}</div></div>
+                <div key={item.name} className="flex items-center justify-between gap-3 border-b border-line/7 py-3 first:pt-0 last:border-b-0"><div className="min-w-0"><div className="truncate text-sm font-bold">{item.name}</div><div className="mt-0.5 font-mono text-[11px] text-foreground/45">{item.quantity} × Php {item.price}</div></div><div className="shrink-0 font-mono text-sm font-bold">Php {item.subtotal}</div></div>
               )) : <div className="py-16 text-center"><ShoppingBag className="mx-auto text-foreground/20" size={30} /><p className="mt-3 text-sm font-semibold text-foreground/45">Your bag is empty.</p><p className="mt-1 text-xs text-foreground/35">Pick a flavor to get started.</p></div>}
             </div>
             <div className="border-t border-dashed border-line/15 px-5 py-5 sm:px-6">
-              {form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mb-3 flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-1.5 text-foreground/55"><Truck size={14} /> {quotingDelivery ? "Estimating delivery…" : "Est. delivery"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km` : ""}</span><span className="font-[family-name:var(--font-mono)] font-bold">{quotingDelivery ? "…" : deliveryQuote ? `Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}
-              <div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[0.18em] text-foreground/45">Total</div><div className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold">Php {summary.total}</div></div><div className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${summary.totalQuantity >= 10 ? "bg-success/15 text-success" : "bg-danger/10 text-danger"}`}>{summary.totalQuantity >= 10 ? "Minimum reached" : `${remaining} pcs to go`}</div></div>
+              {form.deliveryMethod === "maxim" && form.address.trim() ? <div className="mb-3 flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-1.5 text-foreground/55"><Truck size={14} /> {quotingDelivery ? "Estimating delivery…" : "Est. delivery"}{!quotingDelivery && deliveryQuote?.distanceKm != null ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km` : ""}</span><span className="font-mono font-bold">{quotingDelivery ? "…" : deliveryQuote ? `Php ${deliveryQuote.estimatedFare}` : "—"}</span></div> : null}
+              <div className="flex items-end justify-between gap-4"><div><div className="text-[10px] font-bold uppercase tracking-[0.18em] text-foreground/45">Total</div><div className="mt-1 font-mono text-2xl font-bold">Php {summary.total}</div></div><div className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${summary.totalQuantity >= 10 ? "bg-success/15 text-success" : "bg-danger/10 text-danger"}`}>{summary.totalQuantity >= 10 ? "Minimum reached" : `${remaining} pcs to go`}</div></div>
               {form.deliveryMethod === "maxim" ? <p className="mt-2 text-[10px] leading-4 text-foreground/40">Delivery total uses an estimate until our team confirms the final fare.</p> : null}
               <div className="mt-4 grid gap-2">
                 <button type="button" onClick={() => void copyOrderSummary()} disabled={summary.items.length === 0} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line/12 bg-panel/4 px-4 text-sm font-bold text-foreground transition hover:bg-panel/8 disabled:cursor-not-allowed disabled:opacity-35"><Copy size={16} /> {summaryCopied ? "Copied!" : "Copy summary"}</button>
@@ -662,8 +662,8 @@ export default function CustomerKioskPage() {
                   <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0} data-gesture-prev className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-line/12 bg-panel/4 text-foreground disabled:cursor-not-allowed disabled:opacity-25"><ArrowLeft size={17} /></button>
                   {step < steps.length - 1 ? <button type="button" onClick={() => { setStep((current) => current + 1); setBagOpen(false); }} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#ff8a4d] disabled:cursor-not-allowed disabled:opacity-35" data-gesture-next>Continue <ArrowRight size={16} /></button> : <button type="submit" form="kiosk-order-form" disabled={submitting || !agreedToPolicy} onClick={() => setBagOpen(false)} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-extrabold uppercase tracking-[0.06em] text-white shadow-[0_10px_26px_-15px_rgba(192,71,43,0.95)] transition hover:bg-[#ff8a4d] disabled:cursor-not-allowed disabled:opacity-35" data-gesture-next>{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>}
                 </div>
-                {step === 0 && summary.totalQuantity < 10 ? <p className="text-center font-[family-name:var(--font-script)] text-sm text-danger">add {remaining} more piece{remaining === 1 ? "" : "s"} po</p> : null}
-                {step === 2 && !agreedToPolicy ? <p className="text-center font-[family-name:var(--font-script)] text-sm text-danger">please agree to the Privacy Policy to continue</p> : null}
+                {step === 0 && summary.totalQuantity < 10 ? <p className="text-center font-sans text-sm text-danger">add {remaining} more piece{remaining === 1 ? "" : "s"} po</p> : null}
+                {step === 2 && !agreedToPolicy ? <p className="text-center font-sans text-sm text-danger">please agree to the Privacy Policy to continue</p> : null}
               </div>
             </div>
           </aside>
