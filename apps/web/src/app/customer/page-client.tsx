@@ -247,7 +247,9 @@ export default function CustomerKioskPage() {
     const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
     const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
     const deliveryFee = form.deliveryMethod === "maxim" ? deliveryQuote?.estimatedFare ?? 0 : 0;
-    return { items, totalQuantity, subtotal, deliveryFee, total: subtotal + deliveryFee };\n  }, [selectedFlavors, deliveryQuote, form.deliveryMethod]);
+    return { items, totalQuantity, subtotal, deliveryFee, total: subtotal + deliveryFee };
+  }, [selectedFlavors, deliveryQuote, form.deliveryMethod]);
+
   const visibleFlavorOptions = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return flavorOptions;
@@ -495,8 +497,10 @@ export default function CustomerKioskPage() {
         <header className="sticky top-0 z-40 -mx-3 border-b border-line/10 bg-background/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-foreground shadow-[0_8px_24px_-14px_rgb(var(--accent) / 0.9)]"><ChefHat size={20} /></div>\n              <div className="min-w-0">
-                <div className="font-sans text-base font-extrabold leading-none text-foreground">Empanada Hauz</div>                <div className="mt-1 truncate text-xs text-foreground/50">Freshly made, your way.</div>
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-foreground shadow-[0_8px_24px_-14px_rgb(var(--accent) / 0.9)]"><ChefHat size={20} /></div>
+              <div className="min-w-0">
+                <div className="font-sans text-base font-extrabold leading-none text-foreground">Empanada Hauz</div>
+                <div className="mt-1 truncate text-xs text-foreground/50">Freshly made, your way.</div>
               </div>
             </div>
             <button type="button" onClick={() => setBagOpen(true)} aria-label={`Open bag with ${summary.totalQuantity} pieces`} className="inline-flex items-center gap-2 rounded-full border border-line/10 bg-panel px-3 py-2 transition hover:border-accent/30 hover:bg-panel">
