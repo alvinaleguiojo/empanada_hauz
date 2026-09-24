@@ -1,0 +1,85 @@
+2026-09-23T08:33:27:    ▲ Next.js 15.5.25
+2026-09-23T08:33:27:    - Local:        http://localhost:3000
+2026-09-23T08:33:27:    - Network:      http://192.168.192.1:3000
+2026-09-23T08:33:27: 
+2026-09-23T08:33:27:  ✓ Starting...
+2026-09-23T08:33:29:  ✓ Ready in 2.2s
+2026-09-23T08:41:27:    ▲ Next.js 15.5.25
+2026-09-23T08:41:27:    - Local:        http://localhost:3000
+2026-09-23T08:41:27:    - Network:      http://192.168.192.1:3000
+2026-09-23T08:41:27: 
+2026-09-23T08:41:27:  ✓ Starting...
+2026-09-23T08:41:28:  ✓ Ready in 2s
+2026-09-23T08:45:58:    ▲ Next.js 15.5.25
+2026-09-23T08:45:58:    - Local:        http://localhost:3000
+2026-09-23T08:45:58:    - Network:      http://192.168.192.1:3000
+2026-09-23T08:45:58: 
+2026-09-23T08:45:58:  ✓ Starting...
+2026-09-23T08:45:59:  ✓ Ready in 2s
+2026-09-23T08:49:58:    ▲ Next.js 15.5.25
+2026-09-23T08:49:58:    - Local:        http://localhost:3000
+2026-09-23T08:49:58:    - Network:      http://192.168.192.1:3000
+2026-09-23T08:49:58: 
+2026-09-23T08:49:58:  ✓ Starting...
+2026-09-23T08:50:00:  ✓ Ready in 1923ms
+2026-09-23T08:52:46: [Realtime] Socket.IO connected: 1Ao2xsYVJlgTPLHEAAAB
+2026-09-23T08:57:17: [Realtime] Socket.IO connected: p3K8lJT4Ad51tTP-AAAD
+2026-09-23T08:58:39: [Realtime] Socket.IO connected: B1tm6iBlRxfbL4dCAAAD
+2026-09-23T09:04:04: [Realtime] Socket.IO connected: tbefV142W-7pD0GNAAAB
+2026-09-23T09:10:31: [Realtime] Socket.IO connected: 3_oQibz4BA0CiKSCAAAB
+2026-09-23T09:12:51: [Realtime] Socket.IO connected: v1_WhlS84tk3A1r7AAAD
+2026-09-23T09:26:00: [Realtime] Socket.IO connected: Czg3a0KRFYUWh2shAAAB
+2026-09-23T09:31:01: [Realtime] Socket.IO connected: WdoORh-NU_vy-p6iAAAD
+2026-09-23T09:31:46: [Realtime] Socket.IO connected: dI-C3ssBqHtzLk69AAAD
+2026-09-23T09:32:48: [Realtime] Socket.IO connected: x2Dy94RuZFkpup_nAAAD
+2026-09-23T09:37:34: [Realtime] Socket.IO connected: Ce1i27ai3RJ8XYM9AAAB
+2026-09-23T09:53:36: [Realtime] Socket.IO connected: I44R3EDqlgxWp7dXAAAC
+2026-09-23T10:04:57: [Realtime] Socket.IO connected: mZzpwFnOVfhMas5KAAAF
+2026-09-23T10:09:48: [Realtime] Socket.IO connected: o8kDjgYnrGbDtOCcAAAF
+2026-09-23T10:11:40: [Realtime] Socket.IO connected: UT6-J0wb12xQabxnAAAD
+2026-09-23T10:13:23: [Realtime] Socket.IO connected: gjyVUoZJBemplllVAAAB
+2026-09-23T10:18:05:    ▲ Next.js 15.5.25
+2026-09-23T10:18:05:    - Local:        http://localhost:3000
+2026-09-23T10:18:05:    - Network:      http://192.168.192.1:3000
+2026-09-23T10:18:05: 
+2026-09-23T10:18:05:  ✓ Starting...
+2026-09-23T10:18:06:  ✓ Ready in 1979ms
+2026-09-23T10:18:45: [Realtime] Socket.IO connected: ra8fsCgyAi_XKcDPAAAM
+2026-09-23T10:21:19: [Realtime] Socket.IO reconnect attempt: 1
+2026-09-23T10:21:21: [Realtime] Socket.IO reconnect attempt: 2
+2026-09-23T10:21:25: [Realtime] Socket.IO reconnect attempt: 3
+2026-09-23T10:21:33: [Realtime] Socket.IO reconnect attempt: 4
+2026-09-23T10:21:44: [Realtime] Socket.IO reconnect attempt: 5
+2026-09-23T10:21:54: [Realtime] Socket.IO reconnect attempt: 6
+2026-09-23T10:21:55: [Realtime] Socket.IO reconnected after attempts: 6
+2026-09-23T10:21:56: [Realtime] Socket.IO connected: jH0SA7yIHOTzV4WKAAAB
+2026-09-23T10:31:47: [Realtime] Socket.IO reconnect attempt: 1
+2026-09-23T10:31:47: [Realtime] Socket.IO reconnected after attempts: 1
+2026-09-23T10:31:48: [Realtime] Socket.IO connected: ihck4qp0FunAuiA5AAAP
+2026-09-23T10:35:12: [Realtime] Socket.IO reconnect attempt: 1
+2026-09-23T10:35:14: [Realtime] Socket.IO reconnect attempt: 2
+2026-09-23T10:35:19: [Realtime] Socket.IO reconnect attempt: 3
+2026-09-23T10:35:27: [Realtime] Socket.IO reconnect attempt: 4
+2026-09-23T10:35:37: [Realtime] Socket.IO reconnect attempt: 5
+2026-09-23T10:35:48: [Realtime] Socket.IO reconnect attempt: 6
+2026-09-23T10:35:48: [Realtime] Socket.IO reconnected after attempts: 6
+2026-09-23T10:35:49: [Realtime] Socket.IO connected: clBgp8jUeFX4i0LPAAAD
+2026-09-23T10:59:04: [Realtime] Socket.IO reconnect attempt: 1
+2026-09-23T10:59:06: [Realtime] Socket.IO reconnect attempt: 2
+2026-09-23T10:59:12: [Realtime] Socket.IO reconnect attempt: 3
+2026-09-23T10:59:22: [Realtime] Socket.IO reconnect attempt: 4
+2026-09-23T10:59:33: [Realtime] Socket.IO reconnect attempt: 5
+2026-09-23T10:59:33: [Realtime] Socket.IO reconnected after attempts: 5
+2026-09-23T10:59:34: [Realtime] Socket.IO connected: I0L6yj0J2SbBa3CWAAAB
+2026-09-23T12:05:14:    ▲ Next.js 15.5.25
+2026-09-23T12:05:14:    - Local:        http://localhost:3000
+2026-09-23T12:05:14:    - Network:      http://192.168.192.1:3000
+2026-09-23T12:05:14: 
+2026-09-23T12:05:14:  ✓ Starting...
+2026-09-23T12:05:20:  ✓ Ready in 10.5s
+2026-09-23T12:06:02:    ▲ Next.js 15.5.25
+2026-09-23T12:06:02:    - Local:        http://localhost:3000
+2026-09-23T12:06:02:    - Network:      http://192.168.192.1:3000
+2026-09-23T12:06:02: 
+2026-09-23T12:06:02:  ✓ Starting...
+2026-09-23T12:06:04:  ✓ Ready in 2.4s

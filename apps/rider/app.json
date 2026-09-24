@@ -60,6 +60,12 @@
           "androidGoogleMapsApiKey": "process.env.GOOGLE_MAPS_ANDROID_API_KEY"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "googleRoutesApiKey": "",
+      "eas": {
+        "projectId": "5783316f-7e43-4cb1-bbb0-ba3fba8e683b"
+      }
+    }
   }
 }

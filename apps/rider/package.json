@@ -12,16 +12,17 @@
   },
   "dependencies": {
     "expo": "~57.0.15",
+    "expo-dev-client": "~57.0.19",
     "expo-location": "~57.0.12",
     "expo-secure-store": "~57.0.1",
+    "expo-speech": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "expo-task-manager": "~57.0.11",
     "react": "19.2.3",
     "react-native": "0.86.2",
     "react-native-maps": "1.27.2",
     "react-native-safe-area-context": "~5.7.0",
-    "socket.io-client": "^4.8.1",
-    "expo-speech": "~57.0.3"
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
