@@ -454,7 +454,7 @@ export default function CustomerKioskPage() {
             <div className="jeepney-stripe h-2 w-full" />
             <div className="p-7 sm:p-10">
               <div className="flex flex-col items-center text-center">
-                <span className="grid h-16 w-16 place-items-center rounded-full bg-success text-foreground shadow-[0_10px_30px_-12px_rgba(122,155,78,0.8)]"><CheckCircle2 size={32} /></span>
+                <span className="grid h-16 w-16 place-items-center rounded-full bg-success text-foreground shadow-[0_10px_30px_-12px_rgb(var(--success) / 0.8)]"><CheckCircle2 size={32} /></span>
                 <span className="mt-5 rounded-full border border-success/30 bg-success/10 px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-success">Order confirmed</span>
                 <h1 className="mt-4 font-sans text-4xl text-foreground">Thank you!</h1>
                 <p className="mt-1 font-sans text-xl text-foreground/65">salamat po — we're on it</p>
