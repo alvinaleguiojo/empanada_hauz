@@ -465,7 +465,6 @@ function buildTopLocations(orders: Array<{ address?: string | null; location?: s
 
   return [...locations.values()]
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-    .slice(0, 5)
     .map((location) => ({
       location: location.label,
       _count: {
