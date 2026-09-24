@@ -183,7 +183,7 @@ function ProductBadges({ option }: { option: (typeof MENU_ITEMS)[number] }) {
   if (!option.isFeatured && !option.isNew && !bestSeller && otherTags.length === 0) return null;
 
   return (
-    <div className="absolute left-3 top-3 z-10 flex max-w-[85%] flex-wrap gap-1.5">
+    <div className="mt-2 flex max-w-full flex-wrap gap-1.5">
       {bestSeller ? (
         <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white shadow-sm">
           <Flame size={10} /> Best seller
@@ -581,7 +581,6 @@ export default function CustomerKioskPage() {
                     const rating = getProductRating(option.value);
                     return (
                       <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-accent/70 bg-panel shadow-[0_12px_35px_-22px_rgb(var(--accent) / 0.9)]" : "border-line/8 bg-panel hover:-translate-y-0.5 hover:border-line/15"} ${soldOut ? "opacity-55" : ""}`}>
-                        <ProductBadges option={option} />
                         <div className="relative aspect-[16/9] overflow-hidden bg-background">
                           {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgb(var(--accent) / 0.18),transparent_60%)]"><span className="font-sans text-4xl text-accent/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[rgb(var(--background))] via-transparent to-transparent" />
@@ -592,7 +591,8 @@ export default function CustomerKioskPage() {
                           <button type="button" onClick={() => toggleFlavor(option.value)} disabled={soldOut} className="w-full text-left disabled:cursor-not-allowed">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <h3 className="truncate font-sans text-lg font-extrabold text-foreground">{option.value}</h3>
+                                <h3 className="font-sans text-lg font-extrabold text-foreground">{option.value}</h3>
+                                <ProductBadges option={option} />
                                 {option.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-foreground/45">{option.description}</p> : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
                                   <div className="font-mono text-sm font-semibold text-accent">Php {option.price}</div>
