@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { API_URL } from "@/lib/config";
 
 type GooglePlace = {
   formatted_address?: string;
@@ -169,7 +170,7 @@ export default function CustomerGooglePlacesAutocomplete() {
       let apiKey: string | undefined;
 
       try {
-        const response = await fetch("/api/google-maps-key", { cache: "no-store" });
+        const response = await fetch(`${API_URL}/google-maps-key`, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`Google Maps key endpoint returned ${response.status}`);
         }
