@@ -47,7 +47,7 @@ let mapsLoader: Promise<any> | null = null;
 async function loadGoogleMaps() {
   if ((window as GoogleMapsWindow).google?.maps) return (window as GoogleMapsWindow).google!.maps;
   if (mapsLoader) return mapsLoader;
-  mapsLoader = fetch("/api/google-maps-key", { cache: "no-store" }).then(async (response) => {
+  mapsLoader = fetch(`${API_URL}/google-maps-key`, { cache: "no-store" }).then(async (response) => {
     if (!response.ok) throw new Error(`Google Maps key endpoint returned ${response.status}`);
     const data = await response.json() as { apiKey?: string };
     const key = data.apiKey?.trim();
@@ -59,7 +59,7 @@ async function loadGoogleMaps() {
       return (window as GoogleMapsWindow).google!.maps;
     }
     await new Promise<void>((resolve, reject) => {
-      const script = document.createElement("script"); script.id = "empanada-google-maps"; script.async = true; script.defer = true; script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}`; script.onload = () => resolve(); script.onerror = () => reject(new Error("Unable to load Google Maps.")); document.head.appendChild(script);
+      const script = document.createElement("script"); script.id = "empanada-google-maps"; script.async = true; script.defer = true; script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&loading=async&libraries=marker`; script.onload = () => resolve(); script.onerror = () => reject(new Error("Unable to load Google Maps.")); document.head.appendChild(script);
     });
     return (window as GoogleMapsWindow).google!.maps;
   });
@@ -69,8 +69,21 @@ async function loadGoogleMaps() {
 function point(value?: { latitude?: number | null; longitude?: number | null } | null) {
   return value && Number.isFinite(Number(value.latitude)) && Number.isFinite(Number(value.longitude)) ? { lat: Number(value.latitude), lng: Number(value.longitude) } : null;
 }
-function riderIcon(maps: any) { return { path: maps.SymbolPath.CIRCLE, scale: 9, fillColor: "#FFFFFF", fillOpacity: 1, strokeColor: RIDER_ORANGE, strokeWeight: 3 }; }
-function endpointIcon(maps: any, kind: "Pickup" | "Drop-off") { return { path: maps.SymbolPath.CIRCLE, scale: 13, fillColor: kind === "Pickup" ? RIDER_ORANGE : RIDER_RED, fillOpacity: 1, strokeColor: "#FFFFFF", strokeWeight: 3 }; }
+function createCircleMarkerContent(label: string, fillColor: string, scale = 1) {
+  const content = document.createElement("div");
+  content.style.width = `${18 * scale}px`;
+  content.style.height = `${18 * scale}px`;
+  content.style.borderRadius = "9999px";
+  content.style.background = fillColor;
+  content.style.border = "3px solid #FFFFFF";
+  content.style.boxShadow = "0 5px 16px rgba(0,0,0,0.28)";
+  content.style.display = "grid";
+  content.style.placeItems = "center";
+  content.style.color = "#FFFFFF";
+  content.style.font = "800 9px Inter, system-ui, sans-serif";
+  content.textContent = label;
+  return content;
+}
 function isFresh(location: RiderLocation) { if (!location) return false; const age = Date.now() - new Date(location.createdAt).getTime(); return Number.isFinite(age) && age >= 0 && age <= 45_000; }
 
 export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
@@ -102,7 +115,7 @@ export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
   useEffect(() => {
     if (!mapsReady || !mapElementRef.current || mapRef.current) return;
     const maps = (window as GoogleMapsWindow).google!.maps;
-    mapRef.current = new maps.Map(mapElementRef.current, { center: { lat: 10.3157, lng: 123.8854 }, zoom: 12, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false, backgroundColor: MAP_BACKGROUND });
+    mapRef.current = new maps.Map(mapElementRef.current, { center: { lat: 10.3157, lng: 123.8854 }, zoom: 12, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false, backgroundColor: MAP_BACKGROUND, mapId: "DEMO_MAP_ID" });
     directionsRef.current = new maps.DirectionsRenderer({ map: mapRef.current, suppressMarkers: true, polylineOptions: { strokeColor: RIDER_ORANGE, strokeOpacity: 0.95, strokeWeight: 5 } });
   }, [mapsReady]);
 
@@ -127,15 +140,15 @@ export function TrackingRiderMap({ orderId, initialJob = null }: Props) {
     const map = mapRef.current;
     const maps = (window as GoogleMapsWindow).google?.maps;
     if (!map || !maps) return;
-    if (riderMarkerRef.current) riderMarkerRef.current.setMap(null);
+    if (riderMarkerRef.current) { riderMarkerRef.current.map = null; }
     riderMarkerRef.current = null;
-    endpointMarkersRef.current.forEach((marker) => marker.setMap(null));
+    endpointMarkersRef.current.forEach((marker) => { marker.map = null; });
     endpointMarkersRef.current = [];
     if (!route) { directionsRef.current?.setDirections({ routes: [] }); return; }
 
-    if (route.riderLocation) riderMarkerRef.current = new maps.Marker({ map, position: route.riderLocation, title: job?.rider?.name ? `${job.rider.name} — Rider` : "Rider", icon: riderIcon(maps), zIndex: 3 });
-    if (route.pickup) endpointMarkersRef.current.push(new maps.Marker({ map, position: route.pickup, title: "Pickup", icon: endpointIcon(maps, "Pickup"), zIndex: 2 }));
-    if (route.dropoff) endpointMarkersRef.current.push(new maps.Marker({ map, position: route.dropoff, title: "Drop-off", icon: endpointIcon(maps, "Drop-off"), zIndex: 2 }));
+    if (route.riderLocation) { const marker = new maps.marker.AdvancedMarkerElement({ map, position: route.riderLocation, title: job?.rider?.name ? `${job.rider.name} — Rider` : "Rider", zIndex: 3 }); marker.append(createCircleMarkerContent("R", RIDER_ORANGE, 1.05)); riderMarkerRef.current = marker; }
+    if (route.pickup) { const marker = new maps.marker.AdvancedMarkerElement({ map, position: route.pickup, title: "Pickup", zIndex: 2 }); marker.append(createCircleMarkerContent("P", RIDER_ORANGE, 1.25)); endpointMarkersRef.current.push(marker); }
+    if (route.dropoff) { const marker = new maps.marker.AdvancedMarkerElement({ map, position: route.dropoff, title: "Drop-off", zIndex: 2 }); marker.append(createCircleMarkerContent("D", RIDER_RED, 1.25)); endpointMarkersRef.current.push(marker); }
 
     if (!route.riderLocation || !route.destination) {
       directionsRef.current?.setDirections({ routes: [] });
