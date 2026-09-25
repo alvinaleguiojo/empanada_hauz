@@ -820,7 +820,7 @@ export default function CustomerKioskPage() {
             onCopy={() => void copyOrderSummary()}
             onPrevious={() => setStep((current) => Math.max(0, current - 1))}
             onNext={() => { setStep((current) => current + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-            onPlaceOrder={() => { window.requestAnimationFrame(() => document.getElementById("kiosk-order-form")?.requestSubmit()); }}
+            onPlaceOrder={() => { window.requestAnimationFrame(() => (document.getElementById("kiosk-order-form") as HTMLFormElement | null)?.requestSubmit()); }}
           />
         </div>
 
