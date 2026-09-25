@@ -72,7 +72,7 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
     setLoadingRange(range);
     setError("");
     try {
-      const nextData = await apiFetch<DashboardData>(\`/analytics/overview?range=\${range}\`);
+      const nextData = await apiFetch<DashboardData>(`/analytics/overview?range=${range}`);
       if (requestId !== requestIdRef.current) return;
       setData(nextData);
       setCustomStartDate(nextData.startDate ?? nextData.cashFlow?.startDate ?? "");
@@ -99,7 +99,7 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
 
     try {
       const params = new URLSearchParams({ range: "custom", startDate, endDate });
-      const nextData = await apiFetch<DashboardData>(\`/analytics/overview?\${params.toString()}\`);
+      const nextData = await apiFetch<DashboardData>(`/analytics/overview?${params.toString()}`);
       if (requestId !== requestIdRef.current) return;
       setData(nextData);
       setCustomStartDate(nextData.startDate ?? nextData.cashFlow?.startDate ?? startDate);
@@ -167,9 +167,9 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
         </div>
 
         <div className="mt-6 grid gap-3 lg:grid-cols-[1.2fr_repeat(3,1fr)]">
-          <HeroMetric label="Revenue" value={formatPeso(data.revenueToday)} meta={\`\${data.ordersToday ?? 0} orders\`} icon={Coins} emphasis />
-          <HeroMetric label="Net cash" value={formatPeso(netToday)} meta={\`\${formatPeso(data.expensesToday)} expenses\`} icon={Wallet} />
-          <HeroMetric label="Pieces" value={formatNumber(data.pcsSoldToday)} meta={\`\${formatNumber(data.averageOrderSize, 1)} avg/order\`} icon={Package} />
+          <HeroMetric label="Revenue" value={formatPeso(data.revenueToday)} meta={`${data.ordersToday ?? 0} orders`} icon={Coins} emphasis />
+          <HeroMetric label="Net cash" value={formatPeso(netToday)} meta={`${formatPeso(data.expensesToday)} expenses`} icon={Wallet} />
+          <HeroMetric label="Pieces" value={formatNumber(data.pcsSoldToday)} meta={`${formatNumber(data.averageOrderSize, 1)} avg/order`} icon={Package} />
           <HeroMetric label="Active now" value={formatNumber(data.activeOrdersToday)} meta="open orders" icon={Activity} />
         </div>
       </section>
@@ -182,20 +182,20 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
       ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <SignalCard label="Completion" value={\`\${formatNumber(data.productionEfficiency)}%\`} caption={\`\${data.cancelledOrders ?? 0} cancelled\`} icon={CheckCircle2} tone="success" />
-        <SignalCard label="Repeat customers" value={formatNumber(data.repeatCustomerCount)} caption={\`\${formatNumber(data.repeatCustomerRate, 1)}% of customers\`} icon={UsersRound} />
-        <SignalCard label="Avg order" value={formatPeso(data.averageOrderSize)} caption={\`\${formatNumber(data.pcsSoldToday)} pcs sold\`} icon={ShoppingBag} />
-        <SignalCard label="Best product" value={topItem?.name ?? "—"} caption={topItem ? \`\${topItem.quantity} pcs • \${topProductShare}% of volume\` : "No completed items yet"} icon={BarChart3} compactValue />
+        <SignalCard label="Completion" value={`${formatNumber(data.productionEfficiency)}%`} caption={`${data.cancelledOrders ?? 0} cancelled`} icon={CheckCircle2} tone="success" />
+        <SignalCard label="Repeat customers" value={formatNumber(data.repeatCustomerCount)} caption={`${formatNumber(data.repeatCustomerRate, 1)}% of customers`} icon={UsersRound} />
+        <SignalCard label="Avg order" value={formatPeso(data.averageOrderSize)} caption={`${formatNumber(data.pcsSoldToday)} pcs sold`} icon={ShoppingBag} />
+        <SignalCard label="Best product" value={topItem?.name ?? "—"} caption={topItem ? `${topItem.quantity} pcs • ${topProductShare}% of volume` : "No completed items yet"} icon={BarChart3} compactValue />
         <SignalCard label="Cash position" value={formatPeso(data.moneyOnHandToday)} caption={data.moneyOnHandToday >= 0 ? "Positive balance" : "Negative balance"} icon={Zap} tone={data.moneyOnHandToday >= 0 ? "accent" : "danger"} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
-        <TrendCard title="Revenue momentum" subtitle={\`Completed sales • \${rangeLabel}\`} items={data.revenueTrend ?? []} formatter={(value) => formatPeso(value)} accent="orange" icon={Coins} />
+        <TrendCard title="Revenue momentum" subtitle={`Completed sales • ${rangeLabel}`} items={data.revenueTrend ?? []} formatter={(value) => formatPeso(value)} accent="orange" icon={Coins} />
         <OperationsPulse data={data} rangeLabel={rangeLabel} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <TrendCard title="Order volume" subtitle={\`Pieces sold • \${rangeLabel}\`} items={data.piecesTrend ?? []} formatter={(value) => \`\${formatNumber(value)} pcs\`} accent="cyan" icon={Package} />
+        <TrendCard title="Order volume" subtitle={`Pieces sold • ${rangeLabel}`} items={data.piecesTrend ?? []} formatter={(value) => `${formatNumber(value)} pcs`} accent="cyan" icon={Package} />
         <TopItemsCard items={data.topItems ?? []} />
       </section>
 
@@ -254,9 +254,9 @@ function OperationsPulse({ data, rangeLabel }: { data: DashboardData; rangeLabel
         </div>
       </div>
       <div className="space-y-4 p-5">
-        <PulseRow label="Completion rate" value={\`\${formatNumber(completion)}%\`} percent={completion} tone="success" />
-        <PulseRow label="Repeat customer rate" value={\`\${formatNumber(repeatRate, 1)}%\`} percent={repeatRate} tone="accent" />
-        <PulseRow label="Cancellation rate" value={\`\${formatNumber(cancellationRate, 1)}%\`} percent={cancellationRate} tone="danger" />
+        <PulseRow label="Completion rate" value={`${formatNumber(completion)}%`} percent={completion} tone="success" />
+        <PulseRow label="Repeat customer rate" value={`${formatNumber(repeatRate, 1)}%`} percent={repeatRate} tone="accent" />
+        <PulseRow label="Cancellation rate" value={`${formatNumber(cancellationRate, 1)}%`} percent={cancellationRate} tone="danger" />
         <div className="grid grid-cols-2 gap-3 pt-1">
           <MiniPulse label="Orders" value={formatNumber(data.ordersToday)} icon={ShoppingBag} />
           <MiniPulse label="Active" value={formatNumber(data.activeOrdersToday)} icon={Activity} />
@@ -273,7 +273,7 @@ function PulseRow({ label, value, percent, tone }: { label: string; value: strin
     <div>
       <div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium text-foreground/56">{label}</span><span className={cn("font-semibold tabular-nums", tone === "success" && "text-success", tone === "accent" && "text-accent", tone === "danger" && "text-danger")}>{value}</span></div>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-foreground/[0.06]">
-        <div className={cn("h-full rounded-full", tone === "success" && "bg-[linear-gradient(90deg,#25d48f,#60e5b1)]", tone === "accent" && "bg-[linear-gradient(90deg,#ff6337,#ffb347)]", tone === "danger" && "bg-[linear-gradient(90deg,#dc5b6f,#ff9b54)]")} style={{ width: \`\${Math.max(percent, percent === 0 ? 0 : 3)}%\` }} />
+        <div className={cn("h-full rounded-full", tone === "success" && "bg-[linear-gradient(90deg,#25d48f,#60e5b1)]", tone === "accent" && "bg-[linear-gradient(90deg,#ff6337,#ffb347)]", tone === "danger" && "bg-[linear-gradient(90deg,#dc5b6f,#ff9b54)]")} style={{ width: `${Math.max(percent, percent === 0 ? 0 : 3)}%` }} />
       </div>
     </div>
   );
@@ -319,8 +319,8 @@ function TrendChart({ items, formatter, accent }: { items: Array<{ label: string
     const y = top + (1 - (Number(item.value) || 0) / max) * plotHeight;
     return { ...item, x, y, value: Number(item.value) || 0, index };
   });
-  const path = points.length === 1 ? \`M \${points[0].x} \${points[0].y}\` : points.map((point, index) => \`\${index === 0 ? "M" : "L"} \${point.x} \${point.y}\`).join(" ");
-  const fillPath = \`\${path} L \${points[points.length - 1].x} \${height - bottom} L \${points[0].x} \${height - bottom} Z\`;
+  const path = points.length === 1 ? `M ${points[0].x} ${points[0].y}` : points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const fillPath = `${path} L ${points[points.length - 1].x} ${height - bottom} L ${points[0].x} ${height - bottom} Z`;
   const line = accent === "orange" ? "#ff7a45" : "#4dd6ff";
   const fill = accent === "orange" ? "rgba(255,122,69,0.14)" : "rgba(77,214,255,0.12)";
   const active = points.reduce((best, point) => point.value > best.value ? point : best, points[0]);
@@ -329,14 +329,14 @@ function TrendChart({ items, formatter, accent }: { items: Array<{ label: string
   return (
     <div className="mt-5 overflow-hidden rounded-2xl border border-white/[0.07] bg-[linear-gradient(145deg,rgba(15,24,40,0.95),rgba(10,18,31,0.98))]">
       <div className="px-3 pt-3"><div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.16em] text-white/28"><span>{items[0]?.label ?? ""}</span><span>{items[items.length - 1]?.label ?? ""}</span></div></div>
-      <svg className="block aspect-[2.4/1] w-full" viewBox={\`0 0 \${width} \${height}\`} role="img" aria-label="Dashboard trend chart" preserveAspectRatio="none">
+      <svg className="block aspect-[2.4/1] w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Dashboard trend chart" preserveAspectRatio="none">
         {[0.25, 0.5, 0.75, 1].map((tick) => { const y = top + (1 - tick) * plotHeight; return <line key={tick} x1={left} x2={width - right} y1={y} y2={y} stroke="white" strokeOpacity="0.045" />; })}
         <path d={fillPath} fill={fill} />
         <path d={path} fill="none" stroke={line} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
         {active ? <circle cx={active.x} cy={active.y} r="6" fill="#0d1726" stroke={line} strokeWidth="3" /> : null}
         {labels.map((point) => (
-          <g key={\`\${point.index}-\${point.label}\`}>
-            <title>{\`\${point.label}: \${formatter(point.value)}\`}</title>
+          <g key={`${point.index}-${point.label}`}>
+            <title>{`${point.label}: ${formatter(point.value)}`}</title>
             <circle cx={point.x} cy={point.y} r="2.5" fill={line} opacity="0.75" />
             <text x={point.x} y={height - 14} textAnchor="middle" fill="white" fillOpacity={active?.index === point.index ? "0.88" : "0.36"} fontSize="13" fontWeight={active?.index === point.index ? "800" : "600"}>{compactDateLabel(point.label)}</text>
           </g>
@@ -358,12 +358,12 @@ function TopItemsCard({ items }: { items: Array<{ name: string; quantity: number
         {items.length === 0 ? <EmptyState label="No completed product data yet." /> : (
           <div className="space-y-3">
             {items.slice(0, 6).map((item, index) => (
-              <div key={\`\${item.name}-\${index}\`}>
+              <div key={`${item.name}-${index}`}>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <div className="flex min-w-0 items-center gap-2"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-accent/10 text-[10px] font-bold text-accent">{index + 1}</span><span className="truncate font-medium">{item.name}</span></div>
                   <span className="shrink-0 font-semibold tabular-nums">{formatNumber(item.quantity)} pcs</span>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-foreground/[0.06]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#ff6337,#ffb347)]" style={{ width: \`\${Math.max(5, (item.quantity / max) * 100)}%\` }} /></div>
+                <div className="mt-2 h-2 rounded-full bg-foreground/[0.06]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#ff6337,#ffb347)]" style={{ width: `${Math.max(5, (item.quantity / max) * 100)}%` }} /></div>
               </div>
             ))}
           </div>
@@ -421,7 +421,7 @@ function compactDateLabel(label: string) {
 }
 
 function formatPeso(value: number) {
-  return \`Php \${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}\`;
+  return `Php ${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
 function formatNumber(value: number, maximumFractionDigits = 0) {
