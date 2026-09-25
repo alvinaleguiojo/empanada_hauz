@@ -257,11 +257,11 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
 
       marker.addEventListener("gmp-click", () => {
         infoWindowRef.current?.setContent(
-          "<div style=\\"min-width:230px;max-width:320px;padding:7px 5px;font-family:Inter,system-ui,sans-serif\\">" +
-          "<div style=\\"font-size:13px;font-weight:900;color:#172139\\">" + escapeHtml(item.geo.area) + "</div>" +
-          "<div style=\\"margin-top:4px;font-size:12px;color:#475569\\">" + item.count + " order" + (item.count === 1 ? "" : "s") + "</div>" +
-          "<div style=\\"margin-top:7px;font-size:11px;line-height:1.45;color:#64748b\\">" + escapeHtml(item.geo.formattedAddress) + "</div>" +
-          "</div>"
+          '<div style="min-width:230px;max-width:320px;padding:7px 5px;font-family:Inter,system-ui,sans-serif">' +
+          '<div style="font-size:13px;font-weight:900;color:#172139">' + escapeHtml(item.geo.area) + '</div>' +
+          '<div style="margin-top:4px;font-size:12px;color:#475569">' + item.count + " order" + (item.count === 1 ? "" : "s") + '</div>' +
+          '<div style="margin-top:7px;font-size:11px;line-height:1.45;color:#64748b">' + escapeHtml(item.geo.formattedAddress) + '</div>' +
+          '</div>'
         );
         infoWindowRef.current?.open({ map, anchor: marker });
       });
