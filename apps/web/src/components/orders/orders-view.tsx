@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, LayoutGrid, List, Pencil, Search, ShieldAlert, X } from "lucide-react";
+import { Activity, CalendarDays, CheckCircle2, Clock3, Coins, LayoutGrid, List, Package, Pencil, Search, ShieldAlert, X } from "lucide-react";
 import { OrdersBoard } from "@/components/orders/orders-board";
 import { OrderFraudTagDialog } from "@/components/orders/order-fraud-tag-dialog";
 import { apiFetch } from "@/lib/api";
@@ -129,22 +129,56 @@ export function OrdersView({ orders }: { orders: Array<any> }) {
   const ordersWithCalendar = useMemo(() => orders.map((order) => ({ ...order, googleCalendarSync: calendarStatuses[order.id] ?? order.googleCalendarSync })), [orders, calendarStatuses]);
   const canTagFraud = hasPermission(role, "fraud.manage");
 
+  const activeOrders = ordersWithCalendar.filter((order) => !["completed", "cancelled"].includes(order.status)).length;
+  const productionOrders = ordersWithCalendar.filter((order) => ["queued", "preparing", "frying", "packed"].includes(order.status)).length;
+  const completedOrders = ordersWithCalendar.filter((order) => order.status === "completed").length;
+  const revenue = ordersWithCalendar.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 border-b border-line/70 pb-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.18em] text-foreground/45">Orders</p>
-          <p className="text-sm text-foreground/45">Choose how you want to manage today's orders.</p>
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-[26px] border border-white/8 bg-[radial-gradient(circle_at_90%_0%,rgba(255,103,61,0.16),transparent_30%),linear-gradient(145deg,#0b1220,#121b2d)] p-5 shadow-[0_28px_80px_-42px_rgba(0,0,0,0.75)] sm:p-6">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/15 bg-emerald-300/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.8)]" />
+                Live order desk
+              </span>
+              <span className="text-[11px] font-medium text-white/35">{ordersWithCalendar.length} loaded</span>
+            </div>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Order operations</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">Monitor the pipeline, open an order, update its status, and keep delivery moving without leaving the workspace.</p>
+          </div>
+          <div className="inline-flex w-full rounded-xl border border-white/10 bg-black/15 p-1 backdrop-blur xl:w-auto" role="group" aria-label="Order view">
+            <Button type="button" variant="ghost" aria-pressed={view === "kanban"} onClick={() => setView("kanban")} className={cn("h-10 flex-1 gap-2 rounded-lg px-4 font-semibold text-white/55 hover:bg-white/[0.06] hover:text-white xl:flex-none", view === "kanban" && "bg-white text-slate-900 hover:bg-white")}><LayoutGrid size={16} />Kanban</Button>
+            <Button type="button" variant="ghost" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("h-10 flex-1 gap-2 rounded-lg px-4 font-semibold text-white/55 hover:bg-white/[0.06] hover:text-white xl:flex-none", view === "list" && "bg-white text-slate-900 hover:bg-white")}><List size={16} />List</Button>
+          </div>
         </div>
-        <div className="inline-flex shrink-0 rounded-lg border-2 border-line bg-panel p-1 shadow-sm" role="group" aria-label="Order view">
-          <Button type="button" variant="ghost" aria-pressed={view === "kanban"} onClick={() => setView("kanban")} className={cn("h-9 gap-2 px-4 font-semibold", view === "kanban" && "bg-accent text-white hover:bg-accent/90")}><LayoutGrid size={16} />Kanban</Button>
-          <Button type="button" variant="ghost" aria-pressed={view === "list"} onClick={() => setView("list")} className={cn("h-9 gap-2 px-4 font-semibold", view === "list" && "bg-accent text-white hover:bg-accent/90")}><List size={16} />List</Button>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <OrderMetric label="All orders" value={ordersWithCalendar.length} meta="loaded in this view" icon={Package} />
+          <OrderMetric label="Active" value={activeOrders} meta="still in the pipeline" icon={Activity} tone="accent" />
+          <OrderMetric label="In production" value={productionOrders} meta="queued → packed" icon={Clock3} tone="warning" />
+          <OrderMetric label="Completed" value={completedOrders} meta={`Php ${revenue.toLocaleString("en-US")} gross loaded`} icon={CheckCircle2} tone="success" />
         </div>
-      </div>
+      </section>
 
       {view === "kanban" ? <OrdersBoard orders={ordersWithCalendar} /> : <OrdersList orders={ordersWithCalendar} onEdit={setEditingOrder} canTagFraud={canTagFraud} onFraud={setFraudOrder} />}
       {editingOrder ? <OrderEditModal order={editingOrder} onClose={() => setEditingOrder(null)} /> : null}
       {fraudOrder ? <OrderFraudTagDialog order={fraudOrder} onClose={() => { setFraudOrder(null); window.location.reload(); }} /> : null}
+    </div>
+  );
+}
+
+function OrderMetric({ label, value, meta, icon: Icon, tone = "neutral" }: { label: string; value: number; meta: string; icon: typeof Package; tone?: "neutral" | "accent" | "warning" | "success" }) {
+  return (
+    <div className={cn("rounded-2xl border px-4 py-3.5 backdrop-blur-md", tone === "accent" ? "border-orange-300/15 bg-orange-300/[0.06]" : tone === "warning" ? "border-amber-300/10 bg-amber-300/[0.04]" : tone === "success" ? "border-emerald-300/10 bg-emerald-300/[0.045]" : "border-white/[0.08] bg-white/[0.035]")}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-white/35">{label}</p>
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.06] text-white/55"><Icon size={15} /></span>
+      </div>
+      <p className={cn("mt-2 text-2xl font-semibold tracking-tight", tone === "accent" ? "text-orange-200" : tone === "warning" ? "text-amber-200" : tone === "success" ? "text-emerald-200" : "text-white")}>{value.toLocaleString("en-US")}</p>
+      <p className="mt-1 text-[11px] text-white/30">{meta}</p>
     </div>
   );
 }
@@ -160,20 +194,20 @@ function OrdersList({ orders, onEdit, canTagFraud, onFraud }: { orders: Array<an
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm text-foreground/50">{filtered.length} order{filtered.length === 1 ? "" : "s"}</div>
+      <div className="flex flex-col gap-3 rounded-2xl border border-white/8 bg-white/[0.025] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs font-medium uppercase tracking-[0.14em] text-foreground/35">{filtered.length} order{filtered.length === 1 ? "" : "s"}</div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <label className="relative block sm:w-72"><Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search orders…" className="pl-9" /></label>
           <Select value={status} onChange={setStatus} options={statusFilterOptions} />
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-line/80 bg-panel/70">
+      <div className="overflow-x-auto rounded-2xl border border-white/8 bg-white/[0.02] shadow-[0_20px_55px_-36px_rgba(0,0,0,0.8)]">
         <table className="w-full min-w-[1180px] text-left text-sm">
-          <thead className="border-b border-line/80 bg-black/[0.08] text-[10px] uppercase tracking-[0.16em] text-foreground/40"><tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Schedule</th><th className="px-4 py-3">Calendar</th><th className="px-4 py-3">Delivery</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Action</th></tr></thead>
+          <thead className="border-b border-white/8 bg-white/[0.025] text-[10px] uppercase tracking-[0.16em] text-foreground/40"><tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Schedule</th><th className="px-4 py-3">Calendar</th><th className="px-4 py-3">Delivery</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Action</th></tr></thead>
           <tbody className="divide-y divide-line/60">
             {filtered.map((order) => (
-              <tr key={order.id} className="transition hover:bg-white/[0.025]">
+              <tr key={order.id} className="transition hover:bg-white/[0.035]">
                 <td className="whitespace-nowrap px-4 py-4 font-semibold">{order.orderNumber ?? order.id}</td>
                 <td className="px-4 py-4"><div className="font-medium">{order.customer?.name ?? "Unknown customer"}</div><div className="mt-1 text-xs text-foreground/40">{order.customer?.phoneNumber ?? "No phone"}</div></td>
                 <td className="whitespace-nowrap px-4 py-4 text-foreground/65">{formatSchedule(order.preferredSchedule)}</td>
