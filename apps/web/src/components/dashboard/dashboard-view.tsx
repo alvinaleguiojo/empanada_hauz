@@ -16,7 +16,6 @@ import {
   Zap
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { CustomerOriginMap } from "@/components/analytics/customer-origin-map";
 import { CashFlowSummary, rangeOptions, type CashFlowData, type CashRange } from "@/components/dashboard/cash-flow-summary";
 import { LiveEvents } from "@/components/dashboard/live-events";
 import { Button } from "@/components/ui/button";
@@ -201,7 +200,6 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
 
       <CashFlowSummary data={data.cashFlow} />
 
-      <CustomerOriginMap locations={data.topLocations ?? []} rangeLabel={rangeLabel} />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
         <RepeatCustomersPanel customers={data.repeatCustomers ?? []} rangeLabel={rangeLabel} />
