@@ -204,44 +204,81 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
     const map = mapRef.current;
     const maps = (window as unknown as GoogleMapsWindow).google?.maps;
     if (!map || !maps) return;
+
     markersRef.current.forEach((marker) => { marker.map = null; });
     markersRef.current = [];
-    if (!areaGroups.length) { map.setCenter(DEFAULT_CENTER); map.setZoom(11); return; }
+
+    if (!mapped.length) {
+      map.setCenter(DEFAULT_CENTER);
+      map.setZoom(11);
+      return;
+    }
+
     const bounds = new maps.LatLngBounds();
-    areaGroups.forEach((group, index) => {
-      const position = group.center;
+    const coordinateCounts = new Map<string, number>();
+
+    mapped.forEach((item, index) => {
+      const key = item.geo.lat.toFixed(6) + "," + item.geo.lng.toFixed(6);
+      const duplicateIndex = coordinateCounts.get(key) ?? 0;
+      coordinateCounts.set(key, duplicateIndex + 1);
+
+      // Keep truly separate addresses visible even when Google's geocoder
+      // resolves them to the same rooftop/area point.
+      const angle = duplicateIndex * 1.15;
+      const radius = duplicateIndex === 0 ? 0 : Math.min(0.00022, 0.00007 + duplicateIndex * 0.000025);
+      const position = {
+        lat: item.geo.lat + Math.sin(angle) * radius,
+        lng: item.geo.lng + Math.cos(angle) * radius
+      };
+
       const markerContent = document.createElement("div");
-      const markerScale = Math.min(1.9, 0.95 + Math.min(group.count, 50) * 0.025);
-      markerContent.style.width = `${28 * markerScale}px`;
-      markerContent.style.height = `${28 * markerScale}px`;
+      markerContent.style.width = duplicateIndex === 0 ? "30px" : "26px";
+      markerContent.style.height = duplicateIndex === 0 ? "30px" : "26px";
       markerContent.style.borderRadius = "9999px";
-      markerContent.style.background = "#F4581D";
-      markerContent.style.border = "4px solid #08101d";
-      markerContent.style.boxShadow = "0 8px 24px rgba(0,0,0,0.35)";
+      markerContent.style.background = duplicateIndex === 0 ? "#ff622d" : "#31c7e8";
+      markerContent.style.border = "3px solid #07111d";
+      markerContent.style.boxShadow = "0 6px 18px rgba(0,0,0,0.45)";
       markerContent.style.display = "grid";
       markerContent.style.placeItems = "center";
-      markerContent.style.color = "#FFFFFF";
-      markerContent.style.font = "800 11px Inter, system-ui, sans-serif";
-      markerContent.textContent = String(group.count);
+      markerContent.style.color = "#ffffff";
+      markerContent.style.font = "800 10px Inter, system-ui, sans-serif";
+      markerContent.style.cursor = "pointer";
+      markerContent.textContent = String(item.count);
+
       const marker = new maps.marker.AdvancedMarkerElement({
         map,
         position,
-        zIndex: 1000 - index,
-        title: group.area + " • " + group.count + " orders • " + group.addressCount + " locations",
-        gmpClickable: true
+        zIndex: 2000 - index,
+        title: item.geo.formattedAddress + " • " + item.count + " orders",
+        gmpClickable: true,
+        collisionBehavior: "REQUIRED"
       });
       marker.append(markerContent);
+
       marker.addEventListener("gmp-click", () => {
-        const addressList = group.addresses.slice(0, 5).map((address) => "<div style=\"margin-top:4px\">• " + escapeHtml(address) + "</div>").join("");
-        infoWindowRef.current?.setContent("<div style=\"min-width:240px;max-width:310px;padding:6px 4px;font-family:Inter,system-ui,sans-serif\"><div style=\"font-size:14px;font-weight:900;color:#172139\">" + escapeHtml(group.area) + "</div><div style=\"margin-top:5px;font-size:12px;color:#475569\">" + group.count + " orders across " + group.addressCount + " mapped locations</div><div style=\"margin-top:9px;font-size:11px;line-height:1.45;color:#64748b\">" + addressList + "</div></div>");
+        infoWindowRef.current?.setContent(
+          "<div style=\\"min-width:230px;max-width:320px;padding:7px 5px;font-family:Inter,system-ui,sans-serif\\">" +
+          "<div style=\\"font-size:13px;font-weight:900;color:#172139\\">" + escapeHtml(item.geo.area) + "</div>" +
+          "<div style=\\"margin-top:4px;font-size:12px;color:#475569\\">" + item.count + " order" + (item.count === 1 ? "" : "s") + "</div>" +
+          "<div style=\\"margin-top:7px;font-size:11px;line-height:1.45;color:#64748b\\">" + escapeHtml(item.geo.formattedAddress) + "</div>" +
+          "</div>"
+        );
         infoWindowRef.current?.open({ map, anchor: marker });
       });
+
       markersRef.current.push(marker);
       bounds.extend(position);
     });
-    if (areaGroups.length === 1) { map.setCenter(areaGroups[0].center); map.setZoom(13); }
-    else map.fitBounds(bounds, 52);
-  }, [areaGroups]);
+
+    if (mapped.length === 1) {
+      map.setCenter(mapped[0].geo);
+      map.setZoom(14);
+    } else {
+      map.fitBounds(bounds, 48);
+      const currentZoom = map.getZoom?.() ?? 12;
+      if (currentZoom > 15) map.setZoom(15);
+    }
+  }, [mapped]);
 
   return (
     <Card className="min-w-0 overflow-hidden border-white/10 bg-[linear-gradient(145deg,rgba(10,16,28,0.98),rgba(17,25,41,0.98))] p-0 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
@@ -253,7 +290,7 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
               <h3 className="text-lg font-semibold tracking-tight">Customer Origin Intelligence</h3>
               <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-200"><Navigation size={11} /> Google Maps</span>
             </div>
-            <p className="mt-1 max-w-3xl text-xs leading-5 text-foreground/45">Every address is mapped, then grouped into geographic areas so you can see where demand is concentrated instead of tracking isolated pins.</p>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-foreground/45">Every address is shown as an individual location on the map, while the panel groups those locations into geographic demand areas.</p>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
             <div className="rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wider text-foreground/35">Orders</p><p className="mt-1 text-lg font-semibold tabular-nums">{totalOrders}</p></div>
@@ -263,13 +300,15 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
         </div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_360px]">
-          <div className="relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-[#0b1220] shadow-inner shadow-black/40">
-            <div ref={mapElementRef} className="h-[430px] w-full sm:h-[500px]" />
+          <div className="relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-[#050b14] shadow-inner shadow-black/40">
+            <div className="h-[430px] w-full sm:h-[500px] bg-[#050b14] [filter:brightness(0.72)_saturate(0.82)_contrast(1.05)]">
+              <div ref={mapElementRef} className="h-full w-full" />
+            </div>
             {!mapsReady ? <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#0b1220] text-sm text-white/45"><Loader2 size={16} className="animate-spin" /> Loading dark map…</div> : null}
             {mapsReady && sourceLocations.length === 0 ? <div className="absolute inset-0 flex items-center justify-center bg-[#0b1220]/90 px-6 text-center"><div><MapPin className="mx-auto text-white/25" size={30} /><p className="mt-3 text-sm font-semibold text-white/65">No customer locations in this range yet.</p><p className="mt-1 text-xs text-white/35">Mapped demand will appear here as orders are recorded.</p></div></div> : null}
             {mapping ? <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#101a2b]/90 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white/65 shadow-lg"><Loader2 size={13} className="animate-spin text-accent" /> Mapping {mapped.length}/{sourceLocations.length}</div> : null}
             {mapError ? <div className="absolute bottom-3 left-3 right-3 rounded-xl border border-red-300/15 bg-[#101827]/95 px-3 py-2 text-xs font-medium text-red-100 shadow-lg">{mapError}</div> : null}
-            <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/10 bg-[#101827]/90 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white/65 shadow-sm">Bubble size = order volume</div>
+            <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/10 bg-[#101827]/90 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white/65 shadow-sm">Each marker = mapped customer location</div>
           </div>
 
           <div className="min-w-0 overflow-hidden rounded-2xl border border-white/8 bg-white/[0.025]">
