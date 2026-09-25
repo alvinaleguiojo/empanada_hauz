@@ -148,11 +148,11 @@ function DesktopOrderSummary({
           </div>
           <button type="button" onClick={onCopy} disabled={summary.items.length === 0} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] text-xs font-bold text-white/65 transition hover:bg-white/[0.07] disabled:opacity-30"><Copy size={14} /> {summaryCopied ? "Copied to clipboard" : "Copy order summary"}</button>
           <div className="mt-2 flex gap-2.5">
-            <button type="button" onClick={onPrevious} disabled={step === 0} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-white/65 transition hover:bg-white/[0.07] disabled:opacity-20" aria-label="Previous step"><ArrowLeft size={17} /></button>
+            <button type="button" onClick={onPrevious} disabled={step === 0} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-white/65 transition hover:bg-white/[0.07] disabled:opacity-20" aria-label="Previous step" data-gesture-prev><ArrowLeft size={17} /></button>
             {step < steps.length - 1 ? (
-              <button type="button" onClick={onNext} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#ff6337,#ff9154)] px-4 text-sm font-extrabold text-white shadow-[0_16px_30px_-18px_rgba(255,99,55,0.95)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-30">Continue <ArrowRight size={16} /></button>
+              <button type="button" onClick={onNext} disabled={!isStepValid} data-gesture-next className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#ff6337,#ff9154)] px-4 text-sm font-extrabold text-white shadow-[0_16px_30px_-18px_rgba(255,99,55,0.95)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-30">Continue <ArrowRight size={16} /></button>
             ) : (
-              <button type="button" onClick={onPlaceOrder} disabled={submitting || !agreedToPolicy} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#ff6337,#ff9154)] px-4 text-sm font-extrabold text-white shadow-[0_16px_30px_-18px_rgba(255,99,55,0.95)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-30">{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>
+              <button type="button" onClick={onPlaceOrder} disabled={submitting || !agreedToPolicy} data-gesture-next className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#ff6337,#ff9154)] px-4 text-sm font-extrabold text-white shadow-[0_16px_30px_-18px_rgba(255,99,55,0.95)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-30">{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>
             )}
           </div>
           {step === 2 && !agreedToPolicy ? <p className="mt-2 text-center text-[10px] leading-4 text-danger">Agree to the Privacy Policy to place your order.</p> : null}
@@ -584,14 +584,25 @@ export default function CustomerKioskPage() {
   }
 
   const stepNavigation = (
-    <nav className="mx-auto flex max-w-7xl gap-2.5 overflow-x-auto py-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Order steps">
+    <nav className="mx-auto flex max-w-7xl gap-2 overflow-x-auto py-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Order steps">
       {steps.map((item, index) => {
         const active = index === step;
         const complete = index < step;
         return (
-          <button key={item.title} type="button" onClick={() => complete && setStep(index)} disabled={!complete && !active} className={`group flex shrink-0 items-center gap-2.5 rounded-full border px-3.5 py-2 transition ${active ? "border-accent/70 bg-accent/12 text-foreground" : complete ? "border-success/35 bg-success/8 text-success" : "border-line/10 text-foreground/35"}`}>
-            <span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-extrabold ${active ? "bg-accent text-foreground" : complete ? "bg-success text-[rgb(var(--background))]" : "bg-line/40 text-foreground/40"}`}>{complete ? <Check size={13} /> : index + 1}</span>
-            <span className="font-semibold">{item.title}</span>
+          <button
+            key={item.title}
+            type="button"
+            onClick={() => complete && setStep(index)}
+            disabled={!complete && !active}
+            className={`group flex min-w-[148px] shrink-0 items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition sm:min-w-[175px] ${active ? "border-orange-300/25 bg-orange-300/[0.08] shadow-[0_12px_35px_-24px_rgba(255,99,55,0.9)]" : complete ? "border-emerald-300/15 bg-emerald-300/[0.05]" : "border-white/7 bg-white/[0.025]"}`}
+          >
+            <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[11px] font-extrabold ${active ? "bg-[linear-gradient(135deg,#ff6337,#ff9154)] text-white" : complete ? "bg-emerald-300 text-[#062018]" : "bg-white/[0.07] text-white/35"}`}>
+              {complete ? <Check size={14} /> : index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className={`block text-[12px] font-bold ${active ? "text-white" : complete ? "text-emerald-200" : "text-white/35"}`}>{item.title}</span>
+              <span className="mt-0.5 block truncate text-[10px] text-white/25">{item.subtitle}</span>
+            </span>
           </button>
         );
       })}
