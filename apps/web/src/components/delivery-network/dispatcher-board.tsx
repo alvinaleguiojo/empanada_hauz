@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Bike, Check, MapPin, Plus, Send, UserPlus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { API_URL } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -506,7 +507,7 @@ function PlacesAddressInput({
 
     const loadGooglePlaces = async () => {
       try {
-        const response = await fetch("/api/google-maps-key", { cache: "no-store" });
+        const response = await fetch(`${API_URL}/google-maps-key`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Google Maps key endpoint returned ${response.status}`);
         const data = (await response.json()) as { apiKey?: string };
         const apiKey = data.apiKey?.trim();
