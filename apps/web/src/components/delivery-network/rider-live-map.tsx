@@ -23,8 +23,21 @@ function validCoordinate(l?: Rider["locations"][number]) { return !!l && Number.
 function isFresh(l?: Rider["locations"][number]) { if (!validCoordinate(l)) return false; if (l!.accuracy != null && l!.accuracy > MAX_ACCEPTABLE_ACCURACY_METERS) return false; const age = Date.now() - new Date(l!.createdAt).getTime(); return Number.isFinite(age) && age >= 0 && age <= STALE_AFTER_MS; }
 function point(value?: { latitude?: number | null; longitude?: number | null } | null) { return value && Number.isFinite(Number(value.latitude)) && Number.isFinite(Number(value.longitude)) ? { lat: Number(value.latitude), lng: Number(value.longitude) } : null; }
 function formatAge(createdAt: string) { const seconds = Math.max(0, Math.round((Date.now() - new Date(createdAt).getTime()) / 1000)); return seconds < 5 ? "just now" : `${seconds}s ago`; }
-function riderCircleIcon(maps: any) { return { path: maps.SymbolPath.CIRCLE, scale: 9, fillColor: "#FFFFFF", fillOpacity: 1, strokeColor: RIDER_ORANGE, strokeWeight: 3 }; }
-function endpointIcon(maps: any, kind: "Pickup" | "Drop-off") { return { path: maps.SymbolPath.CIRCLE, scale: 13, fillColor: kind === "Pickup" ? RIDER_ORANGE : RIDER_RED, fillOpacity: 1, strokeColor: "#FFFFFF", strokeWeight: 3 }; }
+function createCircleMarkerContent(label: string, fillColor: string, scale = 1) {
+  const content = document.createElement("div");
+  content.style.width = `${18 * scale}px`;
+  content.style.height = `${18 * scale}px`;
+  content.style.borderRadius = "9999px";
+  content.style.background = fillColor;
+  content.style.border = "3px solid #FFFFFF";
+  content.style.boxShadow = "0 5px 16px rgba(0,0,0,0.28)";
+  content.style.display = "grid";
+  content.style.placeItems = "center";
+  content.style.color = "#FFFFFF";
+  content.style.font = "800 9px Inter, system-ui, sans-serif";
+  content.textContent = label;
+  return content;
+}
 function regionFor(points: Array<{ lat: number; lng: number }>) {
   if (!points.length) return { center: DEFAULT_CENTER, zoom: 12 };
   const lats = points.map((p) => p.lat); const lngs = points.map((p) => p.lng);
@@ -44,14 +57,14 @@ export function RiderLiveMap({ initialRiders, initialJobs = [] }: { initialRider
 
   useEffect(() => {
     let cancelled = false; let timer: number | null = null; let attempts = 0;
-    const ready = () => { if (cancelled) return; const m = (window as GoogleMapsWindow).google?.maps; if (m?.Map && m.Marker && m.LatLngBounds && m.SymbolPath && m.DirectionsService && m.DirectionsRenderer) return setMapsReady(true); if (attempts++ < 120) timer = window.setTimeout(ready, 250); };
+    const ready = () => { if (cancelled) return; const m = (window as GoogleMapsWindow).google?.maps; if (m?.Map && m.LatLngBounds && m.DirectionsService && m.DirectionsRenderer && m.importLibrary) { void m.importLibrary("marker").then(() => { if (!cancelled) setMapsReady(true); }).catch(() => undefined); return; } if (attempts++ < 120) timer = window.setTimeout(ready, 250); };
     ready(); return () => { cancelled = true; if (timer !== null) window.clearTimeout(timer); };
   }, []);
 
   useEffect(() => {
     if (!mapsReady || !mapElementRef.current || mapRef.current) return;
     const m = (window as GoogleMapsWindow).google!.maps;
-    mapRef.current = new m.Map(mapElementRef.current, { center: initialRegion.center, zoom: initialRegion.zoom, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false, backgroundColor: RIDER_MAP_BACKGROUND });
+    mapRef.current = new m.Map(mapElementRef.current, { center: initialRegion.center, zoom: initialRegion.zoom, mapTypeControl: false, streetViewControl: false, fullscreenControl: false, clickableIcons: false, backgroundColor: RIDER_MAP_BACKGROUND, mapId: "DEMO_MAP_ID" });
     directionsRef.current = new m.DirectionsRenderer({ map: mapRef.current, suppressMarkers: true, polylineOptions: { strokeColor: RIDER_ORANGE, strokeOpacity: 0.95, strokeWeight: 5 } });
   }, [mapsReady, initialRegion.center.lat, initialRegion.center.lng, initialRegion.zoom]);
 
@@ -71,8 +84,8 @@ export function RiderLiveMap({ initialRiders, initialJobs = [] }: { initialRider
 
   useEffect(() => {
     const map = mapRef.current; const m = (window as GoogleMapsWindow).google?.maps; if (!map || !m) return; const active = new Set<string>(); const bounds = new m.LatLngBounds();
-    for (const rider of ridersWithKnownLocation) { const l = rider.locations[0]; const position = { lat: l.latitude, lng: l.longitude }; active.add(rider.id); const vehicle = rider.vehicles[0]; const fresh = isFresh(l); const title = `${rider.user.name} • ${rider.status}${vehicle?.plateNumber ? ` • ${vehicle.plateNumber}` : ""}${l.accuracy != null ? ` • ±${Math.round(l.accuracy)}m` : ""}${fresh ? "" : " • last known"}`; let marker = markersRef.current[rider.id]; if (marker) { marker.setPosition(position); marker.setTitle(title); } else { marker = new m.Marker({ map, position, title, icon: riderCircleIcon(m), zIndex: rider.id === selectedRiderId ? 3 : 1 }); markersRef.current[rider.id] = marker; listenersRef.current[rider.id] = marker.addListener("click", () => { setSelectedRiderId(rider.id); map.setCenter(position); }); } marker.setZIndex(rider.id === selectedRiderId ? 3 : 1); bounds.extend(position); }
-    Object.entries(markersRef.current).forEach(([id, marker]) => { if (!active.has(id)) { marker.setMap(null); listenersRef.current[id]?.remove(); delete markersRef.current[id]; delete listenersRef.current[id]; } });
+    for (const rider of ridersWithKnownLocation) { const l = rider.locations[0]; const position = { lat: l.latitude, lng: l.longitude }; active.add(rider.id); const vehicle = rider.vehicles[0]; const fresh = isFresh(l); const title = `${rider.user.name} • ${rider.status}${vehicle?.plateNumber ? ` • ${vehicle.plateNumber}` : ""}${l.accuracy != null ? ` • ±${Math.round(l.accuracy)}m` : ""}${fresh ? "" : " • last known"}`; let marker = markersRef.current[rider.id]; if (marker) { marker.position = position; marker.title = title; marker.zIndex = rider.id === selectedRiderId ? 3 : 1; } else { marker = new m.marker.AdvancedMarkerElement({ map, position, title, gmpClickable: true, zIndex: rider.id === selectedRiderId ? 3 : 1 }); marker.append(createCircleMarkerContent("R", RIDER_ORANGE, 1.05)); markersRef.current[rider.id] = marker; const handler = () => { setSelectedRiderId(rider.id); map.setCenter(position); }; listenersRef.current[rider.id] = handler; marker.addEventListener("gmp-click", handler); } marker.zIndex = rider.id === selectedRiderId ? 3 : 1; bounds.extend(position); }
+    Object.entries(markersRef.current).forEach(([id, marker]) => { if (!active.has(id)) { marker.removeEventListener("gmp-click", listenersRef.current[id]); marker.map = null; delete markersRef.current[id]; delete listenersRef.current[id]; } });
     if (!hasFitBoundsRef.current && ridersWithLocation.length > 1) { map.fitBounds(bounds, 56); hasFitBoundsRef.current = true; } else if (!hasFitBoundsRef.current && ridersWithLocation.length === 1) { map.setCenter({ lat: ridersWithLocation[0].locations[0].latitude, lng: ridersWithLocation[0].locations[0].longitude }); hasFitBoundsRef.current = true; }
   }, [ridersWithKnownLocation, ridersWithLocation, selectedRiderId]);
 
@@ -81,11 +94,11 @@ export function RiderLiveMap({ initialRiders, initialJobs = [] }: { initialRider
   }, [selectedRider, jobs]);
 
   useEffect(() => {
-    const map = mapRef.current; const m = (window as GoogleMapsWindow).google?.maps; if (!map || !m || !directionsRef.current) return; endpointMarkersRef.current.forEach((marker) => marker.setMap(null)); endpointMarkersRef.current = [];
+    const map = mapRef.current; const m = (window as GoogleMapsWindow).google?.maps; if (!map || !m || !directionsRef.current) return; endpointMarkersRef.current.forEach((marker) => { marker.map = null; }); endpointMarkersRef.current = [];
     if (!routeForSelectedRider) { directionsRef.current.setDirections({ routes: [] }); setRouteError(null); return; }
     const { riderLocation, pickup, dropoff, destination } = routeForSelectedRider;
-    if (pickup) endpointMarkersRef.current.push(new m.Marker({ map, position: pickup, title: "Pickup", icon: endpointIcon(m, "Pickup"), zIndex: 2 }));
-    if (dropoff) endpointMarkersRef.current.push(new m.Marker({ map, position: dropoff, title: "Drop-off", icon: endpointIcon(m, "Drop-off"), zIndex: 2 }));
+    if (pickup) { const marker = new m.marker.AdvancedMarkerElement({ map, position: pickup, title: "Pickup", zIndex: 2 }); marker.append(createCircleMarkerContent("P", RIDER_ORANGE, 1.25)); endpointMarkersRef.current.push(marker); }
+    if (dropoff) { const marker = new m.marker.AdvancedMarkerElement({ map, position: dropoff, title: "Drop-off", zIndex: 2 }); marker.append(createCircleMarkerContent("D", RIDER_RED, 1.25)); endpointMarkersRef.current.push(marker); }
     let cancelled = false;
     new m.DirectionsService().route({ origin: riderLocation, destination, travelMode: m.TravelMode.DRIVING }, (result: any, status: string) => { if (cancelled) return; if (status === "OK" && result) { directionsRef.current.setDirections(result); map.fitBounds(result.routes[0].bounds, 56); setRouteError(null); } else { directionsRef.current.setDirections({ routes: [] }); setRouteError("Road route is unavailable for this rider."); } });
     return () => { cancelled = true; };
