@@ -142,7 +142,7 @@ export default function CustomerGooglePlacesAutocomplete() {
 
       if (!existingCustomerScript) {
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&language=en&region=PH`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places,marker&language=en&region=PH`;
         script.async = true;
         script.defer = true;
         script.dataset.googlePlacesCustomer = "true";
