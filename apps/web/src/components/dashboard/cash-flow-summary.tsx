@@ -49,7 +49,7 @@ export function CashFlowSummary({ data }: { data: CashFlowData }) {
               </div>
             </div>
             <p className="mt-2 text-xs text-foreground/42">
-              {data.startDate === data.endDate ? data.startDate : \`\${data.startDate} to \${data.endDate}\`}
+              {data.startDate === data.endDate ? data.startDate : `${data.startDate} to ${data.endDate}`}
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[420px]">
@@ -80,8 +80,8 @@ export function CashFlowSummary({ data }: { data: CashFlowData }) {
                   return (
                     <div key={day.date} className="flex min-w-12 flex-1 flex-col items-center gap-2">
                       <div className="flex h-[170px] w-full max-w-14 items-end justify-center gap-1 rounded-lg bg-white/[0.025] px-1">
-                        <div className="w-1/2 rounded-t-md bg-gradient-to-t from-emerald-500/70 to-emerald-300" style={{ height: \`\${salesHeight}px\` }} title={\`\${day.label}: \${formatPeso(day.actualSales)} sales\`} />
-                        <div className="w-1/2 rounded-t-md bg-gradient-to-t from-orange-500/70 to-orange-300" style={{ height: \`\${expenseHeight}px\` }} title={\`\${day.label}: \${formatPeso(day.expenses)} expenses\`} />
+                        <div className="w-1/2 rounded-t-md bg-gradient-to-t from-emerald-500/70 to-emerald-300" style={{ height: `${salesHeight}px` }} title={`${day.label}: ${formatPeso(day.actualSales)} sales`} />
+                        <div className="w-1/2 rounded-t-md bg-gradient-to-t from-orange-500/70 to-orange-300" style={{ height: `${expenseHeight}px` }} title={`${day.label}: ${formatPeso(day.expenses)} expenses`} />
                       </div>
                       <span className="max-w-14 truncate text-[10px] font-semibold text-white/35">{compactDay(day.label)}</span>
                     </div>
@@ -123,9 +123,9 @@ function SummaryMetric({ label, value, tone }: { label: string; value: number; t
 
 function compactDay(label: string) {
   const dayMatch = label.match(/\\b([A-Za-z]{3})\\s+(\\d{1,2})\\b/);
-  return dayMatch ? \`\${dayMatch[1]} \${dayMatch[2]}\` : label.slice(0, 7);
+  return dayMatch ? `${dayMatch[1]} ${dayMatch[2]}` : label.slice(0, 7);
 }
 
 function formatPeso(value: number) {
-  return \`Php \${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}\`;
+  return `Php ${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
