@@ -9,6 +9,7 @@ import {
   CircleAlert,
   Coins,
   Loader2,
+  MapPinned,
   Package,
   ShoppingBag,
   UsersRound,
@@ -16,6 +17,7 @@ import {
   Zap
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { CustomerOriginMap } from "@/components/analytics/customer-origin-map";
 import { CashFlowSummary, rangeOptions, type CashFlowData, type CashRange } from "@/components/dashboard/cash-flow-summary";
 import { LiveEvents } from "@/components/dashboard/live-events";
 import { Button } from "@/components/ui/button";
@@ -55,6 +57,7 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
   const [customStartDate, setCustomStartDate] = useState(initialData.startDate ?? initialData.cashFlow?.startDate ?? "");
   const [customEndDate, setCustomEndDate] = useState(initialData.endDate ?? initialData.cashFlow?.endDate ?? "");
   const [error, setError] = useState("");
+  const [showOriginMap, setShowOriginMap] = useState(false);
   const requestIdRef = useRef(0);
 
   const activeRange = data.range ?? data.cashFlow?.range ?? "today";
@@ -200,6 +203,34 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
 
       <CashFlowSummary data={data.cashFlow} />
 
+      <section className="overflow-hidden rounded-2xl border border-white/8 bg-white/[0.025]">
+        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-cyan-300/10 text-cyan-200">
+                <MapPinned size={15} />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Customer origin map</p>
+                <p className="text-xs text-foreground/42">Load geographic demand only when you need it.</p>
+              </div>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant={showOriginMap ? "outline" : "default"}
+            onClick={() => setShowOriginMap((open) => !open)}
+            className="shrink-0"
+          >
+            {showOriginMap ? "Hide map" : "Show map"}
+          </Button>
+        </div>
+        {showOriginMap ? (
+          <div className="border-t border-white/8 p-3 sm:p-4">
+            <CustomerOriginMap locations={data.topLocations ?? []} rangeLabel={rangeLabel} />
+          </div>
+        ) : null}
+      </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
         <RepeatCustomersPanel customers={data.repeatCustomers ?? []} rangeLabel={rangeLabel} />
