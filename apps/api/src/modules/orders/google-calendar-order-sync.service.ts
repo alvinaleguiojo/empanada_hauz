@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { GoogleWorkspaceService } from "../google-workspace/google-workspace.service";
@@ -18,7 +18,6 @@ export interface CalendarSyncRunResult {
 
 @Injectable()
 export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(GoogleCalendarOrderSyncService.name);
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
 
@@ -28,21 +27,19 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
   ) {}
 
   onModuleInit() {
-    this.logger.log(`Automatic Google Calendar sync enabled (every ${SYNC_INTERVAL_MS / 1000}s)`);
-    void this.sync("startup");
-    this.timer = setInterval(() => void this.sync("interval"), SYNC_INTERVAL_MS);
+    void this.sync();
+    this.timer = setInterval(() => void this.sync(), SYNC_INTERVAL_MS);
   }
 
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
-    this.logger.log("Automatic Google Calendar sync stopped");
   }
 
   async syncFutureOrders(): Promise<CalendarSyncRunResult> {
-    return this.sync("manual", true);
+    return this.sync(true);
   }
 
-  private async sync(source: "startup" | "interval" | "manual", futureOnly = false): Promise<CalendarSyncRunResult> {
+  private async sync(futureOnly = false): Promise<CalendarSyncRunResult> {
     const empty: CalendarSyncRunResult = {
       total: 0,
       synced: 0,
@@ -53,19 +50,15 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
     };
 
     if (this.running) {
-      this.logger.warn(`Google Calendar sync skipped (${source}): another sync is already running`);
       return empty;
     }
 
     this.running = true;
-    const startedAt = Date.now();
 
     try {
-
       const status = await this.googleWorkspace.status();
 
       if (!status.connected) {
-        this.logger.warn(`Google Calendar sync skipped (${source}): Google account is not connected`);
         return empty;
       }
 
@@ -114,19 +107,13 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
             const message = this.formatError(error);
             result.failed += 1;
             result.errors.push({ orderId: order.id, error: message });
-            this.logger.error(`Calendar cleanup failed for order ${order.id}: ${message}`);
           }
         }
       }
 
-      this.logger.log(
-        `Google Calendar sync complete (${source}): total=${result.total} synced=${result.synced} deleted=${result.deleted} skipped=${result.skipped} failed=${result.failed} durationMs=${Date.now() - startedAt}`
-      );
-
       return result;
     } catch (error) {
       const message = this.formatError(error);
-      this.logger.error(`Google Calendar sync failed (${source}): ${message}`);
       return { ...empty, failed: 1, errors: [{ orderId: "*", error: message }] };
     } finally {
       this.running = false;
@@ -143,14 +130,10 @@ export class GoogleCalendarOrderSyncService implements OnModuleInit, OnModuleDes
       }
 
       result.skipped += 1;
-      this.logger.warn(
-        `Calendar sync skipped for order ${orderId}: ${syncResult.reason ?? "unknown reason"}`
-      );
     } catch (error) {
       const message = this.formatError(error);
       result.failed += 1;
       result.errors.push({ orderId, error: message });
-      this.logger.error(`Calendar sync failed for order ${orderId}: ${message}`);
     }
   }
 
