@@ -229,14 +229,27 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
         lng: item.geo.lng + Math.cos(angle) * radius
       };
 
-      const markerScale = duplicateIndex === 0 ? 1.12 : 1.02;
-      const pin = new maps.marker.PinElement({
-        background: duplicateIndex === 0 ? "#ff6337" : "#31c7e8",
-        borderColor: "#07111d",
-        glyphColor: "#ffffff",
-        glyph: String(item.count),
-        scale: markerScale
-      });
+      const bubbleSize = Math.min(64, Math.max(30, 28 + Math.sqrt(Math.max(item.count, 1)) * 7));
+      const bubble = document.createElement("div");
+      bubble.style.width = `${bubbleSize}px`;
+      bubble.style.height = `${bubbleSize}px`;
+      bubble.style.borderRadius = "50%";
+      bubble.style.display = "grid";
+      bubble.style.placeItems = "center";
+      bubble.style.position = "relative";
+      bubble.style.cursor = "pointer";
+      bubble.style.boxSizing = "border-box";
+      bubble.style.background = duplicateIndex === 0
+        ? "radial-gradient(circle at 35% 30%, #ff9b72 0%, #ff6337 42%, #c93410 100%)"
+        : "radial-gradient(circle at 35% 30%, #75e7f6 0%, #28c4df 42%, #087c96 100%)";
+      bubble.style.border = "3px solid rgba(255,255,255,0.92)";
+      bubble.style.boxShadow = duplicateIndex === 0
+        ? "0 0 0 6px rgba(255,99,55,0.14), 0 10px 28px rgba(0,0,0,0.38)"
+        : "0 0 0 5px rgba(40,196,223,0.12), 0 10px 24px rgba(0,0,0,0.34)";
+      bubble.style.color = "#ffffff";
+      bubble.style.font = "800 11px Inter, system-ui, sans-serif";
+      bubble.style.textShadow = "0 1px 3px rgba(0,0,0,0.45)";
+      bubble.textContent = String(item.count);
 
       const marker = new maps.marker.AdvancedMarkerElement({
         map,
@@ -246,7 +259,8 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
         gmpClickable: true,
         collisionBehavior: "REQUIRED"
       });
-      marker.append(pin);
+      marker.append(bubble);
+
       marker.addEventListener("gmp-click", () => {
         infoWindowRef.current?.setContent(
           '<div style="min-width:230px;max-width:320px;padding:7px 5px;font-family:Inter,system-ui,sans-serif">' +
