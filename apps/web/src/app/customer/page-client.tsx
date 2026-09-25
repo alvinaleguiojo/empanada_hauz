@@ -51,6 +51,14 @@ type FormState = {
 };
 type PublicOrderResponse = { order: { id: string; orderNumber?: string }; trackingPath?: string };
 type SuccessState = { orderNumber?: string; trackingPath: string; trackingUrl: string };
+type OrderSummary = {
+  items: Array<{ name: string; quantity: number; price: number; subtotal: number }>;
+  totalQuantity: number;
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+};
+
 const initialState: FormState = {
   deliveryDate: "",
   customerName: "",
@@ -73,6 +81,85 @@ function formatProductTag(tag: string) {
     .replace(/[-_]+/g, " ")
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function DesktopOrderSummary({
+  step,
+  summary,
+  remaining,
+  isStepValid,
+  agreedToPolicy,
+  submitting,
+  summaryCopied,
+  onCopy,
+  onPrevious,
+  onNext,
+  onPlaceOrder
+}: {
+  step: number;
+  summary: OrderSummary;
+  remaining: number;
+  isStepValid: boolean;
+  agreedToPolicy: boolean;
+  submitting: boolean;
+  summaryCopied: boolean;
+  onCopy: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onPlaceOrder: () => void;
+}) {
+  return (
+    <aside className="hidden lg:block lg:sticky lg:top-[136px]">
+      <div className="overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(160deg,rgba(17,26,43,0.98),rgba(10,16,28,0.98))] shadow-[0_28px_80px_-38px_rgba(0,0,0,0.95)]">
+        <div className="border-b border-white/8 bg-white/[0.025] px-5 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-200/60">Live order</p><h3 className="mt-1 text-lg font-semibold tracking-tight text-white">Your selection</h3></div>
+            <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white/45">{summary.totalQuantity} pcs</span>
+          </div>
+        </div>
+        <div className="max-h-[310px] overflow-auto px-4 py-3 [scrollbar-width:thin]">
+          {summary.items.length > 0 ? (
+            <div className="space-y-1.5">
+              {summary.items.map((item) => (
+                <div key={item.name} className="rounded-xl border border-white/7 bg-white/[0.025] px-3 py-2.5">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white/82">{item.name}</p><p className="mt-0.5 text-[11px] text-white/35">{item.quantity} × Php {item.price}</p></div><span className="shrink-0 text-sm font-bold text-white/75">Php {item.subtotal}</span></div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center"><ShoppingBag className="mx-auto text-white/20" size={28} /><p className="mt-3 text-sm font-semibold text-white/55">Your bag is empty</p><p className="mt-1 text-xs text-white/30">Select flavors to build your box.</p></div>
+          )}
+        </div>
+        <div className="border-t border-white/8 px-5 py-4">
+          {summary.totalQuantity < 10 ? (
+            <div className="mb-4">
+              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.15em] text-white/35"><span>Minimum order</span><span className="text-orange-200">{summary.totalQuantity}/10 pcs</span></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-[linear-gradient(90deg,#ff6337,#ffae68)] transition-all" style={{ width: ((Math.min(100, (summary.totalQuantity / 10) * 100)) + "%") }} /></div>
+              <p className="mt-2 text-[11px] text-white/35">{remaining} more piece{remaining === 1 ? "" : "s"} to continue.</p>
+            </div>
+          ) : (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-300/10 bg-emerald-300/[0.06] px-3 py-2.5 text-xs font-semibold text-emerald-200"><CheckCircle2 size={14} /> Minimum order reached</div>
+          )}
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between gap-4 text-white/45"><span>Subtotal</span><span className="font-semibold text-white/75">Php {summary.subtotal}</span></div>
+            {summary.deliveryFee > 0 ? <div className="flex justify-between gap-4 text-white/45"><span>Delivery estimate</span><span className="font-semibold text-white/75">Php {summary.deliveryFee}</span></div> : null}
+            <div className="my-3 border-t border-dashed border-white/10" />
+            <div className="flex items-end justify-between gap-4"><span className="text-xs font-bold uppercase tracking-[0.16em] text-white/40">Total</span><span className="text-2xl font-semibold tracking-tight text-white">Php {summary.total}</span></div>
+          </div>
+          <button type="button" onClick={onCopy} disabled={summary.items.length === 0} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] text-xs font-bold text-white/65 transition hover:bg-white/[0.07] disabled:opacity-30"><Copy size={14} /> {summaryCopied ? "Copied to clipboard" : "Copy order summary"}</button>
+          <div className="mt-2 flex gap-2.5">
+            <button type="button" onClick={onPrevious} disabled={step === 0} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-white/65 transition hover:bg-white/[0.07] disabled:opacity-20" aria-label="Previous step"><ArrowLeft size={17} /></button>
+            {step < steps.length - 1 ? (
+              <button type="button" onClick={onNext} disabled={!isStepValid} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#ff6337,#ff9154)] px-4 text-sm font-extrabold text-white shadow-[0_16px_30px_-18px_rgba(255,99,55,0.95)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-30">Continue <ArrowRight size={16} /></button>
+            ) : (
+              <button type="button" onClick={onPlaceOrder} disabled={submitting || !agreedToPolicy} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#ff6337,#ff9154)] px-4 text-sm font-extrabold text-white shadow-[0_16px_30px_-18px_rgba(255,99,55,0.95)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-30">{submitting ? "Placing order…" : "Place order"} <Check size={16} /></button>
+            )}
+          </div>
+          {step === 2 && !agreedToPolicy ? <p className="mt-2 text-center text-[10px] leading-4 text-danger">Agree to the Privacy Policy to place your order.</p> : null}
+        </div>
+      </div>
+    </aside>
+  );
 }
 
 function CustomerKioskLoading({ stage }: { stage: "splash" | "skeleton" }) {
@@ -101,7 +188,7 @@ function CustomerKioskLoading({ stage }: { stage: "splash" | "skeleton" }) {
   return (
     <main className="kiosk-board min-h-screen px-3 pb-8 pt-3 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl animate-pulse">
-        <header className="sticky top-0 z-40 -mx-3 border-b border-line/10 bg-background/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <header className="sticky top-0 z-40 -mx-3 border-b border-white/10 bg-[linear-gradient(180deg,rgba(8,13,24,0.97),rgba(8,13,24,0.82))] px-3 py-3 backdrop-blur-2xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-accent/15" />
@@ -246,7 +333,7 @@ export default function CustomerKioskPage() {
     const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
     const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
     const deliveryFee = form.deliveryMethod === "maxim" ? deliveryQuote?.estimatedFare ?? 0 : 0;
-    return { items, totalQuantity, subtotal, deliveryFee, total: subtotal + deliveryFee };
+    return { items, totalQuantity, subtotal, deliveryFee, total: subtotal + deliveryFee } satisfies OrderSummary;
   }, [selectedFlavors, deliveryQuote, form.deliveryMethod]);
 
   const visibleFlavorOptions = useMemo(() => {
@@ -517,10 +604,10 @@ export default function CustomerKioskPage() {
         <header className="sticky top-0 z-40 -mx-3 border-b border-line/10 bg-background/95 px-3 py-3 backdrop-blur-xl sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-accent/20 bg-panel shadow-[0_8px_24px_-14px_rgb(var(--accent) / 0.9)]"><img src="/empanada hauz logo.jpg" alt="Empanada Hauz" className="h-full w-full object-cover" /></div>
+              <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05] shadow-[0_10px_35px_-18px_rgba(255,99,55,0.85)]"><img src="/empanada hauz logo.jpg" alt="Empanada Hauz" className="h-full w-full object-cover" /></div>
               <div className="min-w-0">
-                <div className="font-sans text-base font-extrabold leading-none text-foreground">Empanada Hauz</div>
-                <div className="mt-1 truncate text-xs text-foreground/50">Freshly made, your way.</div>
+                <div className="font-sans text-base font-extrabold leading-none tracking-tight text-white">Empanada Hauz</div>
+                <div className="mt-1 truncate text-[11px] font-medium text-white/40">Freshly made, your way.</div>
               </div>
             </div>
             <button type="button" onClick={() => setBagOpen(true)} aria-label={`Open bag with ${summary.totalQuantity} pieces`} className="inline-flex items-center gap-2 rounded-full border border-line/10 bg-panel px-3 py-2 transition hover:border-accent/30 hover:bg-panel">
@@ -536,27 +623,41 @@ export default function CustomerKioskPage() {
           {stepNavigation}
         </div>
 
-        <section className="mt-0 overflow-hidden rounded-b-[30px] border-x border-b border-line/10 bg-panel shadow-[0_30px_90px_-35px_rgba(0,0,0,0.8)]">
-          <div className="jeepney-stripe h-1.5 w-full" />
-          <div className="grid gap-8 px-5 py-7 sm:px-8 sm:py-8 lg:grid-cols-[1.25fr_0.75fr] lg:px-10 lg:py-10">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-accent">Made to order <span className="h-1 w-1 rounded-full bg-accent/60" /> 10 pcs minimum</div>
-              <h1 className="mt-4 max-w-3xl font-sans text-4xl font-extrabold leading-[1.02] tracking-tight text-foreground sm:text-5xl lg:text-6xl">Build your box.<br /><span className="text-accent">We'll handle the rest.</span></h1>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-foreground/60 sm:text-base">Choose your favorite flavors, set your quantities, then tell us where to send your freshly made empanadas.</p>
-              <Link href="/delivery-fee" className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-accent underline underline-offset-4">Check delivery fee first →</Link>
-              <div className="mt-6 hidden lg:block" />
+        <section className="mt-0 overflow-hidden rounded-b-[32px] border-x border-b border-white/8 bg-[radial-gradient(circle_at_88%_15%,rgba(255,117,67,0.22),transparent_28%),radial-gradient(circle_at_74%_70%,rgba(59,214,255,0.08),transparent_26%),linear-gradient(145deg,#0b1220,#121b2d_62%,#17243a)] shadow-[0_35px_100px_-42px_rgba(0,0,0,0.95)]">
+          <div className="h-1.5 w-full bg-[linear-gradient(90deg,#ff6337,#ff9f5b,#48d9ff)]" />
+          <div className="grid gap-8 px-5 py-8 sm:px-8 sm:py-9 lg:grid-cols-[minmax(0,1.2fr)_360px] lg:px-10 lg:py-11">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-orange-300 shadow-[0_0_12px_rgba(255,174,120,0.75)]" />
+                Made to order
+                <span className="text-white/20">•</span>
+                10 pcs minimum
+              </div>
+              <h1 className="mt-4 max-w-3xl font-sans text-4xl font-semibold leading-[1.04] tracking-[-0.04em] text-white sm:text-5xl lg:text-6xl">Build your perfect box.</h1>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-white/55 sm:text-base">Pick your flavors, set the quantity, choose pickup or delivery, and review everything before you place your order.</p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60">Freshly made</span>
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60">Pickup & delivery</span>
+                <Link href="/delivery-fee" className="rounded-full border border-orange-300/15 bg-orange-300/10 px-3 py-1.5 text-[11px] font-bold text-orange-200 transition hover:bg-orange-300/15">Check delivery fee</Link>
+              </div>
             </div>
-            <div className="hidden lg:flex lg:items-end lg:justify-end">
-              <div className="max-w-xs rounded-2xl border border-dashed border-line/15 bg-background p-5 text-right">
-                <div className="font-sans text-2xl text-foreground/70">fresh from the pan</div>
-                <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/35">packed with care · delivered with love</div>
+            <div className="relative hidden min-h-[190px] overflow-hidden rounded-3xl border border-white/10 bg-white/[0.045] lg:block">
+              <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-orange-400/20 blur-3xl" />
+              <div className="absolute -bottom-10 -left-6 h-32 w-32 rounded-full bg-cyan-400/10 blur-3xl" />
+              <div className="relative flex h-full flex-col justify-between p-5">
+                <div className="flex items-center gap-3">
+                  <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]"><img src="/empanada hauz logo.jpg" alt="" className="h-full w-full object-cover" /></div>
+                  <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-white/35">Empanada Hauz</p><p className="mt-1 text-sm font-semibold text-white/80">Made fresh for your order</p></div>
+                </div>
+                <div><p className="font-sans text-2xl font-semibold tracking-tight text-white/85">Choose. Build. Enjoy.</p><p className="mt-1 text-xs text-white/35">Your order stays visible every step.</p></div>
               </div>
             </div>
           </div>
         </section>
 
-        <form id="kiosk-order-form" onSubmit={handleSubmit} className="mt-5">
-          <section className="min-w-0 rounded-[26px] border border-line/10 bg-panel p-4 shadow-[0_22px_60px_-36px_rgba(0,0,0,0.8)] sm:p-6">
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+          <form id="kiosk-order-form" onSubmit={handleSubmit}>
+          <section className="min-w-0 rounded-[26px] border border-white/8 bg-white/[0.025] p-4 shadow-[0_28px_70px_-44px_rgba(0,0,0,0.9)] sm:p-6">
             {step === 0 ? (
               <>
                 <div className="flex flex-col gap-4 border-b border-line/10 pb-5 sm:flex-row sm:items-end sm:justify-between">
@@ -580,13 +681,13 @@ export default function CustomerKioskPage() {
                     const soldOut = option.available === false;
                     const rating = getProductRating(option.value);
                     return (
-                      <article key={option.value} className={`group relative overflow-hidden rounded-2xl border transition ${selected ? "border-accent/70 bg-panel shadow-[0_12px_35px_-22px_rgb(var(--accent) / 0.9)]" : "border-line/8 bg-panel hover:-translate-y-0.5 hover:border-line/15"} ${soldOut ? "opacity-55" : ""}`}>
+                      <article key={option.value} className={`group relative overflow-hidden rounded-[22px] border bg-white/[0.025] transition duration-300 ${selected ? "border-accent/70 bg-accent/[0.055] shadow-[0_24px_55px_-28px_rgba(255,99,55,0.75)] -translate-y-0.5" : "border-white/8 hover:-translate-y-1 hover:border-white/15 hover:bg-white/[0.045]"} ${soldOut ? "opacity-55" : ""}`}>
                         <button
                           type="button"
                           onClick={() => toggleFlavor(option.value)}
                           disabled={soldOut}
                           aria-label={soldOut ? `${option.label} is sold out` : `${selected ? "Remove" : "Select"} ${option.label}`}
-                          className="relative block aspect-[16/9] w-full overflow-hidden bg-background text-left disabled:cursor-not-allowed"
+                          className="relative block aspect-[16/9] w-full overflow-hidden bg-[#0c1422] text-left disabled:cursor-not-allowed"
                         >
                           {option.imageUrl ? <img src={option.imageUrl} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_50%_30%,rgb(var(--accent) / 0.18),transparent_60%)]"><span className="font-sans text-4xl text-accent/55">EH</span></div>}
                           <div className="absolute inset-0 bg-gradient-to-t from-[rgb(var(--background))] via-transparent to-transparent" />
@@ -696,9 +797,24 @@ export default function CustomerKioskPage() {
 
             {error ? <p className="mt-5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p> : null}
           </section>
-        </form>
+          </section>
+          </form>
+          <DesktopOrderSummary
+            step={step}
+            summary={summary}
+            remaining={remaining}
+            isStepValid={isStepValid}
+            agreedToPolicy={agreedToPolicy}
+            submitting={submitting}
+            summaryCopied={summaryCopied}
+            onCopy={() => void copyOrderSummary()}
+            onPrevious={() => setStep((current) => Math.max(0, current - 1))}
+            onNext={() => { setStep((current) => current + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+            onPlaceOrder={() => { window.requestAnimationFrame(() => document.getElementById("kiosk-order-form")?.requestSubmit()); }}
+          />
+        </div>
 
-        <p className="py-4 text-center font-sans text-lg text-foreground/35">made fresh daily by Empanada Hauz</p>
+        <p className="py-5 text-center font-sans text-sm text-white/25">made fresh daily by Empanada Hauz</p>
       </div>
 
       {bagOpen ? (
@@ -735,7 +851,7 @@ export default function CustomerKioskPage() {
         </div>
       ) : null}
 
-      <style jsx global>{`.kiosk-board{background:radial-gradient(circle at 8% 2%,rgb(var(--accent) / 0.18),transparent 30rem),radial-gradient(circle at 94% 22%,rgb(23 198 214 / 0.10),transparent 28rem),linear-gradient(135deg,#111827 0%,#151b30 48%,#1b2539 100%)} .jeepney-stripe{background:linear-gradient(135deg,rgb(var(--accent)),#ff8a4d)} .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
+      <style jsx global>{`.kiosk-board{background:radial-gradient(circle at 10% 0%,rgba(255,99,55,0.16),transparent 28rem),radial-gradient(circle at 88% 12%,rgba(56,214,255,0.08),transparent 26rem),linear-gradient(145deg,#07101d 0%,#0c1422 44%,#111b2d 100%)} .jeepney-stripe{background:linear-gradient(135deg,rgb(var(--accent)),#ff8a4d)} .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`}</style>
     </main>
   );
 }
