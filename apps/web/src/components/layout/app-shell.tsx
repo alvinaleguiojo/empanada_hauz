@@ -56,6 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const notifications = useRealtimeStore((state) => state.notifications);
   const markNotificationsRead = useRealtimeStore((state) => state.markNotificationsRead);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [speechEnabled, setSpeechEnabled] = useState(false);
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(false);
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState<NotificationPermission>("default");
@@ -105,6 +106,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const voiceCallBusy = voiceCallStatus !== "idle";
 
   useEffect(() => {
+    setMounted(true);
     setSpeechEnabled(window.localStorage.getItem("empanada-notification-speech") === "on");
 
     const browserNotificationStored = window.localStorage.getItem("empanada-browser-notifications");
@@ -1449,7 +1451,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <audio ref={ringtoneAudioRef} src="/IPhone%20original%20ringtone.mp3" loop preload="auto" />
         </main>
       </div>
-      {typeof document !== "undefined"
+      {mounted
         ? createPortal(
             <button
               type="button"
