@@ -135,23 +135,28 @@ export default function OrdersPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">Orders</h1>
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-            {connected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-            {connected ? "Live" : "Disconnected"}
-          </span>
+      <header className="border-b border-white/8 bg-[linear-gradient(180deg,rgba(8,13,24,0.96),rgba(8,13,24,0.78))] px-4 py-4 backdrop-blur-2xl sm:px-6">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight text-white">Orders</h1>
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] ${connected ? "border-emerald-300/15 bg-emerald-300/10 text-emerald-200" : "border-rose-300/15 bg-rose-300/10 text-rose-200"}`}>
+                {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                {connected ? "Live" : "Disconnected"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-white/35">Real-time order management, production workflow, and delivery operations.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setManualOrderOpen(true)} disabled={initialLoading} className="h-10 rounded-xl border-white/10 bg-white/[0.04] px-4 hover:bg-white/[0.08]">
+              <Plus className="mr-1.5 h-4 w-4" /> New Order
+            </Button>
+            <Button variant="outline" size="sm" className="h-10 w-10 rounded-xl border-white/10 bg-white/[0.04] p-0 hover:bg-white/[0.08]" aria-label="Calendar" onClick={() => router.push("/calendar")} disabled={initialLoading}>
+              <CalendarDays className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setManualOrderOpen(true)} disabled={initialLoading}>
-            <Plus className="mr-1 h-4 w-4" /> New Order
-          </Button>
-          <Button variant="outline" size="sm" className="h-8 w-8 p-0" aria-label="Calendar" onClick={() => router.push("/calendar")} disabled={initialLoading}>
-            <CalendarDays className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      </header>
       <div className="min-h-0 flex-1 overflow-y-auto" onClickCapture={handleOrdersClickCapture}>
         {initialLoading ? <OrdersLoadingSkeleton /> : <OrdersView orders={orders} />}
       </div>
@@ -161,7 +166,7 @@ export default function OrdersPage() {
       {manualOrderOpen ? createPortal(
         <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-6 lg:p-8">
           <button type="button" aria-label="Close new order form" className="absolute inset-0 h-full w-full cursor-default" onClick={() => setManualOrderOpen(false)} />
-          <div className="relative z-10 my-auto w-full max-w-6xl rounded-xl bg-background shadow-2xl">
+          <div className="relative z-10 my-auto w-full max-w-6xl overflow-hidden rounded-[22px] border border-white/10 bg-background shadow-[0_30px_100px_-35px_rgba(0,0,0,0.9)]">
             <div className="flex items-center justify-between border-b px-4 py-3 sm:px-6">
               <div><h2 className="text-lg font-semibold">New Order</h2><p className="text-xs text-muted-foreground">Create a manual order</p></div>
               <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => setManualOrderOpen(false)} aria-label="Close new order form"><X className="h-4 w-4" /></Button>
