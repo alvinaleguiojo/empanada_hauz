@@ -142,7 +142,10 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
     let attempts = 0;
     const check = () => {
       const maps = (window as unknown as GoogleMapsWindow).google?.maps;
-      if (maps?.Map && maps.Marker && maps.LatLngBounds && maps.InfoWindow && maps.Geocoder) return setMapsReady(true);
+      if (maps?.Map && maps.LatLngBounds && maps.InfoWindow && maps.Geocoder && maps.importLibrary) {
+        void maps.importLibrary("marker").then(() => setMapsReady(true)).catch(() => setMapError("Google Maps markers are unavailable right now."));
+        return;
+      }
       if (!cancelled && attempts < 120) { attempts += 1; timer = window.setTimeout(check, 250); }
       else if (!cancelled) setMapError("Google Maps is unavailable right now.");
     };
@@ -162,7 +165,8 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
       fullscreenControl: true,
       clickableIcons: false,
       gestureHandling: "greedy",
-      backgroundColor: "#0b1220"
+      backgroundColor: "#0b1220",
+      mapId: "DEMO_MAP_ID"
     });
     infoWindowRef.current = new maps.InfoWindow();
   }, [mapsReady]);
@@ -200,21 +204,34 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
     const map = mapRef.current;
     const maps = (window as unknown as GoogleMapsWindow).google?.maps;
     if (!map || !maps) return;
-    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current.forEach((marker) => { marker.map = null; });
     markersRef.current = [];
     if (!areaGroups.length) { map.setCenter(DEFAULT_CENTER); map.setZoom(11); return; }
     const bounds = new maps.LatLngBounds();
     areaGroups.forEach((group, index) => {
       const position = group.center;
-      const marker = new maps.Marker({
+      const markerContent = document.createElement("div");
+      const markerScale = Math.min(1.9, 0.95 + Math.min(group.count, 50) * 0.025);
+      markerContent.style.width = `${28 * markerScale}px`;
+      markerContent.style.height = `${28 * markerScale}px`;
+      markerContent.style.borderRadius = "9999px";
+      markerContent.style.background = "#F4581D";
+      markerContent.style.border = "4px solid #08101d";
+      markerContent.style.boxShadow = "0 8px 24px rgba(0,0,0,0.35)";
+      markerContent.style.display = "grid";
+      markerContent.style.placeItems = "center";
+      markerContent.style.color = "#FFFFFF";
+      markerContent.style.font = "800 11px Inter, system-ui, sans-serif";
+      markerContent.textContent = String(group.count);
+      const marker = new maps.marker.AdvancedMarkerElement({
         map,
         position,
         zIndex: 1000 - index,
         title: group.area + " • " + group.count + " orders • " + group.addressCount + " locations",
-        icon: { path: maps.SymbolPath.CIRCLE, scale: Math.min(24, 9 + Math.min(group.count, 50) * 0.32), fillColor: "#F4581D", fillOpacity: 0.9, strokeColor: "#08101d", strokeWeight: 4 },
-        label: { text: String(group.count), color: "#FFFFFF", fontSize: "11px", fontWeight: "800" }
+        gmpClickable: true
       });
-      marker.addListener("click", () => {
+      marker.append(markerContent);
+      marker.addEventListener("gmp-click", () => {
         const addressList = group.addresses.slice(0, 5).map((address) => "<div style=\"margin-top:4px\">• " + escapeHtml(address) + "</div>").join("");
         infoWindowRef.current?.setContent("<div style=\"min-width:240px;max-width:310px;padding:6px 4px;font-family:Inter,system-ui,sans-serif\"><div style=\"font-size:14px;font-weight:900;color:#172139\">" + escapeHtml(group.area) + "</div><div style=\"margin-top:5px;font-size:12px;color:#475569\">" + group.count + " orders across " + group.addressCount + " mapped locations</div><div style=\"margin-top:9px;font-size:11px;line-height:1.45;color:#64748b\">" + addressList + "</div></div>");
         infoWindowRef.current?.open({ map, anchor: marker });
