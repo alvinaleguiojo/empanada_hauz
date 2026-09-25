@@ -184,7 +184,7 @@ export function DashboardView({ initialData }: { initialData: DashboardData }) {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SignalCard label="Completion" value={`${formatNumber(data.productionEfficiency)}%`} caption={`${data.cancelledOrders ?? 0} cancelled`} icon={CheckCircle2} tone="success" />
         <SignalCard label="Repeat customers" value={formatNumber(data.repeatCustomerCount)} caption={`${formatNumber(data.repeatCustomerRate, 1)}% of customers`} icon={UsersRound} />
-        <SignalCard label="Avg order" value={formatPeso(data.averageOrderSize)} caption={`${formatNumber(data.pcsSoldToday)} pcs sold`} icon={ShoppingBag} />
+        <SignalCard label="Avg order" value={`${formatNumber(data.averageOrderSize, 1)} pcs`} caption="Average pieces per order" icon={ShoppingBag} />
         <SignalCard label="Best product" value={topItem?.name ?? "—"} caption={topItem ? `${topItem.quantity} pcs • ${topProductShare}% of volume` : "No completed items yet"} icon={BarChart3} compactValue />
         <SignalCard label="Cash position" value={formatPeso(data.moneyOnHandToday)} caption={data.moneyOnHandToday >= 0 ? "Positive balance" : "Negative balance"} icon={Zap} tone={data.moneyOnHandToday >= 0 ? "accent" : "danger"} />
       </section>
