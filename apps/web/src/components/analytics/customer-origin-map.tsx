@@ -18,24 +18,6 @@ const DEFAULT_CENTER = { lat: 10.3157, lng: 123.8854 };
 const GEO_CACHE = new Map<string, GeoPoint | null>();
 const GEO_CACHE_PREFIX = "empanada-origin-geocode:v2:";
 
-const DARK_MAP_STYLES = [
-  { elementType: "geometry", stylers: [{ color: "#0b1220" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#9aa7bb" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#0b1220" }] },
-  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#263246" }] },
-  { featureType: "administrative.country", elementType: "labels.text.fill", stylers: [{ color: "#8c9ab0" }] },
-  { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d4dbea" }] },
-  { featureType: "poi", stylers: [{ visibility: "off" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#1b2638" }] },
-  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#101827" }] },
-  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#718097" }] },
-  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#2a3a53" }] },
-  { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#172235" }] },
-  { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#9aa7bb" }] },
-  { featureType: "transit", stylers: [{ visibility: "off" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#07111f" }] },
-  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#5d6f88" }] }
-];
 
 function normalize(value: string) { return value.trim().replace(/\s+/g, " ").toLowerCase(); }
 
@@ -155,20 +137,36 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
 
   useEffect(() => {
     if (!mapsReady || !mapElementRef.current || mapRef.current) return;
-    const maps = (window as unknown as GoogleMapsWindow).google!.maps!;
-    mapRef.current = new maps.Map(mapElementRef.current, {
-      center: DEFAULT_CENTER,
-      zoom: 11,
-      styles: DARK_MAP_STYLES,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: true,
-      clickableIcons: false,
-      gestureHandling: "greedy",
-      backgroundColor: "#0b1220",
-      mapId: "DEMO_MAP_ID"
-    });
-    infoWindowRef.current = new maps.InfoWindow();
+    let cancelled = false;
+
+    const initializeMap = async () => {
+      const maps = (window as unknown as GoogleMapsWindow).google!.maps!;
+      try {
+        const core = await maps.importLibrary("core");
+        if (cancelled) return;
+        const colorScheme = (core as any).ColorScheme?.DARK ?? "DARK";
+        mapRef.current = new maps.Map(mapElementRef.current, {
+          center: DEFAULT_CENTER,
+          zoom: 11,
+          colorScheme,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: true,
+          clickableIcons: false,
+          gestureHandling: "greedy",
+          backgroundColor: "#050b14",
+          mapId: "DEMO_MAP_ID"
+        });
+        infoWindowRef.current = new maps.InfoWindow();
+      } catch {
+        if (!cancelled) setMapError("Unable to initialize the dark Google Map right now.");
+      }
+    };
+
+    void initializeMap();
+    return () => {
+      cancelled = true;
+    };
   }, [mapsReady]);
 
   useEffect(() => {
@@ -231,19 +229,14 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
         lng: item.geo.lng + Math.cos(angle) * radius
       };
 
-      const markerContent = document.createElement("div");
-      markerContent.style.width = duplicateIndex === 0 ? "30px" : "26px";
-      markerContent.style.height = duplicateIndex === 0 ? "30px" : "26px";
-      markerContent.style.borderRadius = "9999px";
-      markerContent.style.background = duplicateIndex === 0 ? "#ff622d" : "#31c7e8";
-      markerContent.style.border = "3px solid #07111d";
-      markerContent.style.boxShadow = "0 6px 18px rgba(0,0,0,0.45)";
-      markerContent.style.display = "grid";
-      markerContent.style.placeItems = "center";
-      markerContent.style.color = "#ffffff";
-      markerContent.style.font = "800 10px Inter, system-ui, sans-serif";
-      markerContent.style.cursor = "pointer";
-      markerContent.textContent = String(item.count);
+      const markerScale = duplicateIndex === 0 ? 1.12 : 1.02;
+      const pin = new maps.marker.PinElement({
+        background: duplicateIndex === 0 ? "#ff6337" : "#31c7e8",
+        borderColor: "#07111d",
+        glyphColor: "#ffffff",
+        glyph: String(item.count),
+        scale: markerScale
+      });
 
       const marker = new maps.marker.AdvancedMarkerElement({
         map,
@@ -253,8 +246,7 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
         gmpClickable: true,
         collisionBehavior: "REQUIRED"
       });
-      marker.append(markerContent);
-
+      marker.append(pin);
       marker.addEventListener("gmp-click", () => {
         infoWindowRef.current?.setContent(
           '<div style="min-width:230px;max-width:320px;padding:7px 5px;font-family:Inter,system-ui,sans-serif">' +
@@ -301,9 +293,9 @@ export function CustomerOriginMap({ locations, rangeLabel }: { locations: Custom
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_360px]">
           <div className="relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-[#050b14] shadow-inner shadow-black/40">
-            <div className="h-[430px] w-full sm:h-[500px] bg-[#050b14] [filter:brightness(0.72)_saturate(0.82)_contrast(1.05)]">
-              <div ref={mapElementRef} className="h-full w-full" />
-            </div>
+            <div className="h-[430px] w-full sm:h-[500px] bg-[#050b14]">
+            <div ref={mapElementRef} className="h-full w-full" />
+          </div>
             {!mapsReady ? <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#0b1220] text-sm text-white/45"><Loader2 size={16} className="animate-spin" /> Loading dark map…</div> : null}
             {mapsReady && sourceLocations.length === 0 ? <div className="absolute inset-0 flex items-center justify-center bg-[#0b1220]/90 px-6 text-center"><div><MapPin className="mx-auto text-white/25" size={30} /><p className="mt-3 text-sm font-semibold text-white/65">No customer locations in this range yet.</p><p className="mt-1 text-xs text-white/35">Mapped demand will appear here as orders are recorded.</p></div></div> : null}
             {mapping ? <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#101a2b]/90 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white/65 shadow-lg"><Loader2 size={13} className="animate-spin text-accent" /> Mapping {mapped.length}/{sourceLocations.length}</div> : null}
