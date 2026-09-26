@@ -67,7 +67,7 @@ RULES:
 
 ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
 
-    const history = (request.recentMessages ?? []).slice(-16).map((content) => {
+    const history = (request.recentMessages ?? []).slice(-12).map((content) => {
       const separator = content.indexOf(": ");
       if (separator > 0) {
         const speaker = content.slice(0, separator).toLowerCase();
@@ -77,12 +77,8 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
     });
 
     const context = [
-      `CHANNEL: ${request.channel}`,
       `CUSTOMER: ${request.customerName || "Customer"}`,
-      `CUSTOMER ID: ${request.customerId}`,
-      `CONVERSATION ID: ${request.conversationId}`,
-      `PENDING ORDER DRAFT: ${liveState?.draft ? JSON.stringify(liveState.draft) : "none"}`,
-      `AVAILABLE CAPABILITIES:\n${tools.map((tool) => `${tool.name}: ${tool.description}\nINPUT: ${JSON.stringify(tool.inputSchema)}\nRISK: ${tool.risk}${tool.requiresExplicitConfirmation ? "; EXPLICIT CONFIRMATION REQUIRED" : ""}`).join("\n\n")}`
+      `PENDING ORDER DRAFT: ${liveState?.draft ? JSON.stringify(liveState.draft) : "none"}`
     ].join("\n\n");
 
     const result = await this.orchestrator.run({
