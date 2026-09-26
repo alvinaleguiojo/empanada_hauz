@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AiApplicationToolsService } from "./ai-application-tools.service";
 import { AiConversationStateService } from "./ai-conversation-state.service";
-import { AiActionConfigPatch, AiActionConfigService } from "./ai-action-config.service";
+import { AiActionConfigDocument, AiActionConfigPatch, AiActionConfigService } from "./ai-action-config.service";
 import { AiToolDefinition, AiToolExecutionContext, AiToolHandler } from "./ai-tool.types";
 import { AiDateTimeService } from "./ai-datetime.service";
 import { ProductsService } from "../products/products.service";
@@ -20,21 +20,41 @@ export class AiToolRegistryService {
     private readonly aiDateTimeService: AiDateTimeService
   ) {}
 
-  async getTools(): Promise<AiToolDefinition[]> {
-    const handlers = await this.handlers();
+  private toolsCache: { expiresAt: number; tools: AiToolDefinition[] } | null = null;
+  private actionConfigCache: { expiresAt: number; configs: Map<string, AiActionConfigDocument> } | null = null;
+  private readonly cacheTtlMs = 5000;
+
+  private async getActionConfigs() {
+    if (this.actionConfigCache && this.actionConfigCache.expiresAt > Date.now()) {
+      return this.actionConfigCache.configs;
+    }
     const configs = new Map((await this.actionConfig.list()).map((item) => [item.name, item]));
-    const builtIn = handlers.filter((handler) => handler.definition.name !== "get_delivery_pricing" && (configs.get(handler.definition.name)?.enabled ?? true)).map((handler) => {
-      const config = configs.get(handler.definition.name);
-      return { ...handler.definition, description: config?.description?.trim() || handler.definition.description };
-    });
-    const custom = (await this.actionConfig.list()).filter((config) => config.custom && config.enabled).flatMap((config) => {
-      const target = handlers.find((handler) => handler.definition.name === config.executor);
-      if (!target || target.definition.name === "get_delivery_pricing") return [];
-      if (config.name === config.executor) return [];
-      return [{ ...target.definition, name: config.name, description: config.description?.trim() || target.definition.description }];
-    });
+    this.actionConfigCache = { expiresAt: Date.now() + this.cacheTtlMs, configs };
+    return configs;
+  }
+
+  private invalidateToolCache() {
+    this.toolsCache = null;
+    this.actionConfigCache = null;
+  }
+
+  async getTools(): Promise<AiToolDefinition[]> {
+    if (this.toolsCache && this.toolsCache.expiresAt > Date.now()) return this.toolsCache.tools;
+
+    const handlers = await this.handlers();
+    const configs = await this.getActionConfigs();
     const names = new Set<string>();
-    return [...builtIn, ...custom].filter((tool) => !names.has(tool.name) && names.add(tool.name));
+    const tools = handlers
+      .filter((handler) => handler.definition.name !== "get_delivery_pricing")
+      .filter((handler) => configs.get(handler.definition.name)?.enabled ?? true)
+      .map((handler) => {
+        const config = configs.get(handler.definition.name);
+        return { ...handler.definition, description: config?.description?.trim() || handler.definition.description };
+      })
+      .filter((tool) => !names.has(tool.name) && names.add(tool.name));
+
+    this.toolsCache = { expiresAt: Date.now() + this.cacheTtlMs, tools };
+    return tools;
   }
 
   async listApprovedExecutors() {
@@ -102,14 +122,17 @@ export class AiToolRegistryService {
   async configure(name: string, patch: AiActionConfigPatch, createdById: string) {
     const handler = (await this.handlers()).find((item) => item.definition.name === name);
     if (!handler) throw new BadRequestException(`Unknown AI action: ${name}`);
-    return this.actionConfig.upsert(name, patch, createdById, { description: handler.definition.description, executor: handler.definition.name });
+    const result = await this.actionConfig.upsert(name, patch, createdById, { description: handler.definition.description, executor: handler.definition.name });
+    this.invalidateToolCache();
+    return result;
   }
 
   async resetConfiguration(name: string) {
     const handler = (await this.handlers()).find((item) => item.definition.name === name);
-    const config = await this.actionConfig.findByName(name);
+    const config = (await this.getActionConfigs()).get(name);
     if (!handler && !config?.custom) throw new BadRequestException(`Unknown AI action: ${name}`);
     await this.actionConfig.remove(name);
+    this.invalidateToolCache();
   }
 
   async execute(name: string, args: Record<string, unknown>, context: AiToolExecutionContext) {
@@ -127,12 +150,31 @@ export class AiToolRegistryService {
   private async handlers(): Promise<AiToolHandler[]> {
     return [
       {
-        definition: { name: "list_products", description: "Read the live customer-facing product catalog. Use this whenever the customer wants to browse, view, see, know, compare, or ask about the shop's menu, products, available items, offerings, or their current prices. Interpret natural language semantically; do not require a specific keyword.", risk: "read", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
-        execute: async () => this.productsService.list({ availableOnly: true })
+        definition: { name: "list_products", description: "Read the current customer-facing menu and prices. Use for menu, flavor, product, or price questions.", risk: "read", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+        execute: async () => (await this.productsService.list({ availableOnly: true })).map((product) => ({
+          name: product.name,
+          description: product.description,
+          price: product.price,
+          available: product.available,
+          aliases: product.aliases,
+          tags: product.tags
+        }))
       },
       {
-        definition: { name: "get_product", description: "Read one specific available product by its name or alias when the customer asks about a particular item, flavor, or price.", risk: "read", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"], additionalProperties: false } },
-        execute: async (args) => { const name = String(args.name ?? "").trim(); const product = await this.productsService.resolveByName(name, { requireAvailable: true }); if (!product) throw new BadRequestException(`Product not found or unavailable: ${name}`); return product; }
+        definition: { name: "get_product", description: "Read one available product by name or alias.", risk: "read", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"], additionalProperties: false } },
+        execute: async (args) => {
+          const name = String(args.name ?? "").trim();
+          const product = await this.productsService.resolveByName(name, { requireAvailable: true });
+          if (!product) throw new BadRequestException(`Product not found or unavailable: ${name}`);
+          return {
+            name: product.name,
+            description: product.description,
+            price: product.price,
+            available: product.available,
+            aliases: product.aliases,
+            tags: product.tags
+          };
+        }
       },
       {
         definition: { name: "get_delivery_pricing", description: "Internal delivery pricing configuration. Not customer-facing. Do not expose base-fare or per-km values to customers; use get_delivery_quote for an address-specific customer delivery fee.", risk: "read", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
@@ -184,21 +226,13 @@ export class AiToolRegistryService {
         execute: async (args, context) => { const existing = await this.stateService.get(context.conversationId ?? "", context.customerId); const draft = (existing?.draft ?? {}) as Record<string, unknown>; const merged: Record<string, unknown> = { ...draft, ...args }; if (merged.phoneNumber === undefined && draft.contactNumber !== undefined) merged.phoneNumber = draft.contactNumber; if (merged.preferredSchedule === undefined) { const date = typeof draft.deliveryDate === "string" ? draft.deliveryDate : undefined; const time = typeof draft.preferredTime === "string" ? draft.preferredTime : undefined; if (date || time) merged.preferredSchedule = [date, time].filter(Boolean).join(" "); } if (merged.location === undefined && draft.landmark !== undefined) merged.location = draft.landmark; if (typeof merged.preferredSchedule === "string" && draft.preferredTime && /^(today|tomorrow)$/i.test(merged.preferredSchedule.trim())) merged.preferredSchedule = `${merged.preferredSchedule.trim()} ${draft.preferredTime}`; const result = await this.applicationTools.execute("create_order", { ...merged, customerId: context.customerId }); await this.stateService.clear(context.conversationId ?? "", context.customerId); return result; }
       },
       {
-        definition: { name: "reschedule_order", description: "Change only the delivery or pickup schedule of an existing customer order. Use this whenever the customer asks to move, postpone, advance, or change when an existing order should be fulfilled. The application checks the real current order status and permits rescheduling only when it is exactly queued. Pass the customer's relative or exact schedule as preferredSchedule; the application resolves relative dates and rejects non-queued orders.", risk: "write", requiresCustomerContext: true, inputSchema: { type: "object", properties: { id: { type: "string" }, orderNumber: { type: "string" }, preferredSchedule: { type: "string" } }, required: ["preferredSchedule"], additionalProperties: false } },
-        execute: async (args, context) => this.applicationTools.execute("update_order", { ...args, customerId: context.customerId })
-      },
-      {
-        definition: { name: "update_order", description: "Update an existing active customer order when the customer asks to change its items, quantity, delivery, payment, address, or schedule. When changing date/time (rescheduling), check the current order status first; rescheduling is allowed only when the status is exactly `queued`. Use `preferredSchedule` and preserve all other order details unless the customer explicitly requests another change.", risk: "write", requiresCustomerContext: true, inputSchema: { type: "object", properties: { id: { type: "string" }, orderNumber: { type: "string" }, items: { type: "array" }, quantity: { type: "number" }, deliveryMethod: { type: "string", enum: ["pickup", "maxim"] }, paymentMethod: { type: "string", enum: ["cod", "gcash"] }, location: { type: "string" }, address: { type: "string" }, phoneNumber: { type: "string" }, preferredSchedule: { type: "string" } }, additionalProperties: false } },
+        definition: { name: "update_order", description: "Update an active customer order, including items, quantity, delivery, payment, address, or schedule. For schedule changes, the application validates that the order is still queued.", risk: "write", requiresCustomerContext: true, inputSchema: { type: "object", properties: { id: { type: "string" }, orderNumber: { type: "string" }, items: { type: "array" }, quantity: { type: "number" }, deliveryMethod: { type: "string", enum: ["pickup", "maxim"] }, paymentMethod: { type: "string", enum: ["cod", "gcash"] }, location: { type: "string" }, address: { type: "string" }, phoneNumber: { type: "string" }, preferredSchedule: { type: "string" } }, additionalProperties: false } },
         execute: async (args, context) => this.applicationTools.execute("update_order", { ...args, customerId: context.customerId })
       },
       {
         definition: { name: "cancel_order", description: "Cancel an active customer order when the customer requests cancellation and explicitly confirms the cancellation.", risk: "write", requiresCustomerContext: true, requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, required: ["confirmed"], additionalProperties: false } },
         execute: async (args, context) => this.applicationTools.execute("cancel_order", { ...args, customerId: context.customerId })
       },
-      {
-        definition: { name: "delete_order", description: "Delete an eligible active order when the customer requests deletion and explicitly confirms the deletion.", risk: "write", requiresCustomerContext: true, requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, required: ["confirmed"], additionalProperties: false } },
-        execute: async (args, context) => this.applicationTools.execute("delete_order", { ...args, customerId: context.customerId })
-      }
     ];
   }
 }
