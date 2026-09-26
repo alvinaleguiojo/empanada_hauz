@@ -29,7 +29,7 @@ export class AiModelService {
     const ollamaChat = runtimeWithChat.chat.bind(runtime);
     runtimeWithChat.chat = async (messages, tools) => {
       const settings = await this.aiControl.getGlobalModelSettings();
-      const body = { model: settings.model, messages, tools, tool_choice: "auto" };
+      const body = { model: settings.model, messages, tools, tool_choice: "auto", options: { temperature: 0.2, num_predict: 700 } };
       if (settings.provider === "gemini") return this.chatProvider(body, settings.model, "GEMINI_API_KEY", this.geminiBaseUrl, "Gemini");
       if (settings.provider === "groq") return this.chatProvider(body, settings.model, "GROQ_API_KEY", this.groqBaseUrl, "Groq");
       if (settings.provider === "openai") return this.chatOpenAi(body, settings.model);
