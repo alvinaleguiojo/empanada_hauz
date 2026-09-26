@@ -12,6 +12,9 @@ export class AiControlService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private modelSettingsCache: { expiresAt: number; value: { provider: AiModelProvider; model: string } } | null = null;
+  private readonly modelSettingsCacheTtlMs = 5000;
+
   async getGlobalEnabled() {
     const result = (await this.prisma.$runCommandRaw({
       find: this.collection,
@@ -77,6 +80,8 @@ export class AiControlService {
   }
 
   async getGlobalModelSettings(): Promise<{ provider: AiModelProvider; model: string }> {
+    if (this.modelSettingsCache && this.modelSettingsCache.expiresAt > Date.now()) return this.modelSettingsCache.value;
+
     const result = (await this.prisma.$runCommandRaw({
       find: this.collection,
       filter: { key: this.globalKey },
@@ -112,7 +117,9 @@ export class AiControlService {
       });
     }
 
-    return { provider, model };
+    const value = { provider, model };
+    this.modelSettingsCache = { expiresAt: Date.now() + this.modelSettingsCacheTtlMs, value };
+    return value;
   }
 
   async setGlobalModelSettings(provider: AiModelProvider, model: string) {
@@ -126,6 +133,7 @@ export class AiControlService {
         }
       ]
     });
+    this.modelSettingsCache = null;
     return this.getGlobalModelSettings();
   }
 
