@@ -83,7 +83,7 @@ RESPONSE FORMAT:
 
       const result = await this.orchestrator.run({
         system,
-        history: request.history,
+        history: request.history?.slice(-12),
         message,
         tools,
         chat: (messages, availableTools) => this.aiModel.chat(messages, availableTools),
@@ -92,7 +92,7 @@ RESPONSE FORMAT:
           conversationId: request.conversationId,
           message
         }),
-        maxSteps: 8,
+        maxSteps: 5,
         onToolResult: (name) => this.performance.recordTool(perf, name, 0)
       });
 
