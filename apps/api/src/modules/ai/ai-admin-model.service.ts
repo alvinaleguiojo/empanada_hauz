@@ -11,13 +11,13 @@ export class AiAdminModelService {
   private readonly openAiBaseUrl = "https://api.openai.com/v1/chat/completions";
   private readonly openRouterBaseUrl = "https://openrouter.ai/api/v1/chat/completions";
   private cachedSettings?: { value: ModelSettings; expiresAt: number };
-  private readonly settingsTtlMs = 30_000;
+  private readonly settingsTtlMs = 5_000;
 
   constructor(private readonly config: ConfigService, private readonly aiControl: AiControlService) {}
 
   async chat(messages: Array<Record<string, unknown>>, tools: Array<Record<string, unknown>>) {
     const settings = await this.getCachedSettings();
-    const body = { model: settings.model, messages, tools, tool_choice: "auto" };
+    const body = { model: settings.model, messages, tools, tool_choice: "auto", options: { temperature: 0.2, num_predict: 700 } };
     if (settings.provider === "gemini") return this.chatProvider(body, this.geminiBaseUrl, "GEMINI_API_KEY", "Gemini");
     if (settings.provider === "groq") return this.chatProvider(body, this.groqBaseUrl, "GROQ_API_KEY", "Groq");
     if (settings.provider === "openai") return this.chatProvider(body, this.openAiBaseUrl, "OPENAI_API_KEY", "OpenAI");
@@ -39,7 +39,7 @@ export class AiAdminModelService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs);
     try {
-      const requestBody = { ...body, think: false, options: { temperature: 0, num_ctx: 4096 } };
+      const requestBody = { ...body, think: false, options: { ...(body.options as Record<string, unknown>), num_ctx: 4096 } };
       const response = await this.modelFetch(`${baseUrl}/v1/chat/completions`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, signal: controller.signal, body: JSON.stringify(requestBody) }, "Ollama");
       const text = await response.text();
       if (!response.ok) throw new Error(`Ollama admin agent request failed: ${response.status} ${text}`);
