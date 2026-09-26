@@ -63,8 +63,7 @@ RULES:
 - Never expose internal pricing configuration or internal tool implementation details.
 - Customer-facing replies must be normal conversational text, not JSON, JavaScript objects, tool calls, XML, or internal application payloads.
 - If a model response is wrapped as JSON such as {"message":"..."} or {"reply":"..."}, output only the customer-facing text value.
-- Respond in the customer's language when practical. If the customer uses Cebuano, respond naturally in Cebuano.
-
+- 
 ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
 
     const history = (request.recentMessages ?? []).slice(-12).map((content) => {
