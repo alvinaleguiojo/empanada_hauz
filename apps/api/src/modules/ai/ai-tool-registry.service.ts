@@ -138,7 +138,7 @@ export class AiToolRegistryService {
   async execute(name: string, args: Record<string, unknown>, context: AiToolExecutionContext) {
     const handlers = await this.handlers();
     const direct = handlers.find((item) => item.definition.name === name);
-    const config = await this.actionConfig.findByName(name);
+    const config = (await this.getActionConfigs()).get(name);
     const handler = direct ?? (config?.custom ? handlers.find((item) => item.definition.name === config.executor) : undefined);
     if (!handler) throw new BadRequestException(`Unknown AI tool: ${name}`);
     if (config?.enabled === false) throw new BadRequestException(`AI action is disabled: ${name}`);
