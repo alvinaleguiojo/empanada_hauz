@@ -9,6 +9,7 @@ export interface AgentToolCall {
 
 export interface AgentRunInput {
   system: string;
+  runtimeContext?: string;
   history?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   message: string;
   tools: Array<Record<string, unknown>>;
@@ -30,13 +31,14 @@ export class AiAgentOrchestratorService {
   async run(input: AgentRunInput): Promise<AgentRunResult> {
     const messages: Array<Record<string, unknown>> = [
       { role: "system", content: input.system },
-      ...(input.history ?? []).slice(-16),
+      ...(input.runtimeContext ? [{ role: "system", content: input.runtimeContext }] : []),
+      ...(input.history ?? []).slice(-12),
       { role: "user", content: input.message }
     ];
 
     let lastTool: string | undefined;
     let lastToolResult: unknown;
-    const maxSteps = Math.max(1, Math.min(input.maxSteps ?? 8, 12));
+    const maxSteps = Math.max(1, Math.min(input.maxSteps ?? 5, 8));
 
     for (let step = 0; step < maxSteps; step += 1) {
       const response = await input.chat(messages, input.tools);
