@@ -77,12 +77,14 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
     });
 
     const context = [
+      "RUNTIME CONTEXT:",
       `CUSTOMER: ${request.customerName || "Customer"}`,
       `PENDING ORDER DRAFT: ${liveState?.draft ? JSON.stringify(liveState.draft) : "none"}`
-    ].join("\n\n");
+    ].join("\n");
 
     const result = await this.orchestrator.run({
-      system: `${system}\n\nRUNTIME CONTEXT:\n${context}`,
+      system,
+      runtimeContext: context,
       history,
       message,
       tools: tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })),
@@ -92,7 +94,7 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
         conversationId: request.conversationId,
         channel: request.channel
       }),
-      maxSteps: 8
+      maxSteps: 5
     });
 
     return {
@@ -104,7 +106,7 @@ ${replyInstructions || "Keep replies concise, friendly, and easy to read."}`;
   }
 
   async chat(messages: Array<Record<string, unknown>>, tools: Array<Record<string, unknown>>) {
-    const response = await this.fetchOllama({ model: this.model, messages, tools, tool_choice: "auto" });
+    const response = await this.fetchOllama({ model: this.model, messages, tools, tool_choice: "auto", temperature: 0.2, max_tokens: 700 });
     return response;
   }
 
