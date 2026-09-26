@@ -36,7 +36,7 @@ export class MessengerService {
     const recentMessages = await this.prisma.message.findMany({
       where: { conversationId: stored.conversationId, id: { not: stored.id } },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 12,
       select: { direction: true, content: true }
     });
     const runtime = await this.aiRuntime.process({
