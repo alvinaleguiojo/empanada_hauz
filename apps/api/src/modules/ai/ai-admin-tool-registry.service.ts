@@ -14,6 +14,9 @@ const ADMIN_OWNED_TOOLS = new Set(["capture_order_draft", "clear_order_draft", "
 
 @Injectable()
 export class AiAdminToolRegistryService {
+  private toolsCache: { expiresAt: number; tools: AiToolDefinition[] } | null = null;
+  private readonly cacheTtlMs = 5000;
+
   constructor(
     private readonly applicationTools: AiApplicationToolsService,
     private readonly analyticsTools: AiAdminAnalyticsToolsService,
@@ -25,9 +28,11 @@ export class AiAdminToolRegistryService {
   ) {}
 
   async getTools(): Promise<AiToolDefinition[]> {
+    if (this.toolsCache && this.toolsCache.expiresAt > Date.now()) return this.toolsCache.tools;
+
     const generic = await this.registry.getTools();
     const genericTools = generic.filter((tool) => !ADMIN_OWNED_TOOLS.has(tool.name));
-    return [
+    const tools: AiToolDefinition[] = [
       ...genericTools,
       { name: "get_order_metrics", description: "Read order metrics for today, this week, or this month.", risk: "read", inputSchema: { type: "object", properties: { range: { type: "string", enum: ["today", "week", "month"] } }, additionalProperties: false } },
       { name: "get_expenses", description: "Read the business expense ledger for a requested date range. Returns individual expenses, the range total, today's total, month-to-date total, and totals grouped by category. Use this whenever the administrator asks to review, list, inspect, or analyze recorded business expenses.", risk: "read", inputSchema: { type: "object", properties: { startDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to today." }, endDate: { type: "string", description: "Inclusive date in YYYY-MM-DD format. If omitted, defaults to startDate." } }, additionalProperties: false } },
@@ -39,6 +44,8 @@ export class AiAdminToolRegistryService {
       { name: "update_order", description: "Update an existing order by a verified order id or order number. Use preferredSchedule to reschedule an order. Requires administrator confirmation. Do not use customerId as the order identifier.", risk: "write", requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { orderNumber: { type: "string", description: "Public order number such as EMP-1789200044139." }, id: { type: "string", description: "Internal Mongo order id when available." }, status: { type: "string" }, notes: { type: "string" }, preferredSchedule: { type: "string", description: "New scheduled date/time as an ISO-8601 datetime with timezone offset." }, confirmed: { type: "boolean" } }, additionalProperties: false } },
       { name: "cancel_order", description: "Cancel an order only after confirmation and verification of its id or order number.", risk: "write", requiresExplicitConfirmation: true, inputSchema: { type: "object", properties: { orderNumber: { type: "string" }, id: { type: "string" }, confirmed: { type: "boolean" } }, additionalProperties: false } }
     ];
+    this.toolsCache = { expiresAt: Date.now() + this.cacheTtlMs, tools };
+    return tools;
   }
 
   async execute(name: string, args: Record<string, unknown>, context: AdminToolContext) {
